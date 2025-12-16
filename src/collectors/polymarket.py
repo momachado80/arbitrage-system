@@ -286,9 +286,29 @@ class PolymarketCollector:
             
             # Se tokens não vieram em array, tentar campos diretos
             if not yes_token_id:
-                yes_token_id = data.get("clobTokenIds", [None, None])[0] if data.get("clobTokenIds") else None
+                clob_tokens = data.get("clobTokenIds")
+                if clob_tokens:
+                    # Pode vir como string JSON, lista, ou outro formato
+                    if isinstance(clob_tokens, str):
+                        try:
+                            import json
+                            clob_tokens = json.loads(clob_tokens)
+                        except:
+                            clob_tokens = None
+                    if isinstance(clob_tokens, list) and len(clob_tokens) >= 1:
+                        yes_token_id = clob_tokens[0] if clob_tokens[0] and len(str(clob_tokens[0])) > 10 else None
+            
             if not no_token_id:
-                no_token_id = data.get("clobTokenIds", [None, None])[1] if data.get("clobTokenIds") else None
+                clob_tokens = data.get("clobTokenIds")
+                if clob_tokens:
+                    if isinstance(clob_tokens, str):
+                        try:
+                            import json
+                            clob_tokens = json.loads(clob_tokens)
+                        except:
+                            clob_tokens = None
+                    if isinstance(clob_tokens, list) and len(clob_tokens) >= 2:
+                        no_token_id = clob_tokens[1] if clob_tokens[1] and len(str(clob_tokens[1])) > 10 else None
             
             # Parse status
             active = data.get("active", data.get("enableOrderBook", False))
