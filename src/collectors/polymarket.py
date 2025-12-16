@@ -117,8 +117,14 @@ class PolymarketCollector:
         params = {
             "limit": limit,
             "offset": offset,
-            "active": str(active).lower(),
+            "closed": "false",  # CRÍTICO: apenas mercados abertos
+            "archived": "false",  # Não arquivados
+            "order": "volume24hr",  # Ordenar por volume (mais líquidos primeiro)
+            "ascending": "false",  # Maior volume primeiro
         }
+        
+        if active:
+            params["active"] = "true"
         
         try:
             response = await self.gamma_client.get("/markets", params=params)
@@ -285,30 +291,30 @@ class PolymarketCollector:
                     no_token_id = token_id
             
             # Se tokens não vieram em array, tentar campos diretos
-            if not yes_token_id:
+            if not yes_token_id or not no_token_id:
                 clob_tokens = data.get("clobTokenIds")
-                if clob_tokens:
-                    # Pode vir como string JSON, lista, ou outro formato
-                    if isinstance(clob_tokens, str):
-                        try:
-                            import json
-                            clob_tokens = json.loads(clob_tokens)
-                        except:
-                            clob_tokens = None
-                    if isinstance(clob_tokens, list) and len(clob_tokens) >= 1:
-                        yes_token_id = clob_tokens[0] if clob_tokens[0] and len(str(clob_tokens[0])) > 10 else None
+                
+                # Pode vir como string JSON, lista, ou outro formato
+                if clob_tokens and isinstance(clob_tokens, str):
+                    try:
+                        import json
+                        clob_tokens = json.loads(clob_tokens)
+                    except:
+                        clob_tokens = None
+                
+                if clob_tokens and isinstance(clob_tokens, list):
+                    if len(clob_tokens) >= 1 and not yes_token_id:
+                        token = clob_tokens[0]
+                        if token and isinstance(token, str) and len(token) > 10:
+                            yes_token_id = token
+                    if len(clob_tokens) >= 2 and not no_token_id:
+                        token = clob_tokens[1]
+                        if token and isinstance(token, str) and len(token) > 10:
+                            no_token_id = token
             
-            if not no_token_id:
-                clob_tokens = data.get("clobTokenIds")
-                if clob_tokens:
-                    if isinstance(clob_tokens, str):
-                        try:
-                            import json
-                            clob_tokens = json.loads(clob_tokens)
-                        except:
-                            clob_tokens = None
-                    if isinstance(clob_tokens, list) and len(clob_tokens) >= 2:
-                        no_token_id = clob_tokens[1] if clob_tokens[1] and len(str(clob_tokens[1])) > 10 else None
+            # Log para debug
+            if not yes_token_id and not no_token_id:
+                logger.debug(f"No token IDs found for market {condition_id}. tokens field: {tokens}, clobTokenIds: {data.get('clobTokenIds')}")
             
             # Parse status
             active = data.get("active", data.get("enableOrderBook", False))
