@@ -390,6 +390,9 @@ class OpportunityResponse(BaseModel):
     polymarket_title: str
     similarity_score: float
     match_reason: str
+    equivalence_level: str = "unknown"  # NOVO
+    equivalence_confidence: float = 0.0  # NOVO
+    risks: List[str] = []  # NOVO
     strategy: str
     contracts: float
     total_cost: float

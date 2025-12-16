@@ -36,6 +36,44 @@
 
         const API_URL = 'https://web-production-eca1e.up.railway.app';
 
+        // Cache de traduções
+        const translationCache = {};
+
+        // Traduzir usando API gratuita MyMemory
+        const translateText = async (text) => {
+            if (translationCache[text]) {
+                return translationCache[text];
+            }
+
+            try {
+                const response = await fetch(
+                    `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|pt-BR`
+                );
+                const data = await response.json();
+                
+                if (data.responseStatus === 200) {
+                    const translation = data.responseData.translatedText;
+                    translationCache[text] = translation;
+                    return translation;
+                }
+            } catch (error) {
+                console.error('Erro na tradução:', error);
+            }
+            
+            return text;
+        };
+
+        // Componente de texto traduzido
+        const TranslatedText = ({ text, className = "" }) => {
+            const [translation, setTranslation] = React.useState('Traduzindo...');
+            
+            React.useEffect(() => {
+                translateText(text).then(setTranslation);
+            }, [text]);
+            
+            return <span className={className}>{translation}</span>;
+        };
+
         // Formatar moeda
         const formatUSD = (value) => {
             if (value === null || value === undefined) return '-';
@@ -110,6 +148,9 @@
                             <div className="text-sm font-medium truncate" title={opportunity.kalshi_title}>
                                 {opportunity.kalshi_title}
                             </div>
+                            <div className="text-xs text-gray-400 italic mt-1">
+                                <TranslatedText text={opportunity.kalshi_title} />
+                            </div>
                             <div className="text-xs text-gray-400 mono mt-1">{opportunity.kalshi_ticker}</div>
                             <div className="text-xs text-gray-500 mt-1">VWAP: {formatUSD(opportunity.kalshi_vwap)}</div>
                         </div>
@@ -121,6 +162,9 @@
                             </div>
                             <div className="text-sm font-medium truncate" title={opportunity.polymarket_title}>
                                 {opportunity.polymarket_title}
+                            </div>
+                            <div className="text-xs text-gray-400 italic mt-1">
+                                <TranslatedText text={opportunity.polymarket_title} />
                             </div>
                             <div className="text-xs text-gray-400 mono mt-1">{opportunity.polymarket_ticker}</div>
                             <div className="text-xs text-gray-500 mt-1">VWAP: {formatUSD(opportunity.polymarket_vwap)}</div>
@@ -317,15 +361,15 @@
                 return () => clearInterval(interval);
             }, [autoScan, runScan]);
 
-            // Carregar último scan ao iniciar
-            useEffect(() => {
-                fetch(`${API_URL}/scan/last`)
-                    .then(res => res.json())
-                    .then(data => {
-                        if (data) setScanResult(data);
-                    })
-                    .catch(() => {});
-            }, []);
+            // Carregar último scan ao iniciar (comentado - endpoint ainda não disponível)
+            // useEffect(() => {
+            //     fetch(`${API_URL}/scan/last`)
+            //         .then(res => res.json())
+            //         .then(data => {
+            //             if (data) setScanResult(data);
+            //         })
+            //         .catch(() => {});
+            // }, []);
 
             return (
                 <div className="min-h-screen p-6">

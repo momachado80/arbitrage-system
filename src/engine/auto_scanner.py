@@ -49,6 +49,9 @@ class OpportunityDetail:
     polymarket_title: str
     similarity_score: float
     match_reason: str
+    equivalence_level: str  # NOVO: Nível de equivalência
+    equivalence_confidence: float  # NOVO: Confiança na análise
+    risks: List[str]  # NOVO: Riscos identificados
     strategy: str
     contracts: float
     total_cost: float
@@ -193,14 +196,20 @@ class AutoScanner:
         return kalshi_markets, poly_markets
     
     async def _analyze_pair(self, pair: MarketPair) -> OpportunityDetail | RejectionReason:
-        """Analisa um par de mercados."""
-        equivalence_score = similarity_to_equivalence_score(pair.similarity_score)
+        """Analisa um par de mercados usando penalidade de risco do par."""
+        # Usar penalidade de risco calculada pela análise de equivalência
+        basis_risk_penalty = pair.risk_penalty
+        
+        # Converter para equivalence_score (inverso da penalidade)
+        # Penalidade 0.005 = score 1.0, penalidade 0.05 = score 0.5
+        equivalence_score = max(Decimal("0.1"), Decimal("1.0") - (basis_risk_penalty * 10))
         
         opportunity, rejection = self.calculator.calculate(
             kalshi_market=pair.kalshi,
             polymarket_market=pair.polymarket,
             target_usd=self.target_usd,
             equivalence_score=equivalence_score,
+            basis_risk_override=basis_risk_penalty,  # Nova opção
         )
         
         if opportunity:
@@ -211,6 +220,9 @@ class AutoScanner:
                 polymarket_title=pair.polymarket.title,
                 similarity_score=pair.similarity_score,
                 match_reason=pair.match_reason,
+                equivalence_level=pair.equivalence.level.value,
+                equivalence_confidence=float(pair.equivalence.confidence),
+                risks=pair.equivalence.risks,
                 strategy=opportunity.strategy,
                 contracts=float(opportunity.contracts),
                 total_cost=float(opportunity.total_cost),
@@ -234,6 +246,9 @@ class AutoScanner:
             "polymarket_title": opp.polymarket_title,
             "similarity_score": opp.similarity_score,
             "match_reason": opp.match_reason,
+            "equivalence_level": opp.equivalence_level,
+            "equivalence_confidence": opp.equivalence_confidence,
+            "risks": opp.risks,
             "strategy": opp.strategy,
             "contracts": opp.contracts,
             "total_cost": opp.total_cost,

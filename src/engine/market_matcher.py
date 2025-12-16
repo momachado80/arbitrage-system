@@ -1,27 +1,34 @@
 """
-Automatic Market Matcher
-========================
+Advanced Market Matcher
+=======================
 
-Sistema de matching automático de mercados entre Kalshi e Polymarket.
+Sistema avançado de matching de mercados entre Kalshi e Polymarket.
 
-Usa múltiplas estratégias para identificar mercados equivalentes:
+Usa análise de equivalência contratual completa:
 1. Similaridade textual (título/descrição)
-2. Palavras-chave em comum
-3. Entidades nomeadas (pessoas, organizações, datas)
-4. Categorias/tags similares
+2. Regras de resolução
+3. Fontes de verdade
+4. Datas de expiração
+5. Entidades nomeadas
+6. Condições específicas
 
-Cada par recebe um score de equivalência (0-1) que é usado
-para ajustar a penalidade de risco na análise de arbitragem.
+Cada par recebe um score de equivalência que determina:
+- Se o par deve ser considerado para arbitragem
+- Qual penalidade de risco aplicar
 """
 
-import re
 import logging
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import List, Tuple, Optional
-from difflib import SequenceMatcher
+from typing import List, Optional
 
 from src.models import Market, Platform
+from src.engine.contract_equivalence import (
+    ContractEquivalenceAnalyzer,
+    EquivalenceResult,
+    EquivalenceLevel,
+    equivalence_to_penalty,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,57 +38,62 @@ class MarketPair:
     """Par de mercados potencialmente equivalentes."""
     kalshi: Market
     polymarket: Market
-    similarity_score: float  # 0-1
-    matched_keywords: List[str]
-    match_reason: str
+    equivalence: EquivalenceResult
+    
+    @property
+    def similarity_score(self) -> float:
+        """Score de similaridade para compatibilidade."""
+        return float(self.equivalence.score)
+    
+    @property
+    def matched_keywords(self) -> List[str]:
+        """Keywords em comum."""
+        return self.equivalence.details.get("kalshi_entities", [])
+    
+    @property
+    def match_reason(self) -> str:
+        """Razão do match."""
+        return self.equivalence.recommendation
+    
+    @property
+    def is_valid_for_arbitrage(self) -> bool:
+        """Verifica se o par é válido para arbitragem."""
+        return self.equivalence.level in [
+            EquivalenceLevel.IDENTICAL,
+            EquivalenceLevel.HIGH_CONFIDENCE,
+            EquivalenceLevel.MEDIUM_CONFIDENCE,
+        ]
+    
+    @property
+    def risk_penalty(self) -> Decimal:
+        """Penalidade de risco baseada na equivalência."""
+        return equivalence_to_penalty(self.equivalence)
 
 
 class MarketMatcher:
     """
     Encontra mercados equivalentes entre Kalshi e Polymarket.
     
-    IMPORTANTE: Este é um matching heurístico. Para arbitragem real,
-    os pares devem ser validados manualmente quanto à equivalência
-    contratual (regras de resolução, fonte de verdade, etc.)
+    Usa análise de equivalência contratual completa para
+    determinar se dois mercados são suficientemente equivalentes
+    para arbitragem segura.
     """
     
-    # Palavras a ignorar no matching
-    STOP_WORDS = {
-        'will', 'the', 'be', 'a', 'an', 'in', 'on', 'at', 'to', 'for',
-        'of', 'and', 'or', 'is', 'are', 'was', 'were', 'been', 'being',
-        'have', 'has', 'had', 'do', 'does', 'did', 'but', 'if', 'then',
-        'than', 'so', 'as', 'by', 'with', 'from', 'about', 'into',
-        'before', 'after', 'above', 'below', 'between', 'under', 'over',
-        'this', 'that', 'these', 'those', 'what', 'which', 'who', 'whom',
-        'when', 'where', 'why', 'how', 'all', 'each', 'every', 'both',
-        'few', 'more', 'most', 'other', 'some', 'such', 'no', 'not',
-        'only', 'own', 'same', 'than', 'too', 'very', 'just', 'can',
-        'could', 'may', 'might', 'must', 'shall', 'should', 'would',
-    }
-    
-    # Entidades importantes para matching
-    IMPORTANT_ENTITIES = {
-        # Pessoas
-        'trump', 'biden', 'harris', 'desantis', 'newsom', 'musk', 'bezos',
-        'zuckerberg', 'powell', 'yellen', 'xi', 'putin', 'zelensky',
-        # Organizações
-        'fed', 'federal reserve', 'sec', 'ftc', 'fda', 'epa', 'nasa',
-        'spacex', 'tesla', 'apple', 'google', 'meta', 'amazon', 'microsoft',
-        'openai', 'anthropic', 'nvidia', 'bitcoin', 'ethereum',
-        # Eventos
-        'election', 'rate cut', 'rate hike', 'recession', 'gdp', 'inflation',
-        'unemployment', 'superbowl', 'oscar', 'grammy', 'world cup',
-        # Locais
-        'usa', 'china', 'russia', 'ukraine', 'israel', 'gaza', 'taiwan',
-        'california', 'texas', 'florida', 'new york', 'washington',
-    }
-    
-    def __init__(self, min_similarity: float = 0.4):
+    def __init__(
+        self,
+        min_similarity: float = 0.4,
+        require_date_match: bool = True,
+    ):
         """
         Args:
             min_similarity: Score mínimo para considerar um par (0-1)
+            require_date_match: Se deve exigir datas compatíveis
         """
         self.min_similarity = min_similarity
+        self.analyzer = ContractEquivalenceAnalyzer(
+            min_title_similarity=min_similarity,
+            require_date_match=require_date_match,
+        )
     
     def find_pairs(
         self,
@@ -98,25 +110,43 @@ class MarketMatcher:
             top_n: Número máximo de pares a retornar
         
         Returns:
-            Lista de MarketPair ordenada por similarity_score
+            Lista de MarketPair ordenada por equivalence score
         """
         pairs = []
         
         for kalshi in kalshi_markets:
             for poly in poly_markets:
-                score, keywords, reason = self._calculate_similarity(kalshi, poly)
+                # Análise de equivalência completa
+                equivalence = self.analyzer.analyze(
+                    kalshi_title=kalshi.title,
+                    kalshi_description=kalshi.description or "",
+                    kalshi_rules=kalshi.resolution_rules,
+                    kalshi_end_date=kalshi.close_time or kalshi.expiration_time,
+                    poly_title=poly.title,
+                    poly_description=poly.description or "",
+                    poly_rules=poly.resolution_rules,
+                    poly_end_date=poly.close_time,
+                )
                 
-                if score >= self.min_similarity:
-                    pairs.append(MarketPair(
+                # Só incluir se atinge score mínimo
+                if float(equivalence.score) >= self.min_similarity:
+                    pair = MarketPair(
                         kalshi=kalshi,
                         polymarket=poly,
-                        similarity_score=score,
-                        matched_keywords=keywords,
-                        match_reason=reason
-                    ))
+                        equivalence=equivalence,
+                    )
+                    
+                    # Só incluir pares válidos para arbitragem
+                    if pair.is_valid_for_arbitrage:
+                        pairs.append(pair)
+                        logger.info(
+                            f"Par encontrado: {kalshi.ticker} <-> {poly.ticker} | "
+                            f"Score: {equivalence.score:.2f} | "
+                            f"Nível: {equivalence.level.value}"
+                        )
         
         # Ordenar por score (maior primeiro)
-        pairs.sort(key=lambda p: p.similarity_score, reverse=True)
+        pairs.sort(key=lambda p: float(p.equivalence.score), reverse=True)
         
         # Remover duplicatas (mesmo mercado aparecendo em múltiplos pares)
         seen_kalshi = set()
@@ -130,98 +160,14 @@ class MarketMatcher:
                 seen_poly.add(pair.polymarket.ticker)
         
         return unique_pairs[:top_n]
-    
-    def _calculate_similarity(
-        self,
-        kalshi: Market,
-        poly: Market
-    ) -> Tuple[float, List[str], str]:
-        """
-        Calcula similaridade entre dois mercados.
-        
-        Returns:
-            Tupla (score, keywords_matched, reason)
-        """
-        kalshi_text = self._normalize_text(f"{kalshi.title} {kalshi.description}")
-        poly_text = self._normalize_text(f"{poly.title} {poly.description}")
-        
-        # Extrair palavras-chave
-        kalshi_keywords = self._extract_keywords(kalshi_text)
-        poly_keywords = self._extract_keywords(poly_text)
-        
-        # Palavras em comum
-        common_keywords = kalshi_keywords & poly_keywords
-        
-        # Entidades importantes em comum
-        kalshi_entities = self._extract_entities(kalshi_text)
-        poly_entities = self._extract_entities(poly_text)
-        common_entities = kalshi_entities & poly_entities
-        
-        # Similaridade de sequência (fuzzy matching)
-        sequence_sim = SequenceMatcher(None, kalshi_text, poly_text).ratio()
-        
-        # Calcular score composto
-        keyword_score = len(common_keywords) / max(len(kalshi_keywords | poly_keywords), 1)
-        entity_score = len(common_entities) / max(len(kalshi_entities | poly_entities), 1) if (kalshi_entities or poly_entities) else 0
-        
-        # Peso maior para entidades (são mais específicas)
-        final_score = (
-            0.3 * sequence_sim +
-            0.3 * keyword_score +
-            0.4 * entity_score
-        )
-        
-        # Boost se tiver entidades importantes em comum
-        if common_entities:
-            final_score = min(1.0, final_score * 1.3)
-        
-        # Determinar razão do match
-        if common_entities:
-            reason = f"Entidades: {', '.join(list(common_entities)[:3])}"
-        elif common_keywords:
-            reason = f"Keywords: {', '.join(list(common_keywords)[:3])}"
-        else:
-            reason = f"Similaridade textual: {sequence_sim:.0%}"
-        
-        return final_score, list(common_keywords | common_entities), reason
-    
-    def _normalize_text(self, text: str) -> str:
-        """Normaliza texto para comparação."""
-        text = text.lower()
-        text = re.sub(r'[^\w\s]', ' ', text)
-        text = re.sub(r'\s+', ' ', text)
-        return text.strip()
-    
-    def _extract_keywords(self, text: str) -> set:
-        """Extrai palavras-chave significativas."""
-        words = text.split()
-        keywords = set()
-        
-        for word in words:
-            if len(word) > 2 and word not in self.STOP_WORDS:
-                keywords.add(word)
-        
-        return keywords
-    
-    def _extract_entities(self, text: str) -> set:
-        """Extrai entidades importantes do texto."""
-        entities = set()
-        
-        for entity in self.IMPORTANT_ENTITIES:
-            if entity in text:
-                entities.add(entity)
-        
-        return entities
 
 
 def similarity_to_equivalence_score(similarity: float) -> Decimal:
     """
     Converte similarity score em equivalence score para o calculador.
     
-    Similarity 0.8+ -> Equivalence 1.0 (confirmado)
-    Similarity 0.6-0.8 -> Equivalence 0.9 (provável)
-    Similarity 0.4-0.6 -> Equivalence 0.7 (ambíguo)
-    Similarity <0.4 -> Não considerar
+    DEPRECATED: Use MarketPair.risk_penalty diretamente.
+    Mantido para compatibilidade.
     """
     if similarity >= 0.8:
         return Decimal("1.0")
