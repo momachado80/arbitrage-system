@@ -11,6 +11,7 @@ Endpoints:
 - GET /markets/polymarket - Lista mercados Polymarket
 - POST /analyze - Analisa par de mercados
 - GET /demo - Demo de coleta de dados
+- GET /scan - Scan automático de arbitragem
 """
 
 import asyncio
@@ -19,12 +20,12 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional, List
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from src.collectors import KalshiCollector, PolymarketCollector
-from src.engine import ArbitrageCalculator, ExecutionSimulator
+from src.engine import ArbitrageCalculator, ExecutionSimulator, AutoScanner
 from src.models import (
     Market,
     Platform,
@@ -43,7 +44,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Kalshi-Polymarket Arbitrage API",
     description="Sistema de detecção de arbitragem entre mercados de previsão",
-    version="1.0.0",
+    version="2.0.0",
 )
 
 # CORS
@@ -54,6 +55,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Cache do último scan
+last_scan_result = None
+scan_in_progress = False
 
 
 # ==================== MODELS ====================
@@ -368,6 +373,136 @@ async def demo():
         polymarket_markets=poly_markets,
         timestamp=datetime.utcnow().isoformat(),
     )
+
+
+# ==================== SCAN AUTOMÁTICO ====================
+
+class ScanConfig(BaseModel):
+    target_usd: float = Field(default=20.0, description="Valor alvo em USD")
+    min_similarity: float = Field(default=0.3, description="Similaridade mínima (0-1)")
+    max_markets: int = Field(default=30, description="Máximo de mercados por plataforma")
+
+
+class OpportunityResponse(BaseModel):
+    kalshi_ticker: str
+    kalshi_title: str
+    polymarket_ticker: str
+    polymarket_title: str
+    similarity_score: float
+    match_reason: str
+    strategy: str
+    contracts: float
+    total_cost: float
+    guaranteed_payout: float
+    gross_profit: float
+    total_fees: float
+    net_profit: float
+    edge_percentage: float
+    kalshi_vwap: float
+    polymarket_vwap: float
+
+
+class ScanResponse(BaseModel):
+    status: str
+    timestamp: str
+    kalshi_markets_scanned: int
+    polymarket_markets_scanned: int
+    pairs_analyzed: int
+    opportunities_found: int
+    opportunities: List[OpportunityResponse]
+    rejections_summary: dict
+    scan_duration_seconds: float
+
+
+class ScanStatusResponse(BaseModel):
+    scan_in_progress: bool
+    last_scan_timestamp: Optional[str] = None
+    last_scan_opportunities: int = 0
+
+
+@app.get("/scan/status", response_model=ScanStatusResponse)
+async def get_scan_status():
+    """Retorna status do scan automático."""
+    global last_scan_result, scan_in_progress
+    
+    return ScanStatusResponse(
+        scan_in_progress=scan_in_progress,
+        last_scan_timestamp=last_scan_result.timestamp.isoformat() if last_scan_result else None,
+        last_scan_opportunities=last_scan_result.opportunities_found if last_scan_result else 0,
+    )
+
+
+@app.get("/scan/last", response_model=Optional[ScanResponse])
+async def get_last_scan():
+    """Retorna resultado do último scan."""
+    global last_scan_result
+    
+    if not last_scan_result:
+        return None
+    
+    return ScanResponse(
+        status="completed",
+        timestamp=last_scan_result.timestamp.isoformat(),
+        kalshi_markets_scanned=last_scan_result.kalshi_markets_scanned,
+        polymarket_markets_scanned=last_scan_result.polymarket_markets_scanned,
+        pairs_analyzed=last_scan_result.pairs_analyzed,
+        opportunities_found=last_scan_result.opportunities_found,
+        opportunities=[OpportunityResponse(**o) for o in last_scan_result.opportunities],
+        rejections_summary=last_scan_result.rejections_summary,
+        scan_duration_seconds=last_scan_result.scan_duration_seconds,
+    )
+
+
+@app.post("/scan", response_model=ScanResponse)
+async def run_scan(config: ScanConfig = None):
+    """
+    Executa scan automático de arbitragem.
+    
+    Este endpoint:
+    1. Coleta mercados das duas plataformas
+    2. Encontra pares similares automaticamente
+    3. Analisa arbitragem para cada par
+    4. Retorna oportunidades ordenadas por edge
+    
+    IMPORTANTE: A maioria dos scans deve retornar 0 oportunidades.
+    Isso é comportamento ESPERADO e CORRETO.
+    """
+    global last_scan_result, scan_in_progress
+    
+    if scan_in_progress:
+        raise HTTPException(status_code=429, detail="Scan já em andamento")
+    
+    scan_in_progress = True
+    
+    try:
+        config = config or ScanConfig()
+        
+        scanner = AutoScanner(
+            target_usd=Decimal(str(config.target_usd)),
+            min_similarity=config.min_similarity,
+            max_markets_per_platform=config.max_markets,
+        )
+        
+        result = await scanner.scan()
+        last_scan_result = result
+        
+        return ScanResponse(
+            status="completed",
+            timestamp=result.timestamp.isoformat(),
+            kalshi_markets_scanned=result.kalshi_markets_scanned,
+            polymarket_markets_scanned=result.polymarket_markets_scanned,
+            pairs_analyzed=result.pairs_analyzed,
+            opportunities_found=result.opportunities_found,
+            opportunities=[OpportunityResponse(**o) for o in result.opportunities],
+            rejections_summary=result.rejections_summary,
+            scan_duration_seconds=result.scan_duration_seconds,
+        )
+        
+    except Exception as e:
+        logger.error(f"Erro no scan: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        scan_in_progress = False
 
 
 if __name__ == "__main__":
