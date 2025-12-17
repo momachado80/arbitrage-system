@@ -75,7 +75,7 @@ class AutoScanner:
     def __init__(
         self,
         target_usd: Decimal = Decimal("20"),
-        min_similarity: float = 0.3,
+        min_similarity: float = 0.15,  # Reduzido para encontrar mais pares
         min_edge: Decimal = Decimal("0.02"),
         max_markets_per_platform: int = 50,
     ):

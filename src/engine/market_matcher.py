@@ -79,10 +79,20 @@ class MarketMatcher:
     para arbitragem segura.
     """
     
+    # Entidades importantes para pré-filtragem rápida
+    KEY_ENTITIES = {
+        'trump', 'biden', 'harris', 'musk', 'putin', 'xi', 'zelensky',
+        'fed', 'fomc', 'bitcoin', 'btc', 'ethereum', 'eth', 'spacex', 'tesla',
+        'election', 'rate cut', 'rate hike', 'inflation', 'recession',
+        'super bowl', 'oscars', 'grammy', 'world cup', 'nfl', 'nba',
+        'china', 'russia', 'ukraine', 'israel', 'gaza', 'taiwan',
+        'pope', 'nasa', 'mars', 'moon',
+    }
+    
     def __init__(
         self,
-        min_similarity: float = 0.4,
-        require_date_match: bool = True,
+        min_similarity: float = 0.2,  # Reduzido para ser mais permissivo
+        require_date_match: bool = False,  # Não exigir match de data
     ):
         """
         Args:
@@ -95,11 +105,52 @@ class MarketMatcher:
             require_date_match=require_date_match,
         )
     
+    def _extract_entities(self, text: str) -> set:
+        """Extrai entidades do texto para pré-filtragem."""
+        text = text.lower()
+        entities = set()
+        for entity in self.KEY_ENTITIES:
+            if entity in text:
+                entities.add(entity)
+        return entities
+    
+    def _quick_match(self, kalshi: Market, poly: Market) -> bool:
+        """
+        Pré-filtragem rápida para evitar análise completa de pares irrelevantes.
+        Retorna True se vale a pena fazer análise completa.
+        """
+        # Extrair entidades de ambos
+        kalshi_text = f"{kalshi.title} {kalshi.description or ''}".lower()
+        poly_text = f"{poly.title} {poly.description or ''}".lower()
+        
+        kalshi_entities = self._extract_entities(kalshi_text)
+        poly_entities = self._extract_entities(poly_text)
+        
+        # Se têm pelo menos uma entidade em comum, vale a pena analisar
+        if kalshi_entities & poly_entities:
+            return True
+        
+        # Também verificar similaridade textual básica de palavras
+        kalshi_words = set(kalshi_text.split())
+        poly_words = set(poly_text.split())
+        
+        # Filtrar palavras muito curtas
+        kalshi_words = {w for w in kalshi_words if len(w) > 3}
+        poly_words = {w for w in poly_words if len(w) > 3}
+        
+        common_words = kalshi_words & poly_words
+        
+        # Se têm 3+ palavras em comum, vale analisar
+        if len(common_words) >= 3:
+            return True
+        
+        return False
+    
     def find_pairs(
         self,
         kalshi_markets: List[Market],
         poly_markets: List[Market],
-        top_n: int = 20
+        top_n: int = 50
     ) -> List[MarketPair]:
         """
         Encontra pares de mercados potencialmente equivalentes.
@@ -113,9 +164,19 @@ class MarketMatcher:
             Lista de MarketPair ordenada por equivalence score
         """
         pairs = []
+        total_comparisons = len(kalshi_markets) * len(poly_markets)
+        quick_matches = 0
+        
+        logger.info(f"Iniciando matching: {len(kalshi_markets)} Kalshi x {len(poly_markets)} Poly = {total_comparisons} comparações possíveis")
         
         for kalshi in kalshi_markets:
             for poly in poly_markets:
+                # Pré-filtragem rápida
+                if not self._quick_match(kalshi, poly):
+                    continue
+                
+                quick_matches += 1
+                
                 # Análise de equivalência completa
                 equivalence = self.analyzer.analyze(
                     kalshi_title=kalshi.title,
@@ -128,22 +189,22 @@ class MarketMatcher:
                     poly_end_date=poly.close_time,
                 )
                 
-                # Só incluir se atinge score mínimo
+                # Incluir se atinge score mínimo
                 if float(equivalence.score) >= self.min_similarity:
                     pair = MarketPair(
                         kalshi=kalshi,
                         polymarket=poly,
                         equivalence=equivalence,
                     )
-                    
-                    # Só incluir pares válidos para arbitragem
-                    if pair.is_valid_for_arbitrage:
-                        pairs.append(pair)
-                        logger.info(
-                            f"Par encontrado: {kalshi.ticker} <-> {poly.ticker} | "
-                            f"Score: {equivalence.score:.2f} | "
-                            f"Nível: {equivalence.level.value}"
-                        )
+                    pairs.append(pair)
+                    logger.info(
+                        f"Par encontrado: {kalshi.ticker} <-> {poly.ticker} | "
+                        f"Score: {equivalence.score:.2f} | "
+                        f"Nível: {equivalence.level.value}"
+                    )
+        
+        logger.info(f"Pré-filtragem: {quick_matches} candidatos de {total_comparisons} comparações")
+        logger.info(f"Total de pares com score >= {self.min_similarity}: {len(pairs)}")
         
         # Ordenar por score (maior primeiro)
         pairs.sort(key=lambda p: float(p.equivalence.score), reverse=True)
