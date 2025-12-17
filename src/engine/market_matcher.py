@@ -81,12 +81,24 @@ class MarketMatcher:
     
     # Entidades importantes para pré-filtragem rápida
     KEY_ENTITIES = {
+        # Política
         'trump', 'biden', 'harris', 'musk', 'putin', 'xi', 'zelensky',
-        'fed', 'fomc', 'bitcoin', 'btc', 'ethereum', 'eth', 'spacex', 'tesla',
-        'election', 'rate cut', 'rate hike', 'inflation', 'recession',
-        'super bowl', 'oscars', 'grammy', 'world cup', 'nfl', 'nba',
-        'china', 'russia', 'ukraine', 'israel', 'gaza', 'taiwan',
-        'pope', 'nasa', 'mars', 'moon',
+        # Economia
+        'fed', 'fomc', 'rate cut', 'rate hike', 'inflation', 'recession',
+        # Crypto
+        'bitcoin', 'btc', 'ethereum', 'eth', 'crypto',
+        # Empresas Tech
+        'spacex', 'tesla', 'google', 'openai', 'anthropic', 'meta', 'apple', 'microsoft', 'nvidia', 'amazon',
+        # IA - Modelos e empresas
+        'gemini', 'gpt', 'chatgpt', 'claude', 'grok', 'llama', 'ai model', 'best ai', 'artificial intelligence',
+        'xai', 'deepmind', 'midjourney', 'stable diffusion', 'copilot',
+        # Esportes
+        'super bowl', 'superbowl', 'oscars', 'grammy', 'world cup', 'nfl', 'nba', 'champions league',
+        # Geopolítica
+        'china', 'russia', 'ukraine', 'israel', 'gaza', 'taiwan', 'war', 'invasion',
+        # Outros
+        'pope', 'nasa', 'mars', 'moon', 'spacex', 'starship',
+        'election', 'president', 'congress', 'senate',
     }
     
     def __init__(

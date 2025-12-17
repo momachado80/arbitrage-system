@@ -107,24 +107,35 @@ class ContractEquivalenceAnalyzer:
         'trump', 'biden', 'harris', 'desantis', 'newsom', 'pence', 'obama',
         'vance', 'walz', 'pelosi', 'mcconnell', 'schumer',
         
-        # Tech
+        # Tech Leaders
         'musk', 'bezos', 'zuckerberg', 'altman', 'nadella', 'cook', 'pichai',
         
         # Organizações
         'fed', 'federal reserve', 'sec', 'ftc', 'fda', 'epa', 'nasa', 'fbi', 'cia',
         'supreme court', 'congress', 'senate', 'house',
         
-        # Empresas
+        # Empresas Tech
         'tesla', 'apple', 'google', 'meta', 'amazon', 'microsoft', 'nvidia',
-        'openai', 'anthropic', 'spacex', 'twitter', 'x corp',
+        'openai', 'anthropic', 'spacex', 'twitter', 'x corp', 'xai', 'deepmind',
+        
+        # Modelos de IA
+        'gemini', 'gpt', 'chatgpt', 'gpt-4', 'gpt-5', 'claude', 'grok', 'llama',
+        'copilot', 'midjourney', 'stable diffusion', 'dall-e', 'sora',
+        'ai model', 'best ai', 'artificial intelligence', 'llm',
         
         # Eventos
         'election', 'super bowl', 'superbowl', 'world cup', 'olympics',
-        'oscars', 'grammy', 'emmys', 'golden globes',
+        'oscars', 'grammy', 'emmys', 'golden globes', 'champions league',
         
         # Países/Regiões
         'usa', 'united states', 'china', 'russia', 'ukraine', 'israel',
         'gaza', 'taiwan', 'north korea', 'iran',
+        
+        # Crypto
+        'bitcoin', 'btc', 'ethereum', 'eth', 'crypto', 'cryptocurrency',
+        
+        # Outros
+        '2025', '2024', 'end of year', 'year end',
     }
     
     # Palavras que indicam condições específicas
