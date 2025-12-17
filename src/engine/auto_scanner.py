@@ -209,7 +209,6 @@ class AutoScanner:
             polymarket_market=pair.polymarket,
             target_usd=self.target_usd,
             equivalence_score=equivalence_score,
-            basis_risk_override=basis_risk_penalty,  # Nova opção
         )
         
         if opportunity:
