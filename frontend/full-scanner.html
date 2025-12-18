@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arbitrage Scanner - Full Scale</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #fff;
+            padding: 20px;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; flex-wrap: wrap; gap: 20px; }
+        .title { font-size: 2rem; display: flex; align-items: center; gap: 10px; }
+        .controls { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; }
+        .input-group { display: flex; flex-direction: column; gap: 5px; }
+        .input-group label { font-size: 0.8rem; color: #888; }
+        .input-group input { 
+            padding: 10px; 
+            border: 1px solid #333; 
+            border-radius: 8px; 
+            background: #252540; 
+            color: #fff; 
+            width: 120px;
+        }
+        .btn { 
+            padding: 12px 24px; 
+            border: none; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: linear-gradient(135deg, #00b894, #00a86b); color: white; }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 5px 20px rgba(0,184,148,0.4); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 30px; }
+        .stat-card { 
+            background: rgba(255,255,255,0.05); 
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px; 
+            padding: 20px; 
+            text-align: center;
+        }
+        .stat-value { font-size: 2rem; font-weight: 700; color: #00b894; }
+        .stat-value.purple { color: #a855f7; }
+        .stat-value.blue { color: #3b82f6; }
+        .stat-value.orange { color: #f59e0b; }
+        .stat-value.red { color: #ef4444; }
+        .stat-label { font-size: 0.8rem; color: #888; margin-top: 5px; }
+        .section { margin-bottom: 30px; }
+        .section-title { font-size: 1.2rem; margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
+        .categories { display: flex; flex-wrap: wrap; gap: 10px; }
+        .category-badge { 
+            background: rgba(168, 85, 247, 0.2); 
+            border: 1px solid rgba(168, 85, 247, 0.5);
+            padding: 8px 16px; 
+            border-radius: 20px; 
+            font-size: 0.85rem;
+        }
+        .pairs-grid { display: grid; gap: 15px; }
+        .pair-card { 
+            background: rgba(255,255,255,0.05); 
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px; 
+            padding: 20px;
+            transition: all 0.2s;
+        }
+        .pair-card:hover { border-color: rgba(0,184,148,0.5); }
+        .pair-card.has-arbitrage { border-color: #00b894; background: rgba(0,184,148,0.1); }
+        .pair-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; }
+        .pair-platforms { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+        .platform-row { display: flex; align-items: center; gap: 10px; }
+        .platform-badge { 
+            padding: 4px 10px; 
+            border-radius: 6px; 
+            font-size: 0.75rem; 
+            font-weight: 600;
+        }
+        .platform-kalshi { background: #3b82f6; }
+        .platform-poly { background: #a855f7; }
+        .pair-title { font-size: 0.9rem; color: #ccc; }
+        .pair-score { text-align: right; }
+        .score-value { font-size: 1.5rem; font-weight: 700; }
+        .score-value.high { color: #00b894; }
+        .score-value.medium { color: #f59e0b; }
+        .score-value.low { color: #ef4444; }
+        .pair-details { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1); }
+        .detail-item { font-size: 0.85rem; }
+        .detail-label { color: #888; }
+        .detail-value { color: #fff; font-weight: 500; }
+        .arbitrage-badge { 
+            background: linear-gradient(135deg, #00b894, #00a86b); 
+            color: white; 
+            padding: 6px 12px; 
+            border-radius: 6px; 
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .loading { text-align: center; padding: 60px 20px; }
+        .spinner { 
+            width: 50px; 
+            height: 50px; 
+            border: 4px solid rgba(255,255,255,0.1); 
+            border-top-color: #00b894;
+            border-radius: 50%; 
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .error { background: rgba(239,68,68,0.2); border: 1px solid #ef4444; padding: 15px; border-radius: 8px; margin: 20px 0; }
+        .progress-bar { 
+            height: 4px; 
+            background: rgba(255,255,255,0.1); 
+            border-radius: 2px; 
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        .progress-fill { 
+            height: 100%; 
+            background: linear-gradient(90deg, #00b894, #a855f7);
+            animation: progress 2s ease-in-out infinite;
+        }
+        @keyframes progress { 
+            0% { width: 0%; }
+            50% { width: 70%; }
+            100% { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const API_URL = 'https://web-production-eca1e.up.railway.app';
+        
+        function App() {
+            const [loading, setLoading] = React.useState(false);
+            const [error, setError] = React.useState(null);
+            const [result, setResult] = React.useState(null);
+            const [config, setConfig] = React.useState({
+                target_usd: 100,
+                min_similarity: 0.25,
+                max_markets: 2000
+            });
+            
+            const runFullScan = async () => {
+                setLoading(true);
+                setError(null);
+                
+                try {
+                    const response = await fetch(`${API_URL}/scan/full`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(config)
+                    });
+                    
+                    if (!response.ok) {
+                        const err = await response.json();
+                        throw new Error(err.detail || 'Erro no scan');
+                    }
+                    
+                    const data = await response.json();
+                    setResult(data);
+                } catch (err) {
+                    setError(err.message);
+                } finally {
+                    setLoading(false);
+                }
+            };
+            
+            const getScoreClass = (score) => {
+                if (score >= 0.6) return 'high';
+                if (score >= 0.4) return 'medium';
+                return 'low';
+            };
+            
+            return (
+                <div className="container">
+                    <div className="header">
+                        <h1 className="title">
+                            🎯 Full Scale Arbitrage Scanner
+                        </h1>
+                        <div className="controls">
+                            <div className="input-group">
+                                <label>Valor Alvo (USD)</label>
+                                <input 
+                                    type="number" 
+                                    value={config.target_usd}
+                                    onChange={(e) => setConfig({...config, target_usd: Number(e.target.value)})}
+                                />
+                            </div>
+                            <div className="input-group">
+                                <label>Similaridade Mín.</label>
+                                <input 
+                                    type="number" 
+                                    step="0.05"
+                                    value={config.min_similarity}
+                                    onChange={(e) => setConfig({...config, min_similarity: Number(e.target.value)})}
+                                />
+                            </div>
+                            <div className="input-group">
+                                <label>Max Mercados</label>
+                                <input 
+                                    type="number" 
+                                    step="500"
+                                    value={config.max_markets}
+                                    onChange={(e) => setConfig({...config, max_markets: Number(e.target.value)})}
+                                />
+                            </div>
+                            <button 
+                                className="btn btn-primary" 
+                                onClick={runFullScan}
+                                disabled={loading}
+                            >
+                                {loading ? '⏳ Escaneando...' : '🚀 Scan Completo'}
+                            </button>
+                        </div>
+                    </div>
+                    
+                    {loading && (
+                        <div className="loading">
+                            <div className="spinner"></div>
+                            <p>Escaneando todos os mercados...</p>
+                            <p style={{color: '#888', fontSize: '0.9rem', marginTop: '10px'}}>
+                                Isso pode levar alguns minutos
+                            </p>
+                            <div className="progress-bar">
+                                <div className="progress-fill"></div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {error && (
+                        <div className="error">
+                            ❌ Erro: {error}
+                        </div>
+                    )}
+                    
+                    {result && !loading && (
+                        <>
+                            <div className="stats">
+                                <div className="stat-card">
+                                    <div className="stat-value blue">{result.kalshi_total.toLocaleString()}</div>
+                                    <div className="stat-label">Mercados Kalshi</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-value purple">{result.polymarket_total.toLocaleString()}</div>
+                                    <div className="stat-label">Mercados Poly</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-value orange">{result.categories_matched}</div>
+                                    <div className="stat-label">Categorias</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-value">{result.pairs_analyzed.toLocaleString()}</div>
+                                    <div className="stat-label">Pares Analisados</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-value" style={{color: result.opportunities_found > 0 ? '#00b894' : '#888'}}>
+                                        {result.opportunities_found}
+                                    </div>
+                                    <div className="stat-label">Oportunidades</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-value orange">{result.scan_duration_seconds.toFixed(1)}s</div>
+                                    <div className="stat-label">Duração</div>
+                                </div>
+                            </div>
+                            
+                            {Object.keys(result.category_stats).length > 0 && (
+                                <div className="section">
+                                    <h2 className="section-title">📊 Categorias Encontradas</h2>
+                                    <div className="categories">
+                                        {Object.entries(result.category_stats).map(([cat, stats]) => (
+                                            <div key={cat} className="category-badge">
+                                                {cat}: {stats.kalshi}K × {stats.polymarket}P
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {result.opportunities.length > 0 && (
+                                <div className="section">
+                                    <h2 className="section-title">💰 Oportunidades de Arbitragem</h2>
+                                    <div className="pairs-grid">
+                                        {result.opportunities.map((pair, i) => (
+                                            <div key={i} className="pair-card has-arbitrage">
+                                                <div className="pair-header">
+                                                    <div className="pair-platforms">
+                                                        <div className="platform-row">
+                                                            <span className="platform-badge platform-kalshi">KALSHI</span>
+                                                            <span className="pair-title">{pair.kalshi_title}</span>
+                                                        </div>
+                                                        <div className="platform-row">
+                                                            <span className="platform-badge platform-poly">POLY</span>
+                                                            <span className="pair-title">{pair.polymarket_title}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="arbitrage-badge">
+                                                        +{pair.edge_percentage.toFixed(2)}%
+                                                    </div>
+                                                </div>
+                                                <div className="pair-details">
+                                                    <div className="detail-item">
+                                                        <span className="detail-label">Estratégia: </span>
+                                                        <span className="detail-value">{pair.strategy}</span>
+                                                    </div>
+                                                    <div className="detail-item">
+                                                        <span className="detail-label">Lucro: </span>
+                                                        <span className="detail-value">${pair.net_profit.toFixed(2)}</span>
+                                                    </div>
+                                                    <div className="detail-item">
+                                                        <span className="detail-label">Categoria: </span>
+                                                        <span className="detail-value">{pair.category}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {result.top_pairs.length > 0 && (
+                                <div className="section">
+                                    <h2 className="section-title">🔗 Top Pares Similares</h2>
+                                    <div className="pairs-grid">
+                                        {result.top_pairs.slice(0, 20).map((pair, i) => (
+                                            <div key={i} className={`pair-card ${pair.has_arbitrage ? 'has-arbitrage' : ''}`}>
+                                                <div className="pair-header">
+                                                    <div className="pair-platforms">
+                                                        <div className="platform-row">
+                                                            <span className="platform-badge platform-kalshi">KALSHI</span>
+                                                            <span className="pair-title">{pair.kalshi_title}</span>
+                                                        </div>
+                                                        <div className="platform-row">
+                                                            <span className="platform-badge platform-poly">POLY</span>
+                                                            <span className="pair-title">{pair.polymarket_title}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="pair-score">
+                                                        <div className={`score-value ${getScoreClass(pair.similarity_score)}`}>
+                                                            {(pair.similarity_score * 100).toFixed(0)}%
+                                                        </div>
+                                                        <div style={{fontSize: '0.75rem', color: '#888'}}>similaridade</div>
+                                                    </div>
+                                                </div>
+                                                <div className="pair-details">
+                                                    <div className="detail-item">
+                                                        <span className="detail-label">Categoria: </span>
+                                                        <span className="detail-value">{pair.category}</span>
+                                                    </div>
+                                                    <div className="detail-item">
+                                                        <span className="detail-label">Nível: </span>
+                                                        <span className="detail-value">{pair.equivalence_level}</span>
+                                                    </div>
+                                                    {pair.rejection_reason && (
+                                                        <div className="detail-item">
+                                                            <span className="detail-label">Status: </span>
+                                                            <span className="detail-value" style={{color: '#f59e0b'}}>{pair.rejection_reason}</span>
+                                                        </div>
+                                                    )}
+                                                    {pair.has_arbitrage && (
+                                                        <div className="detail-item">
+                                                            <span className="arbitrage-badge">+{pair.edge_percentage.toFixed(2)}%</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+            );
+        }
+        
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>

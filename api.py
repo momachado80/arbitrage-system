@@ -508,6 +508,104 @@ async def run_scan(config: ScanConfig = None):
         scan_in_progress = False
 
 
+# ============== FULL SCAN (Large Scale) ==============
+
+class FullScanConfig(BaseModel):
+    target_usd: float = Field(default=100, ge=1, le=10000)
+    min_similarity: float = Field(default=0.25, ge=0.1, le=1.0)
+    max_markets: int = Field(default=2000, ge=100, le=10000)
+
+
+class FullScanResponse(BaseModel):
+    status: str
+    timestamp: str
+    kalshi_total: int
+    polymarket_total: int
+    categories_matched: int
+    pairs_analyzed: int
+    pairs_with_liquidity: int
+    opportunities_found: int
+    opportunities: List[dict]
+    top_pairs: List[dict]
+    scan_duration_seconds: float
+    category_stats: dict
+
+
+full_scan_in_progress = False
+last_full_scan_result = None
+
+
+@app.post("/scan/full", response_model=FullScanResponse)
+async def run_full_scan(config: FullScanConfig = None):
+    """
+    Executa scan COMPLETO de todos os mercados.
+    
+    Este scan:
+    - Busca até max_markets de cada plataforma
+    - Indexa por categoria (AI, crypto, politics, etc.)
+    - Compara apenas mercados da mesma categoria
+    - Retorna oportunidades E top pares similares
+    
+    ATENÇÃO: Pode demorar vários minutos!
+    """
+    global full_scan_in_progress, last_full_scan_result
+    
+    if full_scan_in_progress:
+        raise HTTPException(status_code=429, detail="Full scan já em andamento")
+    
+    full_scan_in_progress = True
+    
+    try:
+        from src.engine.large_scale_scanner import LargeScaleScanner
+        
+        config = config or FullScanConfig()
+        
+        scanner = LargeScaleScanner(
+            target_usd=Decimal(str(config.target_usd)),
+            min_similarity=config.min_similarity,
+            max_markets_per_platform=config.max_markets,
+        )
+        
+        result = await scanner.full_scan()
+        last_full_scan_result = result
+        
+        return FullScanResponse(
+            status="completed",
+            timestamp=result.timestamp.isoformat(),
+            kalshi_total=result.kalshi_total,
+            polymarket_total=result.polymarket_total,
+            categories_matched=result.categories_matched,
+            pairs_analyzed=result.pairs_analyzed,
+            pairs_with_liquidity=result.pairs_with_liquidity,
+            opportunities_found=result.opportunities_found,
+            opportunities=result.opportunities,
+            top_pairs=result.top_pairs,
+            scan_duration_seconds=result.scan_duration_seconds,
+            category_stats=result.category_stats,
+        )
+        
+    except Exception as e:
+        logger.error(f"Erro no full scan: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        full_scan_in_progress = False
+
+
+@app.get("/scan/full/status")
+async def get_full_scan_status():
+    """Status do último full scan."""
+    global full_scan_in_progress, last_full_scan_result
+    
+    return {
+        "scan_in_progress": full_scan_in_progress,
+        "last_scan_timestamp": last_full_scan_result.timestamp.isoformat() if last_full_scan_result else None,
+        "last_scan_pairs": last_full_scan_result.pairs_analyzed if last_full_scan_result else 0,
+        "last_scan_opportunities": last_full_scan_result.opportunities_found if last_full_scan_result else 0,
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
