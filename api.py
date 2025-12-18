@@ -521,14 +521,14 @@ class FullScanResponse(BaseModel):
     timestamp: str
     kalshi_total: int
     polymarket_total: int
-    categories_matched: int
+    entities_matched: int
     pairs_analyzed: int
     pairs_with_liquidity: int
     opportunities_found: int
     opportunities: List[dict]
     top_pairs: List[dict]
     scan_duration_seconds: float
-    category_stats: dict
+    entity_stats: dict
 
 
 full_scan_in_progress = False
@@ -542,8 +542,8 @@ async def run_full_scan(config: FullScanConfig = None):
     
     Este scan:
     - Busca até max_markets de cada plataforma
-    - Indexa por categoria (AI, crypto, politics, etc.)
-    - Compara apenas mercados da mesma categoria
+    - Matching por ENTIDADES ESPECÍFICAS (pessoas, empresas, eventos)
+    - Só pareia mercados com entidades em comum
     - Retorna oportunidades E top pares similares
     
     ATENÇÃO: Pode demorar vários minutos!
@@ -574,14 +574,14 @@ async def run_full_scan(config: FullScanConfig = None):
             timestamp=result.timestamp.isoformat(),
             kalshi_total=result.kalshi_total,
             polymarket_total=result.polymarket_total,
-            categories_matched=result.categories_matched,
+            entities_matched=result.entities_matched,
             pairs_analyzed=result.pairs_analyzed,
             pairs_with_liquidity=result.pairs_with_liquidity,
             opportunities_found=result.opportunities_found,
             opportunities=result.opportunities,
             top_pairs=result.top_pairs,
             scan_duration_seconds=result.scan_duration_seconds,
-            category_stats=result.category_stats,
+            entity_stats=result.entity_stats,
         )
         
     except Exception as e:

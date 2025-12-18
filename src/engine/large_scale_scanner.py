@@ -6,8 +6,8 @@ Scanner otimizado para escanear TODOS os mercados de ambas plataformas.
 
 Estratégia:
 1. Coleta todos os mercados (paginado)
-2. Indexa por categoria
-3. Compara apenas dentro de cada categoria
+2. Extrai entidades específicas (pessoas, empresas, eventos, datas)
+3. Só compara mercados com entidades em comum
 4. Filtra por liquidez
 5. Retorna oportunidades encontradas
 
@@ -23,7 +23,7 @@ from typing import List, Dict, Optional, Tuple
 
 from src.collectors import KalshiCollector, PolymarketCollector
 from src.models import Market, Side
-from src.engine.market_indexer import MarketIndexer, MarketIndex
+from src.engine.entity_matcher import EntityBasedMatcher, EntityMatch
 from src.engine.contract_equivalence import (
     ContractEquivalenceAnalyzer,
     EquivalenceResult,
@@ -39,8 +39,9 @@ class PairAnalysis:
     """Resultado da análise de um par."""
     kalshi: Market
     polymarket: Market
-    category: str
-    equivalence: EquivalenceResult
+    shared_entities: set
+    entity_type: str
+    entity_confidence: float
     has_arbitrage: bool = False
     edge_percentage: float = 0.0
     strategy: str = ""
@@ -54,19 +55,20 @@ class FullScanResult:
     timestamp: datetime
     kalshi_total: int
     polymarket_total: int
-    categories_matched: int
+    entities_matched: int
     pairs_analyzed: int
     pairs_with_liquidity: int
     opportunities_found: int
     opportunities: List[Dict]
     top_pairs: List[Dict]  # Melhores pares mesmo sem arbitragem
     scan_duration_seconds: float
-    category_stats: Dict[str, Dict]
+    entity_stats: Dict[str, int]  # Contagem por tipo de entidade
 
 
 class LargeScaleScanner:
     """
     Scanner de larga escala para todos os mercados.
+    Usa matching baseado em entidades específicas.
     """
     
     def __init__(
@@ -81,7 +83,7 @@ class LargeScaleScanner:
         self.min_edge = min_edge
         self.max_markets = max_markets_per_platform
         
-        self.indexer = MarketIndexer()
+        self.entity_matcher = EntityBasedMatcher(min_shared_entities=1)
         self.equivalence_analyzer = ContractEquivalenceAnalyzer(
             min_title_similarity=min_similarity,
             require_date_match=False,
@@ -102,13 +104,28 @@ class LargeScaleScanner:
         
         logger.info(f"Coletados: {len(kalshi_markets)} Kalshi, {len(poly_markets)} Polymarket")
         
-        # 2. Indexar por categoria
-        logger.info("Fase 2: Indexando por categoria...")
-        index = self.indexer.index_markets(kalshi_markets, poly_markets)
+        # 2. Encontrar matches por entidades específicas
+        logger.info("Fase 2: Matching por entidades...")
+        entity_matches = self.entity_matcher.find_matches(
+            kalshi_markets, 
+            poly_markets,
+            min_confidence=self.min_similarity
+        )
         
-        # 3. Analisar pares por categoria
-        logger.info("Fase 3: Analisando pares...")
-        analyses = await self._analyze_by_category(index)
+        logger.info(f"Matches por entidade: {len(entity_matches)}")
+        
+        # 3. Analisar pares encontrados
+        logger.info("Fase 3: Analisando arbitragem...")
+        analyses = []
+        entity_type_counts = {}
+        
+        for match in entity_matches:
+            # Contar por tipo de entidade
+            entity_type_counts[match.entity_type] = entity_type_counts.get(match.entity_type, 0) + 1
+            
+            analysis = self._analyze_entity_match(match)
+            if analysis:
+                analyses.append(analysis)
         
         # 4. Filtrar resultados
         opportunities = []
@@ -125,12 +142,12 @@ class LargeScaleScanner:
                 opportunities.append(self._analysis_to_dict(analysis))
             
             # Coletar top pares (mesmo sem arbitragem)
-            if analysis.equivalence.score >= Decimal("0.4"):
+            if analysis.entity_confidence >= 0.3:
                 top_pairs.append(self._analysis_to_dict(analysis))
         
         # Ordenar
         opportunities.sort(key=lambda x: x["edge_percentage"], reverse=True)
-        top_pairs.sort(key=lambda x: x["similarity_score"], reverse=True)
+        top_pairs.sort(key=lambda x: x["confidence"], reverse=True)
         top_pairs = top_pairs[:50]  # Top 50
         
         # Calcular duração
@@ -144,15 +161,66 @@ class LargeScaleScanner:
             timestamp=end_time,
             kalshi_total=len(kalshi_markets),
             polymarket_total=len(poly_markets),
-            categories_matched=len(index.get_matching_categories()),
+            entities_matched=len(entity_matches),
             pairs_analyzed=len(analyses),
             pairs_with_liquidity=pairs_with_liquidity,
             opportunities_found=len(opportunities),
             opportunities=opportunities,
             top_pairs=top_pairs,
             scan_duration_seconds=duration,
-            category_stats=index.get_category_stats(),
+            entity_stats=entity_type_counts,
         )
+    
+    def _analyze_entity_match(self, match: EntityMatch) -> Optional[PairAnalysis]:
+        """Analisa um match de entidades para arbitragem."""
+        analysis = PairAnalysis(
+            kalshi=match.kalshi,
+            polymarket=match.polymarket,
+            shared_entities=match.shared_entities,
+            entity_type=match.entity_type,
+            entity_confidence=match.confidence,
+        )
+        
+        # Tentar calcular arbitragem
+        try:
+            equiv_score = Decimal(str(match.confidence))
+            
+            opportunity, rejection = self.calculator.calculate(
+                kalshi_market=match.kalshi,
+                polymarket_market=match.polymarket,
+                target_usd=self.target_usd,
+                equivalence_score=equiv_score,
+            )
+            
+            if opportunity:
+                analysis.has_arbitrage = True
+                analysis.edge_percentage = float(opportunity.edge_percentage)
+                analysis.strategy = opportunity.strategy
+                analysis.net_profit = float(opportunity.net_profit)
+            elif rejection:
+                analysis.rejection_reason = rejection.code
+                
+        except Exception as e:
+            analysis.rejection_reason = str(e)
+        
+        return analysis
+    
+    def _analysis_to_dict(self, analysis: PairAnalysis) -> Dict:
+        """Converte análise para dicionário."""
+        return {
+            "kalshi_ticker": analysis.kalshi.ticker,
+            "kalshi_title": analysis.kalshi.title,
+            "polymarket_ticker": analysis.polymarket.ticker,
+            "polymarket_title": analysis.polymarket.title,
+            "shared_entities": list(analysis.shared_entities),
+            "entity_type": analysis.entity_type,
+            "confidence": analysis.entity_confidence,
+            "has_arbitrage": analysis.has_arbitrage,
+            "edge_percentage": analysis.edge_percentage,
+            "strategy": analysis.strategy,
+            "net_profit": analysis.net_profit,
+            "rejection_reason": analysis.rejection_reason,
+        }
     
     async def _collect_all_kalshi(self) -> List[Market]:
         """Coleta todos os mercados Kalshi com paginação."""
@@ -262,94 +330,3 @@ class LargeScaleScanner:
                 market.no_book = no_book
         except Exception as e:
             logger.debug(f"Erro orderbook Poly {market.ticker}: {e}")
-    
-    async def _analyze_by_category(self, index: MarketIndex) -> List[PairAnalysis]:
-        """Analisa pares por categoria."""
-        analyses = []
-        
-        for category in index.get_matching_categories():
-            kalshi_markets = index.kalshi_by_category[category]
-            poly_markets = index.polymarket_by_category[category]
-            
-            logger.info(f"Categoria '{category}': {len(kalshi_markets)} K × {len(poly_markets)} P")
-            
-            for kalshi in kalshi_markets:
-                for poly in poly_markets:
-                    analysis = self._analyze_pair(kalshi, poly, category)
-                    if analysis:
-                        analyses.append(analysis)
-        
-        return analyses
-    
-    def _analyze_pair(
-        self, 
-        kalshi: Market, 
-        poly: Market, 
-        category: str
-    ) -> Optional[PairAnalysis]:
-        """Analisa um par de mercados."""
-        # Análise de equivalência
-        equivalence = self.equivalence_analyzer.analyze(
-            kalshi_title=kalshi.title,
-            kalshi_description=kalshi.description or "",
-            kalshi_rules=kalshi.resolution_rules,
-            kalshi_end_date=kalshi.close_time or kalshi.expiration_time,
-            poly_title=poly.title,
-            poly_description=poly.description or "",
-            poly_rules=poly.resolution_rules,
-            poly_end_date=poly.close_time,
-        )
-        
-        # Filtrar por similaridade mínima
-        if float(equivalence.score) < self.min_similarity:
-            return None
-        
-        analysis = PairAnalysis(
-            kalshi=kalshi,
-            polymarket=poly,
-            category=category,
-            equivalence=equivalence,
-        )
-        
-        # Tentar calcular arbitragem
-        try:
-            # Converter score para equivalence_score
-            equiv_score = max(Decimal("0.1"), equivalence.score)
-            
-            opportunity, rejection = self.calculator.calculate(
-                kalshi_market=kalshi,
-                polymarket_market=poly,
-                target_usd=self.target_usd,
-                equivalence_score=equiv_score,
-            )
-            
-            if opportunity:
-                analysis.has_arbitrage = True
-                analysis.edge_percentage = float(opportunity.edge_percentage)
-                analysis.strategy = opportunity.strategy
-                analysis.net_profit = float(opportunity.net_profit)
-            elif rejection:
-                analysis.rejection_reason = rejection.code
-                
-        except Exception as e:
-            analysis.rejection_reason = str(e)
-        
-        return analysis
-    
-    def _analysis_to_dict(self, analysis: PairAnalysis) -> Dict:
-        """Converte análise para dicionário."""
-        return {
-            "kalshi_ticker": analysis.kalshi.ticker,
-            "kalshi_title": analysis.kalshi.title,
-            "polymarket_ticker": analysis.polymarket.ticker,
-            "polymarket_title": analysis.polymarket.title,
-            "category": analysis.category,
-            "similarity_score": float(analysis.equivalence.score),
-            "equivalence_level": analysis.equivalence.level.value,
-            "has_arbitrage": analysis.has_arbitrage,
-            "edge_percentage": analysis.edge_percentage,
-            "strategy": analysis.strategy,
-            "net_profit": analysis.net_profit,
-            "rejection_reason": analysis.rejection_reason,
-            "recommendation": analysis.equivalence.recommendation,
-        }
