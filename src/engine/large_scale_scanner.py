@@ -84,9 +84,9 @@ class LargeScaleScanner:
         target_usd: Decimal = Decimal("100"),
         min_similarity: float = 0.25,
         min_edge: Decimal = Decimal("0.01"),
-        max_markets_per_platform: int = 5000,
+        max_markets_per_platform: int = 50000,  # Aumentado para pegar TODOS
         use_semantic: bool = True,
-        max_semantic_checks: int = 500,  # Analisar até 500 candidatos
+        max_semantic_checks: int = 1000,  # Analisar até 1000 candidatos
     ):
         self.target_usd = target_usd
         self.min_similarity = min_similarity

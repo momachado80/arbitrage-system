@@ -513,7 +513,7 @@ async def run_scan(config: ScanConfig = None):
 class FullScanConfig(BaseModel):
     target_usd: float = Field(default=100, ge=1, le=10000)
     min_similarity: float = Field(default=0.25, ge=0.1, le=1.0)
-    max_markets: int = Field(default=2000, ge=100, le=10000)
+    max_markets: int = Field(default=50000, ge=100, le=100000)  # Aumentado para pegar todos
 
 
 class FullScanResponse(BaseModel):
