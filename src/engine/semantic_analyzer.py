@@ -2,7 +2,7 @@
 Semantic Market Analyzer
 ========================
 
-Usa Claude para analisar semanticamente se dois mercados
+Usa DeepSeek para analisar semanticamente se dois mercados
 são sobre o MESMO EVENTO, não apenas mencionam a mesma pessoa/empresa.
 
 Exemplo:
@@ -42,7 +42,7 @@ class SemanticMatch:
 class SemanticAnalyzer:
     """
     Analisa semanticamente se dois mercados são sobre o mesmo evento.
-    Usa Claude API para análise de linguagem natural.
+    Usa DeepSeek API para análise de linguagem natural.
     """
     
     # Cache para evitar chamadas repetidas
@@ -51,14 +51,14 @@ class SemanticAnalyzer:
     def __init__(self, api_key: Optional[str] = None):
         """
         Args:
-            api_key: Anthropic API key. Se não fornecida, usa ANTHROPIC_API_KEY env var.
+            api_key: DeepSeek API key. Se não fornecida, usa DEEPSEEK_API_KEY env var.
         """
-        self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY")
         if not self.api_key:
-            logger.warning("ANTHROPIC_API_KEY não configurada - análise semântica desabilitada")
+            logger.warning("DEEPSEEK_API_KEY não configurada - análise semântica desabilitada")
         
         self.client = httpx.AsyncClient(timeout=30.0)
-        self.api_url = "https://api.anthropic.com/v1/messages"
+        self.api_url = "https://api.deepseek.com/v1/chat/completions"
     
     def _cache_key(self, title1: str, title2: str) -> str:
         """Gera chave de cache para um par de títulos."""
@@ -93,8 +93,8 @@ class SemanticAnalyzer:
                 key_differences=["Análise semântica não disponível"],
             )
         
-        # Chamar Claude para análise
-        result = await self._call_claude(kalshi, polymarket)
+        # Chamar DeepSeek para análise
+        result = await self._call_deepseek(kalshi, polymarket)
         
         # Cachear resultado
         self._cache[cache_key] = result
@@ -104,7 +104,7 @@ class SemanticAnalyzer:
     async def analyze_batch(
         self,
         pairs: List[Tuple[Market, Market]],
-        max_concurrent: int = 5,
+        max_concurrent: int = 10,
     ) -> List[SemanticMatch]:
         """
         Analisa múltiplos pares em paralelo.
@@ -125,68 +125,62 @@ class SemanticAnalyzer:
         tasks = [analyze_with_limit(pair) for pair in pairs]
         return await asyncio.gather(*tasks)
     
-    async def _call_claude(
+    async def _call_deepseek(
         self,
         kalshi: Market,
         polymarket: Market,
     ) -> SemanticMatch:
-        """Chama Claude API para análise semântica."""
+        """Chama DeepSeek API para análise semântica."""
         
         prompt = f"""Analise estes dois mercados de previsão e determine se são sobre o MESMO EVENTO específico.
 
 MERCADO 1 (Kalshi):
 Título: {kalshi.title}
-Descrição: {kalshi.description or 'N/A'}
 
 MERCADO 2 (Polymarket):
 Título: {polymarket.title}
-Descrição: {polymarket.description or 'N/A'}
 
 IMPORTANTE: Dois mercados sobre a MESMA PESSOA ou EMPRESA não são necessariamente o mesmo evento!
-- "Musk vai a Marte" vs "Musk ganha eleição" = EVENTOS DIFERENTES (mesma pessoa, eventos diferentes)
-- "Bitcoin atinge 100k" vs "BTC chega a $100,000" = MESMO EVENTO (mesma coisa com palavras diferentes)
-- "Trump ganha 2024" vs "Trump presidente após Nov 2024" = MESMO EVENTO (mesmo resultado)
+- "Musk vai a Marte" vs "Musk ganha eleição" = EVENTOS DIFERENTES
+- "Bitcoin atinge 100k" vs "BTC chega a $100,000" = MESMO EVENTO
+- "Trump ganha 2024" vs "Trump presidente após Nov 2024" = MESMO EVENTO
+- "Fed corta juros em Janeiro" vs "Fed corta juros em Março" = EVENTOS DIFERENTES (datas diferentes)
 
-Responda APENAS em JSON válido:
-{{
-    "is_same_event": true/false,
-    "confidence": 0.0-1.0,
-    "reasoning": "explicação breve",
-    "event_description": "descrição do evento se for o mesmo, ou vazio",
-    "key_differences": ["diferença 1", "diferença 2"] ou []
-}}"""
+Responda APENAS em JSON válido (sem markdown):
+{{"is_same_event": true ou false, "confidence": 0.0 a 1.0, "reasoning": "explicação breve", "event_description": "descrição se mesmo evento ou vazio", "key_differences": ["diferença 1"] ou []}}"""
 
         try:
             response = await self.client.post(
                 self.api_url,
                 headers={
                     "Content-Type": "application/json",
-                    "x-api-key": self.api_key,
-                    "anthropic-version": "2023-06-01",
+                    "Authorization": f"Bearer {self.api_key}",
                 },
                 json={
-                    "model": "claude-3-haiku-20240307",  # Mais rápido e barato
-                    "max_tokens": 300,
+                    "model": "deepseek-chat",
                     "messages": [
                         {"role": "user", "content": prompt}
-                    ]
+                    ],
+                    "max_tokens": 200,
+                    "temperature": 0.1,  # Mais determinístico
                 }
             )
             
             if response.status_code != 200:
-                logger.error(f"Erro Claude API: {response.status_code} - {response.text}")
+                logger.error(f"Erro DeepSeek API: {response.status_code} - {response.text}")
                 return self._fallback_match(kalshi, polymarket, f"API error: {response.status_code}")
             
             data = response.json()
-            content = data["content"][0]["text"]
+            content = data["choices"][0]["message"]["content"]
             
             # Parse JSON da resposta
-            # Limpar possíveis marcadores de código
             content = content.strip()
+            # Limpar possíveis marcadores de código
             if content.startswith("```"):
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
+                lines = content.split("\n")
+                content = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
+            if content.startswith("json"):
+                content = content[4:]
             content = content.strip()
             
             result = json.loads(content)
@@ -202,8 +196,8 @@ Responda APENAS em JSON válido:
             )
             
         except json.JSONDecodeError as e:
-            logger.error(f"Erro parsing JSON: {e}")
-            return self._fallback_match(kalshi, polymarket, f"JSON parse error: {e}")
+            logger.error(f"Erro parsing JSON: {e} - Content: {content[:200]}")
+            return self._fallback_match(kalshi, polymarket, f"JSON parse error")
         except Exception as e:
             logger.error(f"Erro na análise semântica: {e}")
             return self._fallback_match(kalshi, polymarket, str(e))
@@ -234,7 +228,7 @@ class SmartMarketMatcher:
     """
     Matcher inteligente que combina:
     1. Pré-filtragem por entidades (rápido)
-    2. Análise semântica com Claude (preciso)
+    2. Análise semântica com DeepSeek (preciso)
     """
     
     def __init__(self, api_key: Optional[str] = None):

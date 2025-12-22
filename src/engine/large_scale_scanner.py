@@ -30,7 +30,7 @@ from src.engine.arbitrage_calculator import ArbitrageCalculator
 logger = logging.getLogger(__name__)
 
 # Flag para habilitar análise semântica
-SEMANTIC_ENABLED = bool(os.environ.get("ANTHROPIC_API_KEY"))
+SEMANTIC_ENABLED = bool(os.environ.get("DEEPSEEK_API_KEY"))
 
 
 @dataclass
