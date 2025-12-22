@@ -2,16 +2,13 @@
 Entity-Based Market Matcher
 ===========================
 
-Matching baseado em entidades específicas, não categorias genéricas.
+Matching baseado em entidades específicas + similaridade textual.
 
-Só pareia mercados que compartilham:
-- Mesma pessoa (Trump, Musk, Biden, etc.)
-- Mesma empresa (Tesla, Google, OpenAI, etc.)
-- Mesmo evento específico (Super Bowl 2025, Fed January meeting, etc.)
-- Mesmo ativo (Bitcoin, Ethereum, S&P 500, etc.)
-- Mesma data específica (December 31 2025, Q1 2025, etc.)
+Só pareia mercados que:
+1. Compartilham entidades (Trump, Bitcoin, etc.)
+2. Têm alta similaridade textual (títulos parecidos)
 
-Isso evita matches falsos como "unemployment" com "Jake Paul".
+Isso elimina pares como "Musk Mars" vs "Musk tweets".
 """
 
 import re
@@ -20,10 +17,50 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Set, Tuple, Optional
 from datetime import datetime
+from difflib import SequenceMatcher
 
 from src.models import Market
 
 logger = logging.getLogger(__name__)
+
+
+def text_similarity(text1: str, text2: str) -> float:
+    """Calcula similaridade entre dois textos (0-1)."""
+    # Normalizar textos
+    t1 = text1.lower().strip()
+    t2 = text2.lower().strip()
+    
+    # Usar SequenceMatcher para similaridade
+    return SequenceMatcher(None, t1, t2).ratio()
+
+
+def word_overlap_score(text1: str, text2: str) -> float:
+    """Calcula overlap de palavras significativas."""
+    # Palavras a ignorar
+    stop_words = {
+        'will', 'be', 'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of',
+        'by', 'from', 'before', 'after', 'during', 'between', 'is', 'are',
+        'was', 'were', 'has', 'have', 'had', 'do', 'does', 'did', 'can',
+        'could', 'would', 'should', 'may', 'might', 'must', 'or', 'and',
+        'if', 'then', 'than', 'that', 'this', 'these', 'those', 'what',
+        'which', 'who', 'whom', 'how', 'when', 'where', 'why', 'not', 'no',
+        'yes', 'any', 'all', 'each', 'every', 'both', 'either', 'neither',
+    }
+    
+    # Extrair palavras significativas
+    words1 = set(w.lower() for w in re.findall(r'\b\w+\b', text1) 
+                 if len(w) > 2 and w.lower() not in stop_words)
+    words2 = set(w.lower() for w in re.findall(r'\b\w+\b', text2)
+                 if len(w) > 2 and w.lower() not in stop_words)
+    
+    if not words1 or not words2:
+        return 0.0
+    
+    # Jaccard similarity
+    intersection = len(words1 & words2)
+    union = len(words1 | words2)
+    
+    return intersection / union if union > 0 else 0.0
 
 
 @dataclass
@@ -253,15 +290,21 @@ class EntityBasedMatcher:
         self,
         kalshi_markets: List[Market],
         poly_markets: List[Market],
-        min_confidence: float = 0.3
+        min_confidence: float = 0.3,
+        min_text_similarity: float = 0.35,  # Novo: filtro de similaridade textual
+        diversify: bool = False,  # Desabilitado por padrão agora
+        max_per_kalshi: int = 5,
     ) -> List[EntityMatch]:
         """
-        Encontra matches entre mercados baseado em entidades.
+        Encontra matches entre mercados baseado em entidades + similaridade textual.
         
         Args:
             kalshi_markets: Lista de mercados Kalshi
             poly_markets: Lista de mercados Polymarket
             min_confidence: Confiança mínima para incluir match
+            min_text_similarity: Similaridade textual mínima (0-1)
+            diversify: Se True, limita matches por mercado Kalshi
+            max_per_kalshi: Máximo de matches por mercado Kalshi (se diversify=True)
             
         Returns:
             Lista de EntityMatch ordenada por confiança
@@ -306,20 +349,46 @@ class EntityBasedMatcher:
         
         # Para cada entidade em comum, criar pares
         seen_pairs = set()
+        kalshi_match_count = defaultdict(int)
+        pairs_checked = 0
+        pairs_passed_text_filter = 0
         
         for entity in common_entities:
             kalshi_tickers = kalshi_by_entity[entity]
             poly_tickers = poly_by_entity[entity]
             
             for k_ticker in kalshi_tickers:
+                # Diversificação: limitar matches por Kalshi
+                if diversify and kalshi_match_count[k_ticker] >= max_per_kalshi:
+                    continue
+                    
                 for p_ticker in poly_tickers:
                     pair_key = (k_ticker, p_ticker)
                     if pair_key in seen_pairs:
                         continue
                     seen_pairs.add(pair_key)
+                    pairs_checked += 1
                     
                     k_data = kalshi_entities[k_ticker]
                     p_data = poly_entities[p_ticker]
+                    
+                    # FILTRO DE SIMILARIDADE TEXTUAL
+                    # Calcular similaridade entre títulos
+                    title_sim = text_similarity(
+                        k_data['market'].title,
+                        p_data['market'].title
+                    )
+                    word_sim = word_overlap_score(
+                        k_data['market'].title,
+                        p_data['market'].title
+                    )
+                    combined_sim = (title_sim + word_sim) / 2
+                    
+                    # Se similaridade textual é muito baixa, pular
+                    if combined_sim < min_text_similarity:
+                        continue
+                    
+                    pairs_passed_text_filter += 1
                     
                     shared, primary_type = self.get_shared_entities(
                         k_data['entities'],
@@ -327,13 +396,16 @@ class EntityBasedMatcher:
                     )
                     
                     if len(shared) >= self.min_shared_entities:
-                        # Calcular confiança baseada em entidades compartilhadas
-                        confidence = self._calculate_confidence(
+                        # Calcular confiança combinando entidades + similaridade textual
+                        entity_confidence = self._calculate_confidence(
                             k_data['entities'],
                             p_data['entities'],
                             shared,
                             primary_type
                         )
+                        
+                        # Confiança final: média ponderada (texto tem mais peso)
+                        confidence = (entity_confidence * 0.3) + (combined_sim * 0.7)
                         
                         if confidence >= min_confidence:
                             matches.append(EntityMatch(
@@ -343,11 +415,14 @@ class EntityBasedMatcher:
                                 entity_type=primary_type,
                                 confidence=confidence
                             ))
+                            # Incrementar contador de diversificação
+                            if diversify:
+                                kalshi_match_count[k_ticker] += 1
         
         # Ordenar por confiança
         matches.sort(key=lambda m: m.confidence, reverse=True)
         
-        logger.info(f"Matches encontrados: {len(matches)}")
+        logger.info(f"Pares verificados: {pairs_checked}, Passaram filtro textual: {pairs_passed_text_filter}, Matches finais: {len(matches)}")
         return matches
     
     def _calculate_confidence(

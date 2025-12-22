@@ -76,7 +76,7 @@ class FullScanResult:
 class LargeScaleScanner:
     """
     Scanner de larga escala para todos os mercados.
-    Usa matching baseado em entidades + análise semântica opcional.
+    Usa matching baseado em entidades + similaridade textual + análise semântica.
     """
     
     def __init__(
@@ -86,7 +86,7 @@ class LargeScaleScanner:
         min_edge: Decimal = Decimal("0.01"),
         max_markets_per_platform: int = 5000,
         use_semantic: bool = True,
-        max_semantic_checks: int = 50,
+        max_semantic_checks: int = 500,  # Analisar até 500 candidatos
     ):
         self.target_usd = target_usd
         self.min_similarity = min_similarity
@@ -95,6 +95,7 @@ class LargeScaleScanner:
         self.use_semantic = use_semantic and SEMANTIC_ENABLED
         self.max_semantic_checks = max_semantic_checks
         
+        # Filtro textual mais rigoroso
         self.entity_matcher = EntityBasedMatcher(min_shared_entities=1)
         self.calculator = ArbitrageCalculator(min_edge_threshold=min_edge)
         

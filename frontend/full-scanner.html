@@ -13,92 +13,75 @@
             color: #fff;
             padding: 20px;
         }
-        .container { max-width: 1400px; margin: 0 auto; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; flex-wrap: wrap; gap: 20px; }
-        .title { font-size: 1.6rem; }
-        .controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-        .input-group { display: flex; flex-direction: column; gap: 4px; }
-        .input-group label { font-size: 0.7rem; color: #888; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; flex-wrap: wrap; gap: 15px; }
+        .title { font-size: 1.5rem; }
+        .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .input-group { display: flex; flex-direction: column; gap: 3px; }
+        .input-group label { font-size: 0.65rem; color: #888; }
         .input-group input { 
-            padding: 8px 10px; 
+            padding: 6px 10px; 
             border: 1px solid #333; 
-            border-radius: 6px; 
+            border-radius: 5px; 
             background: #252540; 
             color: #fff; 
-            width: 90px;
+            width: 80px;
         }
         .btn { 
             padding: 10px 20px; 
             border: none; 
-            border-radius: 8px; 
+            border-radius: 6px; 
             cursor: pointer; 
             font-weight: 600;
             background: linear-gradient(135deg, #00b894, #00a86b); 
             color: white;
         }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 20px; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; margin-bottom: 20px; }
         .stat-card { 
             background: rgba(255,255,255,0.05); 
             border: 1px solid rgba(255,255,255,0.1);
             border-radius: 8px; 
-            padding: 12px; 
+            padding: 12px 8px; 
             text-align: center;
         }
-        .stat-value { font-size: 1.5rem; font-weight: 700; color: #00b894; }
+        .stat-value { font-size: 1.3rem; font-weight: 700; color: #00b894; }
         .stat-value.purple { color: #a855f7; }
         .stat-value.blue { color: #3b82f6; }
         .stat-value.orange { color: #f59e0b; }
         .stat-value.green { color: #10b981; }
-        .stat-label { font-size: 0.7rem; color: #888; margin-top: 2px; }
+        .stat-label { font-size: 0.65rem; color: #888; margin-top: 2px; }
         .section { margin-bottom: 20px; }
-        .section-title { font-size: 1rem; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
-        .badges { display: flex; flex-wrap: wrap; gap: 6px; }
-        .badge { 
-            background: rgba(168, 85, 247, 0.2); 
-            border: 1px solid rgba(168, 85, 247, 0.4);
-            padding: 5px 12px; 
-            border-radius: 14px; 
-            font-size: 0.75rem;
-        }
-        .badge.semantic { background: rgba(16, 185, 129, 0.2); border-color: rgba(16, 185, 129, 0.4); }
+        .section-title { font-size: 1rem; margin-bottom: 10px; }
         .pair-card { 
-            background: rgba(255,255,255,0.05); 
-            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(16, 185, 129, 0.1); 
+            border: 1px solid #10b981;
             border-radius: 10px; 
             padding: 14px;
             margin-bottom: 10px;
         }
-        .pair-card.same-event { border-color: #10b981; background: rgba(16, 185, 129, 0.1); }
-        .pair-card.arbitrage { border-color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
         .pair-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
         .pair-markets { flex: 1; }
         .market-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
         .platform { 
             padding: 2px 6px; 
             border-radius: 4px; 
-            font-size: 0.65rem; 
+            font-size: 0.6rem; 
             font-weight: 600;
+            min-width: 20px;
+            text-align: center;
         }
         .platform.kalshi { background: #3b82f6; }
         .platform.poly { background: #a855f7; }
-        .market-title { font-size: 0.8rem; color: #ccc; }
-        .confidence { text-align: right; min-width: 80px; }
+        .market-title { font-size: 0.8rem; color: #ddd; }
         .same-event-badge { 
             background: #10b981; 
             color: white; 
             padding: 4px 10px; 
             border-radius: 4px; 
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             font-weight: 600;
-        }
-        .arb-badge { 
-            background: #f59e0b; 
-            color: white; 
-            padding: 4px 10px; 
-            border-radius: 4px; 
-            font-size: 0.75rem;
-            font-weight: 600;
+            white-space: nowrap;
         }
         .pair-meta { 
             display: flex; 
@@ -106,32 +89,32 @@
             margin-top: 8px; 
             padding-top: 8px; 
             border-top: 1px solid rgba(255,255,255,0.1);
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             flex-wrap: wrap;
         }
         .meta-item { color: #888; }
         .meta-item span { color: #fff; }
-        .entity-tags { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 6px; }
+        .reasoning { 
+            font-size: 0.75rem; 
+            color: #10b981; 
+            margin-top: 8px; 
+            font-style: italic;
+            background: rgba(16, 185, 129, 0.15);
+            padding: 8px 10px;
+            border-radius: 6px;
+        }
+        .entity-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
         .entity-tag { 
             background: rgba(0,184,148,0.2); 
             border: 1px solid rgba(0,184,148,0.4);
             padding: 2px 6px; 
-            border-radius: 8px; 
-            font-size: 0.65rem;
+            border-radius: 6px; 
+            font-size: 0.6rem;
             color: #00b894;
-        }
-        .reasoning { 
-            font-size: 0.75rem; 
-            color: #10b981; 
-            margin-top: 6px; 
-            font-style: italic;
-            background: rgba(16, 185, 129, 0.1);
-            padding: 6px 10px;
-            border-radius: 6px;
         }
         .loading { text-align: center; padding: 40px; }
         .spinner { 
-            width: 36px; height: 36px; 
+            width: 32px; height: 32px; 
             border: 3px solid rgba(255,255,255,0.1); 
             border-top-color: #00b894;
             border-radius: 50%; 
@@ -140,48 +123,48 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
         .error { background: rgba(239,68,68,0.2); border: 1px solid #ef4444; padding: 10px; border-radius: 6px; margin: 15px 0; }
-        .info-banner { background: rgba(59, 130, 246, 0.2); border: 1px solid #3b82f6; padding: 10px 14px; border-radius: 6px; margin-bottom: 20px; font-size: 0.85rem; }
+        .empty-state { 
+            text-align: center; 
+            padding: 40px 20px; 
+            background: rgba(255,255,255,0.03);
+            border-radius: 10px;
+            color: #888;
+        }
+        .empty-state h3 { color: #aaa; margin-bottom: 10px; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1 class="title">🎯 Arbitrage Scanner + Análise Semântica</h1>
+            <h1 class="title">🎯 Arbitrage Scanner</h1>
             <div class="controls">
                 <div class="input-group">
-                    <label>Valor (USD)</label>
+                    <label>USD</label>
                     <input type="number" id="targetUsd" value="100">
                 </div>
                 <div class="input-group">
-                    <label>Min. Confiança</label>
-                    <input type="number" id="minSim" value="0.25" step="0.05">
+                    <label>Min Sim.</label>
+                    <input type="number" id="minSim" value="0.35" step="0.05">
                 </div>
                 <div class="input-group">
-                    <label>Max Mercados</label>
+                    <label>Mercados</label>
                     <input type="number" id="maxMarkets" value="2000" step="500">
                 </div>
                 <button class="btn" id="scanBtn" onclick="runScan()">🚀 Scan</button>
             </div>
         </div>
         
-        <div id="semanticInfo" class="info-banner" style="display:none;">
-            ✨ <strong>Análise Semântica Ativa:</strong> Claude analisa se mercados são sobre o MESMO evento, não apenas a mesma pessoa/empresa.
-        </div>
-        
         <div id="loading" style="display:none;" class="loading">
             <div class="spinner"></div>
             <p>Escaneando mercados...</p>
-            <p style="color:#888;font-size:0.8rem;margin-top:6px;">Análise semântica pode levar alguns minutos</p>
+            <p style="color:#888;font-size:0.8rem;margin-top:6px;">Filtrando por similaridade textual + análise semântica</p>
         </div>
         
         <div id="error" style="display:none;" class="error"></div>
         
         <div id="results" style="display:none;">
             <div class="stats" id="stats"></div>
-            <div class="section" id="entitiesSection"></div>
-            <div class="section" id="confirmedSection"></div>
-            <div class="section" id="opportunitiesSection"></div>
-            <div class="section" id="pairsSection"></div>
+            <div class="section" id="matchesSection"></div>
         </div>
     </div>
     
@@ -233,76 +216,54 @@
             const results = document.getElementById('results');
             results.style.display = 'block';
             
-            // Mostrar info de análise semântica
-            document.getElementById('semanticInfo').style.display = data.semantic_enabled ? 'block' : 'none';
-            
             // Stats
             document.getElementById('stats').innerHTML = `
                 <div class="stat-card"><div class="stat-value blue">${data.kalshi_total.toLocaleString()}</div><div class="stat-label">Kalshi</div></div>
                 <div class="stat-card"><div class="stat-value purple">${data.polymarket_total.toLocaleString()}</div><div class="stat-label">Polymarket</div></div>
-                <div class="stat-card"><div class="stat-value orange">${data.entities_matched}</div><div class="stat-label">Por Entidade</div></div>
-                ${data.semantic_enabled ? `
-                    <div class="stat-card"><div class="stat-value">${data.semantic_analyzed}</div><div class="stat-label">Analisados IA</div></div>
-                    <div class="stat-card"><div class="stat-value green">${data.same_event_confirmed}</div><div class="stat-label">Mesmo Evento</div></div>
-                ` : ''}
-                <div class="stat-card"><div class="stat-value" style="color:${data.opportunities_found > 0 ? '#f59e0b' : '#888'}">${data.opportunities_found}</div><div class="stat-label">Oportunidades</div></div>
-                <div class="stat-card"><div class="stat-value orange">${data.scan_duration_seconds.toFixed(1)}s</div><div class="stat-label">Duração</div></div>
+                <div class="stat-card"><div class="stat-value orange">${data.entities_matched.toLocaleString()}</div><div class="stat-label">Filtrados</div></div>
+                <div class="stat-card"><div class="stat-value">${data.semantic_analyzed}</div><div class="stat-label">Analisados IA</div></div>
+                <div class="stat-card"><div class="stat-value green">${data.same_event_confirmed}</div><div class="stat-label">Mesmo Evento</div></div>
+                <div class="stat-card"><div class="stat-value" style="color:${data.opportunities_found > 0 ? '#f59e0b' : '#888'}">${data.opportunities_found}</div><div class="stat-label">Arbitragem</div></div>
+                <div class="stat-card"><div class="stat-value orange">${data.scan_duration_seconds.toFixed(0)}s</div><div class="stat-label">Tempo</div></div>
             `;
             
-            // Entity stats
-            const entityStats = data.entity_stats || {};
-            if (Object.keys(entityStats).length > 0) {
-                document.getElementById('entitiesSection').innerHTML = `
-                    <h2 class="section-title">🏷️ Tipos de Entidade</h2>
-                    <div class="badges">
-                        ${Object.entries(entityStats).map(([type, count]) => 
-                            `<div class="badge">${type}: ${count}</div>`
-                        ).join('')}
+            // Matches confirmados
+            const confirmedPairs = (data.top_pairs || []).filter(p => p.is_same_event);
+            const opportunities = data.opportunities || [];
+            
+            if (confirmedPairs.length > 0 || opportunities.length > 0) {
+                let html = `<h2 class="section-title">✅ Mercados Equivalentes Encontrados (${confirmedPairs.length})</h2>`;
+                
+                // Primeiro as oportunidades de arbitragem
+                if (opportunities.length > 0) {
+                    html += `<p style="font-size:0.85rem;color:#f59e0b;margin-bottom:10px;">💰 ${opportunities.length} com oportunidade de arbitragem!</p>`;
+                    html += opportunities.map(pair => renderPair(pair, true)).join('');
+                }
+                
+                // Depois os outros confirmados
+                const nonArbPairs = confirmedPairs.filter(p => !p.has_arbitrage);
+                if (nonArbPairs.length > 0) {
+                    html += nonArbPairs.map(pair => renderPair(pair, false)).join('');
+                }
+                
+                document.getElementById('matchesSection').innerHTML = html;
+            } else {
+                document.getElementById('matchesSection').innerHTML = `
+                    <div class="empty-state">
+                        <h3>😕 Nenhum mercado equivalente encontrado</h3>
+                        <p>Analisamos ${data.semantic_analyzed} pares candidatos e nenhum foi confirmado como o mesmo evento.</p>
+                        <p style="margin-top:10px;">Isso significa que Kalshi e Polymarket não têm mercados idênticos nos ${data.kalshi_total.toLocaleString()} + ${data.polymarket_total.toLocaleString()} mercados escaneados.</p>
+                        <p style="margin-top:15px;font-size:0.85rem;">💡 Tente aumentar o número de mercados ou diminuir a similaridade mínima.</p>
                     </div>
                 `;
             }
-            
-            // Confirmed same event pairs
-            const confirmedPairs = (data.top_pairs || []).filter(p => p.is_same_event);
-            if (confirmedPairs.length > 0) {
-                document.getElementById('confirmedSection').innerHTML = `
-                    <h2 class="section-title">✅ Mesmo Evento Confirmado (${confirmedPairs.length})</h2>
-                    ${confirmedPairs.map(pair => renderPair(pair, 'same-event')).join('')}
-                `;
-            } else {
-                document.getElementById('confirmedSection').innerHTML = '';
-            }
-            
-            // Opportunities
-            if (data.opportunities && data.opportunities.length > 0) {
-                document.getElementById('opportunitiesSection').innerHTML = `
-                    <h2 class="section-title">💰 Oportunidades de Arbitragem</h2>
-                    ${data.opportunities.map(pair => renderPair(pair, 'arbitrage')).join('')}
-                `;
-            } else {
-                document.getElementById('opportunitiesSection').innerHTML = '';
-            }
-            
-            // Other top pairs (not confirmed)
-            const otherPairs = (data.top_pairs || []).filter(p => !p.is_same_event);
-            if (otherPairs.length > 0) {
-                document.getElementById('pairsSection').innerHTML = `
-                    <h2 class="section-title">🔗 Outros Pares por Entidade (${otherPairs.length})</h2>
-                    <p style="font-size:0.8rem;color:#888;margin-bottom:10px;">⚠️ Não confirmados como mesmo evento - verifique manualmente</p>
-                    ${otherPairs.slice(0, 20).map(pair => renderPair(pair, 'entity')).join('')}
-                `;
-            } else {
-                document.getElementById('pairsSection').innerHTML = '';
-            }
         }
         
-        function renderPair(pair, type) {
+        function renderPair(pair, isArbitrage) {
             const entities = pair.shared_entities || [];
-            const isSameEvent = pair.is_same_event;
-            const cardClass = type === 'same-event' ? 'same-event' : type === 'arbitrage' ? 'arbitrage' : '';
             
             return `
-                <div class="pair-card ${cardClass}">
+                <div class="pair-card">
                     <div class="pair-header">
                         <div class="pair-markets">
                             <div class="market-row">
@@ -315,27 +276,24 @@
                             </div>
                             ${entities.length > 0 ? `
                                 <div class="entity-tags">
-                                    ${entities.slice(0, 4).map(e => `<span class="entity-tag">${e}</span>`).join('')}
+                                    ${entities.slice(0, 5).map(e => `<span class="entity-tag">${e}</span>`).join('')}
                                 </div>
                             ` : ''}
                             ${pair.semantic_reasoning ? `
                                 <div class="reasoning">💡 ${pair.semantic_reasoning}</div>
                             ` : ''}
                         </div>
-                        <div class="confidence">
-                            ${isSameEvent ? 
-                                `<span class="same-event-badge">✓ Mesmo Evento</span>` :
-                                pair.has_arbitrage ?
-                                    `<span class="arb-badge">+${pair.edge_percentage.toFixed(2)}%</span>` :
-                                    `<div style="font-size:0.7rem;color:#888;">entidade</div>`
+                        <div>
+                            ${isArbitrage ? 
+                                `<span class="same-event-badge" style="background:#f59e0b;">+${pair.edge_percentage.toFixed(2)}%</span>` :
+                                `<span class="same-event-badge">✓ Mesmo Evento</span>`
                             }
                         </div>
                     </div>
                     <div class="pair-meta">
-                        <div class="meta-item">Tipo: <span>${pair.entity_type || 'N/A'}</span></div>
-                        ${pair.rejection_reason ? `<div class="meta-item">Status: <span style="color:#f59e0b">${pair.rejection_reason}</span></div>` : ''}
-                        ${pair.has_arbitrage ? `<div class="meta-item">Lucro: <span style="color:#10b981">$${pair.net_profit.toFixed(2)}</span></div>` : ''}
-                        ${pair.event_description ? `<div class="meta-item">Evento: <span style="color:#10b981">${pair.event_description}</span></div>` : ''}
+                        ${pair.event_description ? `<div class="meta-item">Evento: <span style="color:#10b981;">${pair.event_description}</span></div>` : ''}
+                        ${pair.rejection_reason && !isArbitrage ? `<div class="meta-item">Status: <span style="color:#f59e0b;">${pair.rejection_reason}</span></div>` : ''}
+                        ${isArbitrage ? `<div class="meta-item">Lucro estimado: <span style="color:#10b981;">$${pair.net_profit.toFixed(2)}</span></div>` : ''}
                     </div>
                 </div>
             `;
