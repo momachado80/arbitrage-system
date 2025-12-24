@@ -6,8 +6,8 @@ Scanner otimizado para escanear TODOS os mercados de ambas plataformas.
 
 Estratégia:
 1. Coleta todos os mercados (paginado)
-2. Pré-filtra por entidades em comum (rápido)
-3. Análise semântica com Claude (preciso) - opcional
+2. Smart matching por categoria (sports, politics, economics, crypto)
+3. Análise semântica com DeepSeek para confirmar
 4. Calcula arbitragem nos matches confirmados
 5. Retorna oportunidades encontradas
 
@@ -24,7 +24,7 @@ from typing import List, Dict, Optional, Tuple
 
 from src.collectors import KalshiCollector, PolymarketCollector
 from src.models import Market, Side
-from src.engine.entity_matcher import EntityBasedMatcher, EntityMatch
+from src.engine.smart_matcher import SmartMarketMatcher, SmartMatch
 from src.engine.arbitrage_calculator import ArbitrageCalculator
 
 logger = logging.getLogger(__name__)
@@ -38,9 +38,10 @@ class PairAnalysis:
     """Resultado da análise de um par."""
     kalshi: Market
     polymarket: Market
-    shared_entities: set
-    entity_type: str
-    entity_confidence: float
+    category: str
+    event_type: str
+    match_score: float
+    match_reason: str
     # Campos de análise semântica
     is_same_event: bool = False
     semantic_confidence: float = 0.0
@@ -60,7 +61,7 @@ class FullScanResult:
     timestamp: datetime
     kalshi_total: int
     polymarket_total: int
-    entities_matched: int
+    smart_matches: int
     semantic_analyzed: int
     same_event_confirmed: int
     pairs_analyzed: int
@@ -69,24 +70,24 @@ class FullScanResult:
     opportunities: List[Dict]
     top_pairs: List[Dict]  # Melhores pares mesmo sem arbitragem
     scan_duration_seconds: float
-    entity_stats: Dict[str, int]  # Contagem por tipo de entidade
+    category_stats: Dict[str, int]  # Contagem por categoria
     semantic_enabled: bool
 
 
 class LargeScaleScanner:
     """
     Scanner de larga escala para todos os mercados.
-    Usa matching baseado em entidades + similaridade textual + análise semântica.
+    Usa smart matching por categoria + análise semântica.
     """
     
     def __init__(
         self,
         target_usd: Decimal = Decimal("100"),
-        min_similarity: float = 0.25,
+        min_similarity: float = 0.5,  # Score mínimo do smart match
         min_edge: Decimal = Decimal("0.01"),
-        max_markets_per_platform: int = 50000,  # Aumentado para pegar TODOS
+        max_markets_per_platform: int = 50000,
         use_semantic: bool = True,
-        max_semantic_checks: int = 1000,  # Analisar até 1000 candidatos
+        max_semantic_checks: int = 500,
     ):
         self.target_usd = target_usd
         self.min_similarity = min_similarity
@@ -95,8 +96,8 @@ class LargeScaleScanner:
         self.use_semantic = use_semantic and SEMANTIC_ENABLED
         self.max_semantic_checks = max_semantic_checks
         
-        # Filtro textual mais rigoroso
-        self.entity_matcher = EntityBasedMatcher(min_shared_entities=1)
+        # Smart matcher por categorias
+        self.smart_matcher = SmartMarketMatcher(min_match_score=min_similarity)
         self.calculator = ArbitrageCalculator(min_edge_threshold=min_edge)
         
         # Inicializar analisador semântico se disponível
@@ -125,24 +126,25 @@ class LargeScaleScanner:
         
         logger.info(f"Coletados: {len(kalshi_markets)} Kalshi, {len(poly_markets)} Polymarket")
         
-        # 2. Encontrar matches por entidades específicas
-        logger.info("Fase 2: Matching por entidades...")
-        entity_matches = self.entity_matcher.find_matches(
-            kalshi_markets, 
-            poly_markets,
-            min_confidence=self.min_similarity
-        )
+        # 2. Smart matching por categorias
+        logger.info("Fase 2: Smart matching por categorias...")
+        smart_matches = self.smart_matcher.find_matches(kalshi_markets, poly_markets)
         
-        logger.info(f"Matches por entidade: {len(entity_matches)}")
+        logger.info(f"Smart matches: {len(smart_matches)}")
+        
+        # Contar por categoria
+        category_counts = {}
+        for match in smart_matches:
+            category_counts[match.category] = category_counts.get(match.category, 0) + 1
         
         # 3. Análise semântica (se habilitada)
         semantic_analyzed = 0
         same_event_confirmed = 0
-        semantic_results = {}  # cache dos resultados
+        semantic_results = {}
         
-        if self.use_semantic and self.semantic_analyzer and entity_matches:
+        if self.use_semantic and self.semantic_analyzer and smart_matches:
             logger.info(f"Fase 3: Análise semântica de até {self.max_semantic_checks} candidatos...")
-            candidates = entity_matches[:self.max_semantic_checks]
+            candidates = smart_matches[:self.max_semantic_checks]
             
             for match in candidates:
                 try:
@@ -164,17 +166,13 @@ class LargeScaleScanner:
         # 4. Analisar pares encontrados
         logger.info("Fase 4: Analisando arbitragem...")
         analyses = []
-        entity_type_counts = {}
         
-        for match in entity_matches:
-            # Contar por tipo de entidade
-            entity_type_counts[match.entity_type] = entity_type_counts.get(match.entity_type, 0) + 1
-            
+        for match in smart_matches:
             # Buscar resultado semântico se disponível
             key = (match.kalshi.ticker, match.polymarket.ticker)
             semantic_result = semantic_results.get(key)
             
-            analysis = self._analyze_entity_match(match, semantic_result)
+            analysis = self._analyze_smart_match(match, semantic_result)
             if analysis:
                 analyses.append(analysis)
         
@@ -195,16 +193,15 @@ class LargeScaleScanner:
             # Coletar top pares - priorizar os confirmados semanticamente
             if analysis.is_same_event:
                 top_pairs.insert(0, self._analysis_to_dict(analysis))
-            elif analysis.entity_confidence >= 0.3:
+            elif analysis.match_score >= 0.5:
                 top_pairs.append(self._analysis_to_dict(analysis))
         
         # Ordenar
         opportunities.sort(key=lambda x: x["edge_percentage"], reverse=True)
-        # Top pairs: primeiro os confirmados, depois por confiança
         confirmed = [p for p in top_pairs if p.get("is_same_event")]
         others = [p for p in top_pairs if not p.get("is_same_event")]
-        others.sort(key=lambda x: x.get("confidence", 0), reverse=True)
-        top_pairs = confirmed + others[:50 - len(confirmed)]
+        others.sort(key=lambda x: x.get("match_score", 0), reverse=True)
+        top_pairs = confirmed + others[:100 - len(confirmed)]
         
         # Calcular duração
         end_time = datetime.utcnow()
@@ -217,7 +214,7 @@ class LargeScaleScanner:
             timestamp=end_time,
             kalshi_total=len(kalshi_markets),
             polymarket_total=len(poly_markets),
-            entities_matched=len(entity_matches),
+            smart_matches=len(smart_matches),
             semantic_analyzed=semantic_analyzed,
             same_event_confirmed=same_event_confirmed,
             pairs_analyzed=len(analyses),
@@ -226,18 +223,19 @@ class LargeScaleScanner:
             opportunities=opportunities,
             top_pairs=top_pairs,
             scan_duration_seconds=duration,
-            entity_stats=entity_type_counts,
+            category_stats=category_counts,
             semantic_enabled=self.use_semantic,
         )
     
-    def _analyze_entity_match(self, match: EntityMatch, semantic_result=None) -> Optional[PairAnalysis]:
-        """Analisa um match de entidades para arbitragem."""
+    def _analyze_smart_match(self, match: SmartMatch, semantic_result=None) -> Optional[PairAnalysis]:
+        """Analisa um smart match para arbitragem."""
         analysis = PairAnalysis(
             kalshi=match.kalshi,
             polymarket=match.polymarket,
-            shared_entities=match.shared_entities,
-            entity_type=match.entity_type,
-            entity_confidence=match.confidence,
+            category=match.category,
+            event_type=match.event_type,
+            match_score=match.match_score,
+            match_reason=match.match_reason,
         )
         
         # Adicionar informação semântica se disponível
@@ -253,7 +251,7 @@ class LargeScaleScanner:
             if analysis.is_same_event and analysis.semantic_confidence >= 0.7:
                 equiv_score = Decimal(str(analysis.semantic_confidence))
             else:
-                equiv_score = Decimal(str(match.confidence))
+                equiv_score = Decimal(str(match.match_score))
             
             opportunity, rejection = self.calculator.calculate(
                 kalshi_market=match.kalshi,
@@ -282,9 +280,10 @@ class LargeScaleScanner:
             "kalshi_title": analysis.kalshi.title,
             "polymarket_ticker": analysis.polymarket.ticker,
             "polymarket_title": analysis.polymarket.title,
-            "shared_entities": list(analysis.shared_entities),
-            "entity_type": analysis.entity_type,
-            "confidence": analysis.entity_confidence,
+            "category": analysis.category,
+            "event_type": analysis.event_type,
+            "match_score": analysis.match_score,
+            "match_reason": analysis.match_reason,
             # Campos semânticos
             "is_same_event": analysis.is_same_event,
             "semantic_confidence": analysis.semantic_confidence,

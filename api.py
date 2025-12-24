@@ -521,7 +521,7 @@ class FullScanResponse(BaseModel):
     timestamp: str
     kalshi_total: int
     polymarket_total: int
-    entities_matched: int
+    smart_matches: int = 0
     semantic_analyzed: int = 0
     same_event_confirmed: int = 0
     pairs_analyzed: int
@@ -530,7 +530,7 @@ class FullScanResponse(BaseModel):
     opportunities: List[dict]
     top_pairs: List[dict]
     scan_duration_seconds: float
-    entity_stats: dict
+    category_stats: dict = {}
     semantic_enabled: bool = False
 
 
@@ -578,7 +578,7 @@ async def run_full_scan(config: FullScanConfig = None):
             timestamp=result.timestamp.isoformat(),
             kalshi_total=result.kalshi_total,
             polymarket_total=result.polymarket_total,
-            entities_matched=result.entities_matched,
+            smart_matches=result.smart_matches,
             semantic_analyzed=result.semantic_analyzed,
             same_event_confirmed=result.same_event_confirmed,
             pairs_analyzed=result.pairs_analyzed,
@@ -587,7 +587,7 @@ async def run_full_scan(config: FullScanConfig = None):
             opportunities=result.opportunities,
             top_pairs=result.top_pairs,
             scan_duration_seconds=result.scan_duration_seconds,
-            entity_stats=result.entity_stats,
+            category_stats=result.category_stats,
             semantic_enabled=result.semantic_enabled,
         )
         

@@ -220,7 +220,7 @@
             document.getElementById('stats').innerHTML = `
                 <div class="stat-card"><div class="stat-value blue">${data.kalshi_total.toLocaleString()}</div><div class="stat-label">Kalshi</div></div>
                 <div class="stat-card"><div class="stat-value purple">${data.polymarket_total.toLocaleString()}</div><div class="stat-label">Polymarket</div></div>
-                <div class="stat-card"><div class="stat-value orange">${data.entities_matched.toLocaleString()}</div><div class="stat-label">Filtrados</div></div>
+                <div class="stat-card"><div class="stat-value orange">${data.smart_matches || 0}</div><div class="stat-label">Smart Match</div></div>
                 <div class="stat-card"><div class="stat-value">${data.semantic_analyzed}</div><div class="stat-label">Analisados IA</div></div>
                 <div class="stat-card"><div class="stat-value green">${data.same_event_confirmed}</div><div class="stat-label">Mesmo Evento</div></div>
                 <div class="stat-card"><div class="stat-value" style="color:${data.opportunities_found > 0 ? '#f59e0b' : '#888'}">${data.opportunities_found}</div><div class="stat-label">Arbitragem</div></div>
@@ -260,8 +260,6 @@
         }
         
         function renderPair(pair, isArbitrage) {
-            const entities = pair.shared_entities || [];
-            
             return `
                 <div class="pair-card">
                     <div class="pair-header">
@@ -274,10 +272,8 @@
                                 <span class="platform poly">P</span>
                                 <span class="market-title">${pair.polymarket_title}</span>
                             </div>
-                            ${entities.length > 0 ? `
-                                <div class="entity-tags">
-                                    ${entities.slice(0, 5).map(e => `<span class="entity-tag">${e}</span>`).join('')}
-                                </div>
+                            ${pair.match_reason ? `
+                                <div class="reasoning">🎯 ${pair.match_reason}</div>
                             ` : ''}
                             ${pair.semantic_reasoning ? `
                                 <div class="reasoning">💡 ${pair.semantic_reasoning}</div>
@@ -291,6 +287,9 @@
                         </div>
                     </div>
                     <div class="pair-meta">
+                        <div class="meta-item">Categoria: <span>${pair.category || 'N/A'}</span></div>
+                        <div class="meta-item">Tipo: <span>${pair.event_type || 'N/A'}</span></div>
+                        <div class="meta-item">Score: <span>${((pair.match_score || 0) * 100).toFixed(0)}%</span></div>
                         ${pair.event_description ? `<div class="meta-item">Evento: <span style="color:#10b981;">${pair.event_description}</span></div>` : ''}
                         ${pair.rejection_reason && !isArbitrage ? `<div class="meta-item">Status: <span style="color:#f59e0b;">${pair.rejection_reason}</span></div>` : ''}
                         ${isArbitrage ? `<div class="meta-item">Lucro estimado: <span style="color:#10b981;">$${pair.net_profit.toFixed(2)}</span></div>` : ''}
