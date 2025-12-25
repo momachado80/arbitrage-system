@@ -309,50 +309,64 @@ class SmartMarketMatcher:
     ) -> List[SmartMatch]:
         """
         Encontra matches entre mercados das duas plataformas.
+        Usa índice invertido por entidades para evitar O(n*m).
         """
         matches = []
         
         # Normalizar todos os mercados
         logger.info(f"Normalizando {len(kalshi_markets)} Kalshi + {len(poly_markets)} Poly mercados...")
         
-        kalshi_normalized = [self.normalize_market(m) for m in kalshi_markets]
-        poly_normalized = [self.normalize_market(m) for m in poly_markets]
+        kalshi_normalized = {m.ticker: self.normalize_market(m) for m in kalshi_markets}
+        poly_normalized = {m.ticker: self.normalize_market(m) for m in poly_markets}
         
-        # Agrupar por categoria
-        kalshi_by_cat = {}
-        for nm in kalshi_normalized:
-            if nm.category not in kalshi_by_cat:
-                kalshi_by_cat[nm.category] = []
-            kalshi_by_cat[nm.category].append(nm)
+        # Criar índice invertido: entidade -> mercados Polymarket
+        poly_by_entity = {}
+        for ticker, nm in poly_normalized.items():
+            for entity in nm.key_entities:
+                if entity not in poly_by_entity:
+                    poly_by_entity[entity] = []
+                poly_by_entity[entity].append(ticker)
         
-        poly_by_cat = {}
-        for nm in poly_normalized:
-            if nm.category not in poly_by_cat:
-                poly_by_cat[nm.category] = []
-            poly_by_cat[nm.category].append(nm)
+        logger.info(f"Índice de entidades criado: {len(poly_by_entity)} entidades únicas")
         
-        # Comparar dentro de cada categoria
-        for category in set(kalshi_by_cat.keys()) & set(poly_by_cat.keys()):
-            logger.info(f"Comparando categoria '{category}': {len(kalshi_by_cat[category])} K x {len(poly_by_cat[category])} P")
+        # Para cada mercado Kalshi, buscar Polymarket com entidades em comum
+        seen_pairs = set()
+        
+        for k_ticker, k_norm in kalshi_normalized.items():
+            if not k_norm.key_entities:
+                continue
             
-            for k_norm in kalshi_by_cat[category]:
-                for p_norm in poly_by_cat[category]:
-                    # Pular se tipos de evento são diferentes
-                    if k_norm.event_type != p_norm.event_type and k_norm.event_type != 'unknown' and p_norm.event_type != 'unknown':
-                        continue
-                    
-                    # Calcular score de match
-                    score, reason = self._calculate_match_score(k_norm, p_norm)
-                    
-                    if score >= self.min_match_score:
-                        matches.append(SmartMatch(
-                            kalshi=k_norm.original,
-                            polymarket=p_norm.original,
-                            category=category,
-                            event_type=k_norm.event_type or p_norm.event_type,
-                            match_score=score,
-                            match_reason=reason,
-                        ))
+            # Encontrar mercados Poly que compartilham entidades
+            candidate_poly_tickers = set()
+            for entity in k_norm.key_entities:
+                if entity in poly_by_entity:
+                    candidate_poly_tickers.update(poly_by_entity[entity])
+            
+            # Avaliar cada candidato
+            for p_ticker in candidate_poly_tickers:
+                pair_key = (k_ticker, p_ticker)
+                if pair_key in seen_pairs:
+                    continue
+                seen_pairs.add(pair_key)
+                
+                p_norm = poly_normalized[p_ticker]
+                
+                # Pular se categorias são muito diferentes
+                if k_norm.category != p_norm.category and k_norm.category != 'other' and p_norm.category != 'other':
+                    continue
+                
+                # Calcular score de match
+                score, reason = self._calculate_match_score(k_norm, p_norm)
+                
+                if score >= self.min_match_score:
+                    matches.append(SmartMatch(
+                        kalshi=k_norm.original,
+                        polymarket=p_norm.original,
+                        category=k_norm.category if k_norm.category != 'other' else p_norm.category,
+                        event_type=k_norm.event_type or p_norm.event_type,
+                        match_score=score,
+                        match_reason=reason,
+                    ))
         
         # Ordenar por score
         matches.sort(key=lambda m: m.match_score, reverse=True)

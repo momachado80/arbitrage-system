@@ -87,7 +87,7 @@ class LargeScaleScanner:
         min_edge: Decimal = Decimal("0.01"),
         max_markets_per_platform: int = 50000,
         use_semantic: bool = True,
-        max_semantic_checks: int = 500,
+        max_semantic_checks: int = 50,  # Reduzido para velocidade
     ):
         self.target_usd = target_usd
         self.min_similarity = min_similarity
