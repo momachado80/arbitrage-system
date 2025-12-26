@@ -146,6 +146,11 @@ class SmartMarketMatcher:
             r'\b(price.*\$[\d,]+|\$[\d,]+.*price|reach.*\$|hit.*\$)\b',
             r'\b(etf|spot.*etf|bitcoin.*etf)\b',
         ],
+        'weather': [
+            r'\b(temperature|weather|degrees?|°[FC]?|forecast)\b',
+            r'\b(high|low|rain|snow|sunny|cloudy|storm)\b',
+            r'\b(nyc|new york|chicago|los angeles|miami|boston)\b.*\b(temperature|weather)\b',
+        ],
         'events': [
             r'\b(oscar|grammy|emmy|golden globe|academy award)\b',
             r'\b(ipo|launch|release|announce)\b',
@@ -231,6 +236,35 @@ class SmartMarketMatcher:
         entities = set()
         event_type = 'unknown'
         
+        # Extrair palavras-chave importantes do título (sempre)
+        # Isso captura termos como "fed", "nyc", "bitcoin", "january", etc.
+        important_words = re.findall(r'\b([a-z]{3,})\b', title.lower())
+        stop_words = {'will', 'the', 'and', 'for', 'that', 'this', 'with', 'from', 'have', 'has', 
+                      'are', 'was', 'were', 'been', 'being', 'what', 'which', 'who', 'whom',
+                      'will', 'would', 'could', 'should', 'may', 'might', 'must', 'shall',
+                      'before', 'after', 'above', 'below', 'between', 'into', 'through',
+                      'during', 'under', 'again', 'further', 'then', 'once', 'here', 'there',
+                      'when', 'where', 'why', 'how', 'all', 'each', 'few', 'more', 'most',
+                      'other', 'some', 'such', 'than', 'too', 'very', 'just', 'also'}
+        
+        for word in important_words:
+            if word not in stop_words and len(word) >= 3:
+                entities.add(word)
+        
+        # Extrair meses como entidades
+        months = re.findall(r'\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\b', title.lower())
+        entities.update(months)
+        
+        # Extrair números relevantes (datas, temperaturas, preços)
+        numbers = re.findall(r'\b(\d+)\b', title)
+        for num in numbers:
+            if len(num) <= 4:  # Datas, temperaturas, dias
+                entities.add(num)
+        
+        # Extrair preços
+        prices = re.findall(r'\$[\d,]+', title)
+        entities.update([p.replace(',', '') for p in prices])
+        
         if category == 'sports':
             # Buscar times
             for alias, full_name in self.TEAM_ALIASES.items():
@@ -262,6 +296,11 @@ class SmartMarketMatcher:
         elif category == 'economics':
             if re.search(r'fed|fomc|rate', title):
                 event_type = 'fed_rate'
+                # Adicionar entidades específicas do Fed
+                if 'fed' in title.lower():
+                    entities.add('fed')
+                if 'fomc' in title.lower():
+                    entities.add('fomc')
             elif re.search(r'cpi|inflation', title):
                 event_type = 'inflation'
             elif re.search(r'gdp', title):
@@ -281,6 +320,13 @@ class SmartMarketMatcher:
                     entities.add(f'${p_clean}')
             
             event_type = 'price_target'
+        
+        # Categoria weather/temperature
+        if re.search(r'temperature|weather|degrees?|°[FC]?', title, re.IGNORECASE):
+            event_type = 'weather'
+            # Extrair localização
+            locations = re.findall(r'\b(nyc|new york|chicago|la|los angeles|miami|boston|seattle|denver|atlanta|dallas|houston|phoenix|philadelphia|san francisco|sf)\b', title.lower())
+            entities.update(locations)
         
         return event_type, entities
     
