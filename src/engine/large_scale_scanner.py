@@ -87,7 +87,7 @@ class LargeScaleScanner:
         min_edge: Decimal = Decimal("0.01"),
         max_markets_per_platform: int = 50000,
         use_semantic: bool = True,
-        max_semantic_checks: int = 50,  # Reduzido para velocidade
+        max_semantic_checks: int = 300,  # Analisar os top 300 matches
     ):
         self.target_usd = target_usd
         self.min_similarity = min_similarity
@@ -274,7 +274,36 @@ class LargeScaleScanner:
         return analysis
     
     def _analysis_to_dict(self, analysis: PairAnalysis) -> Dict:
-        """Converte análise para dicionário."""
+        """Converte análise para dicionário com detalhes completos."""
+        
+        # Extrair preços do Kalshi
+        kalshi_yes_price = None
+        kalshi_no_price = None
+        kalshi_yes_qty = 0
+        kalshi_no_qty = 0
+        
+        if analysis.kalshi.yes_book and analysis.kalshi.yes_book.asks:
+            best_ask = analysis.kalshi.yes_book.asks[0]
+            kalshi_yes_price = float(best_ask[0])
+            kalshi_yes_qty = int(best_ask[1])
+        
+        if analysis.kalshi.no_book and analysis.kalshi.no_book.asks:
+            best_ask = analysis.kalshi.no_book.asks[0]
+            kalshi_no_price = float(best_ask[0])
+            kalshi_no_qty = int(best_ask[1])
+        
+        # Extrair preços do Polymarket
+        poly_yes_price = float(analysis.polymarket.yes_price) if analysis.polymarket.yes_price else None
+        poly_no_price = float(analysis.polymarket.no_price) if analysis.polymarket.no_price else None
+        
+        # Determinar status de liquidez
+        has_kalshi_book = kalshi_yes_price is not None or kalshi_no_price is not None
+        has_poly_prices = poly_yes_price is not None or poly_no_price is not None
+        
+        liquidity_status = "OK" if has_kalshi_book and has_poly_prices else (
+            "NO_KALSHI_BOOK" if not has_kalshi_book else "NO_POLY_PRICES"
+        )
+        
         return {
             "kalshi_ticker": analysis.kalshi.ticker,
             "kalshi_title": analysis.kalshi.title,
@@ -289,12 +318,22 @@ class LargeScaleScanner:
             "semantic_confidence": analysis.semantic_confidence,
             "semantic_reasoning": analysis.semantic_reasoning,
             "event_description": analysis.event_description,
+            # Preços Kalshi
+            "kalshi_yes_price": kalshi_yes_price,
+            "kalshi_no_price": kalshi_no_price,
+            "kalshi_yes_qty": kalshi_yes_qty,
+            "kalshi_no_qty": kalshi_no_qty,
+            # Preços Polymarket  
+            "poly_yes_price": poly_yes_price,
+            "poly_no_price": poly_no_price,
+            # Status
+            "liquidity_status": liquidity_status,
             # Campos de arbitragem
             "has_arbitrage": analysis.has_arbitrage,
             "edge_percentage": analysis.edge_percentage,
             "strategy": analysis.strategy,
             "net_profit": analysis.net_profit,
-            "rejection_reason": analysis.rejection_reason,
+            "rejection_reason": analysis.rejection_reason if analysis.rejection_reason else liquidity_status,
         }
     
     async def _collect_all_kalshi(self) -> List[Market]:
