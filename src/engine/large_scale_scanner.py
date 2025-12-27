@@ -292,9 +292,17 @@ class LargeScaleScanner:
             kalshi_no_price = float(best_ask[0])
             kalshi_no_qty = int(best_ask[1])
         
-        # Extrair preços do Polymarket
-        poly_yes_price = float(analysis.polymarket.yes_price) if analysis.polymarket.yes_price else None
-        poly_no_price = float(analysis.polymarket.no_price) if analysis.polymarket.no_price else None
+        # Extrair preços do Polymarket (também via orderbook)
+        poly_yes_price = None
+        poly_no_price = None
+        
+        if analysis.polymarket.yes_book and analysis.polymarket.yes_book.asks:
+            best_ask = analysis.polymarket.yes_book.asks[0]
+            poly_yes_price = float(best_ask[0])
+        
+        if analysis.polymarket.no_book and analysis.polymarket.no_book.asks:
+            best_ask = analysis.polymarket.no_book.asks[0]
+            poly_no_price = float(best_ask[0])
         
         # Determinar status de liquidez
         has_kalshi_book = kalshi_yes_price is not None or kalshi_no_price is not None
