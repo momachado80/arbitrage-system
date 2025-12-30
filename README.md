@@ -169,3 +169,4 @@ O MVP é bem-sucedido se:
 ## Aviso Legal
 
 Este sistema é para fins educacionais e de pesquisa. Trading em mercados de previsão envolve riscos significativos. Não é aconselhamento financeiro.
+# trigger redeploy
