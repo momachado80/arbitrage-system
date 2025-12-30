@@ -19,7 +19,7 @@ from typing import List, Dict, Optional, Tuple
 
 from src.collectors import KalshiCollector, PolymarketCollector
 from src.models import Market, Side
-from src.engine.smart_matcher import SmartMatcher
+from src.engine.smart_matcher import SmartMarketMatcher as SmartMatcher
 from src.engine.semantic_analyzer import SemanticAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -85,7 +85,7 @@ class LargeScaleScanner:
         self.use_semantic = use_semantic
         self.max_semantic_checks = max_semantic_checks
         
-        self.smart_matcher = SmartMatcher(min_score=min_similarity)
+        self.smart_matcher = SmartMatcher(min_match_score=min_similarity)
         self.semantic_analyzer = SemanticAnalyzer() if use_semantic else None
     
     async def full_scan(self) -> FullScanResult:
