@@ -70,6 +70,7 @@ class FullScanResult:
     opportunities_found: int
     top_pairs: List[Dict]
     scan_duration_seconds: float
+    pairs_analyzed: int = 0  # Alias para compatibilidade com API
 
 
 class LargeScaleScanner:
@@ -246,6 +247,7 @@ class LargeScaleScanner:
             opportunities_found=0,
             top_pairs=top_pairs,
             scan_duration_seconds=duration,
+            pairs_analyzed=semantic_analyzed,  # Compatibilidade com API
         )
     
     async def _collect_all_kalshi(self) -> List[Market]:
