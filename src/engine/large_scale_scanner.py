@@ -181,18 +181,16 @@ class LargeScaleScanner:
                         try:
                             result = await asyncio.wait_for(
                                 self.semantic_analyzer.analyze_pair(
-                                    match.kalshi.title,
-                                    match.polymarket.title,
-                                    match.kalshi.description or "",
-                                    match.polymarket.description or "",
+                                    match.kalshi,
+                                    match.polymarket,
                                 ),
                                 timeout=15  # 15 segundos por análise
                             )
                             
-                            analysis.is_same_event = result.get("is_same_event", False)
-                            analysis.semantic_confidence = result.get("confidence", 0)
-                            analysis.semantic_reasoning = result.get("reasoning", "")
-                            analysis.event_description = result.get("event_description", "")
+                            analysis.is_same_event = result.is_same_event
+                            analysis.semantic_confidence = result.confidence
+                            analysis.semantic_reasoning = result.reasoning
+                            analysis.event_description = result.event_description
                             
                             if analysis.is_same_event:
                                 same_event_count += 1
