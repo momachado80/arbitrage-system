@@ -1,26 +1,39 @@
 """
-Large Scale Scanner - OPTIMIZED VERSION
-========================================
+Large Scale Scanner - ROBUST VERSION
+=====================================
 
-Scanner otimizado:
-- Coleta TODOS os mercados (até 50.000 por plataforma)
-- NÃO busca orderbooks durante coleta inicial (muito lento)
-- Smart matching por entidades
-- Apenas 50 análises semânticas (para evitar timeout)
-- Busca orderbooks APENAS para pares confirmados
+Scanner robusto que não crasha:
+- Imports opcionais com fallback
+- Timeout em cada operação
+- Reset automático da flag em caso de erro
 """
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+import os
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 
 from src.collectors import KalshiCollector, PolymarketCollector
 from src.models import Market, Side
-from src.engine.smart_matcher import SmartMarketMatcher as SmartMatcher
-from src.engine.semantic_analyzer import SemanticAnalyzer
+
+# Import opcional do SmartMatcher
+try:
+    from src.engine.smart_matcher import SmartMarketMatcher
+    SMART_MATCHER_AVAILABLE = True
+except ImportError:
+    SMART_MATCHER_AVAILABLE = False
+    SmartMarketMatcher = None
+
+# Import opcional do SemanticAnalyzer
+try:
+    from src.engine.semantic_analyzer import SemanticAnalyzer
+    SEMANTIC_AVAILABLE = bool(os.environ.get("DEEPSEEK_API_KEY"))
+except ImportError:
+    SEMANTIC_AVAILABLE = False
+    SemanticAnalyzer = None
 
 logger = logging.getLogger(__name__)
 
@@ -30,16 +43,14 @@ class PairAnalysis:
     """Resultado da análise de um par."""
     kalshi: Market
     polymarket: Market
-    category: str
+    category: str = ""
     event_type: str = ""
     match_score: float = 0.0
     match_reason: str = ""
-    # Campos semânticos
     is_same_event: bool = False
     semantic_confidence: float = 0.0
     semantic_reasoning: str = ""
     event_description: str = ""
-    # Campos de arbitragem
     has_arbitrage: bool = False
     edge_percentage: float = 0.0
     strategy: str = ""
@@ -62,122 +73,170 @@ class FullScanResult:
 
 
 class LargeScaleScanner:
-    """
-    Scanner de larga escala OTIMIZADO.
-    - Coleta mercados SEM orderbooks (rápido)
-    - Smart matching por entidades
-    - Análise semântica limitada a 50 pares
-    """
+    """Scanner de larga escala robusto."""
     
     def __init__(
         self,
         target_usd: Decimal = Decimal("100"),
         min_similarity: float = 0.35,
         min_edge: Decimal = Decimal("0.01"),
-        max_markets_per_platform: int = 50000,
+        max_markets_per_platform: int = 1000,  # REDUZIDO para evitar timeout
         use_semantic: bool = True,
-        max_semantic_checks: int = 50,  # REDUZIDO para evitar timeout
+        max_semantic_checks: int = 20,  # REDUZIDO para evitar timeout
     ):
         self.target_usd = target_usd
         self.min_similarity = min_similarity
         self.min_edge = min_edge
         self.max_markets = max_markets_per_platform
-        self.use_semantic = use_semantic
+        self.use_semantic = use_semantic and SEMANTIC_AVAILABLE
         self.max_semantic_checks = max_semantic_checks
         
-        self.smart_matcher = SmartMatcher(min_match_score=min_similarity)
-        self.semantic_analyzer = SemanticAnalyzer() if use_semantic else None
+        # Inicializar matcher se disponível
+        if SMART_MATCHER_AVAILABLE:
+            self.smart_matcher = SmartMarketMatcher(min_match_score=min_similarity)
+        else:
+            self.smart_matcher = None
+            
+        # Inicializar analyzer se disponível
+        if self.use_semantic and SemanticAnalyzer:
+            try:
+                self.semantic_analyzer = SemanticAnalyzer()
+            except Exception as e:
+                logger.warning(f"Erro inicializando SemanticAnalyzer: {e}")
+                self.semantic_analyzer = None
+                self.use_semantic = False
+        else:
+            self.semantic_analyzer = None
     
     async def full_scan(self) -> FullScanResult:
-        """Executa scan completo otimizado."""
+        """Executa scan completo com tratamento de erros."""
         start_time = datetime.utcnow()
-        logger.info("=== INICIANDO SCAN OTIMIZADO ===")
+        logger.info("=== INICIANDO SCAN ROBUSTO ===")
         
-        # 1. Coletar mercados SEM orderbooks (rápido)
-        logger.info("Fase 1: Coletando mercados...")
-        kalshi_markets = await self._collect_all_kalshi()
-        poly_markets = await self._collect_all_polymarket()
-        
-        logger.info(f"Coletados: {len(kalshi_markets)} Kalshi, {len(poly_markets)} Polymarket")
-        
-        # 2. Smart matching por entidades
-        logger.info("Fase 2: Smart matching por categorias...")
-        matches = self.smart_matcher.find_matches(kalshi_markets, poly_markets)
-        logger.info(f"Smart matches: {len(matches)}")
-        
-        # 3. Análise semântica (limitada a max_semantic_checks)
+        kalshi_markets = []
+        poly_markets = []
+        matches = []
         top_pairs = []
         same_event_count = 0
         semantic_analyzed = 0
         
-        if self.use_semantic and self.semantic_analyzer:
-            logger.info(f"Fase 3: Análise semântica de até {self.max_semantic_checks} candidatos...")
-            
-            # Ordenar por score e pegar top N
-            sorted_matches = sorted(matches, key=lambda x: x.match_score, reverse=True)[:self.max_semantic_checks]
-            
-            for match in sorted_matches:
-                semantic_analyzed += 1
-                
-                analysis = PairAnalysis(
-                    kalshi=match.kalshi,
-                    polymarket=match.polymarket,
-                    category=match.category,
-                    event_type=match.event_type,
-                    match_score=match.match_score,
-                    match_reason=match.match_reason,
+        try:
+            # 1. Coletar mercados Kalshi
+            logger.info("Fase 1a: Coletando Kalshi...")
+            try:
+                kalshi_markets = await asyncio.wait_for(
+                    self._collect_all_kalshi(),
+                    timeout=120  # 2 minutos max
                 )
-                
-                # Análise semântica
+            except asyncio.TimeoutError:
+                logger.error("Timeout coletando Kalshi")
+            except Exception as e:
+                logger.error(f"Erro coletando Kalshi: {e}")
+            
+            logger.info(f"Kalshi: {len(kalshi_markets)} mercados")
+            
+            # 2. Coletar mercados Polymarket
+            logger.info("Fase 1b: Coletando Polymarket...")
+            try:
+                poly_markets = await asyncio.wait_for(
+                    self._collect_all_polymarket(),
+                    timeout=180  # 3 minutos max
+                )
+            except asyncio.TimeoutError:
+                logger.error("Timeout coletando Polymarket")
+            except Exception as e:
+                logger.error(f"Erro coletando Polymarket: {e}")
+            
+            logger.info(f"Polymarket: {len(poly_markets)} mercados")
+            
+            # 3. Smart matching
+            if self.smart_matcher and kalshi_markets and poly_markets:
+                logger.info("Fase 2: Smart matching...")
                 try:
-                    semantic_result = await self.semantic_analyzer.analyze_pair(
-                        match.kalshi.title,
-                        match.polymarket.title,
-                        match.kalshi.description or "",
-                        match.polymarket.description or "",
-                    )
-                    
-                    analysis.is_same_event = semantic_result.get("is_same_event", False)
-                    analysis.semantic_confidence = semantic_result.get("confidence", 0)
-                    analysis.semantic_reasoning = semantic_result.get("reasoning", "")
-                    analysis.event_description = semantic_result.get("event_description", "")
-                    
-                    if analysis.is_same_event:
-                        same_event_count += 1
-                        logger.info(f"✓ MESMO EVENTO: {match.kalshi.title[:50]} <-> {match.polymarket.title[:50]}")
-                        # Inserir confirmados no início
-                        top_pairs.insert(0, self._analysis_to_dict(analysis))
-                    else:
+                    matches = self.smart_matcher.find_matches(kalshi_markets, poly_markets)
+                    logger.info(f"Matches encontrados: {len(matches)}")
+                except Exception as e:
+                    logger.error(f"Erro no smart matching: {e}")
+            
+            # 4. Análise semântica (se disponível)
+            if self.use_semantic and self.semantic_analyzer and matches:
+                logger.info(f"Fase 3: Análise semântica (max {self.max_semantic_checks})...")
+                
+                sorted_matches = sorted(matches, key=lambda x: x.match_score, reverse=True)
+                
+                for match in sorted_matches[:self.max_semantic_checks]:
+                    try:
+                        semantic_analyzed += 1
+                        
+                        analysis = PairAnalysis(
+                            kalshi=match.kalshi,
+                            polymarket=match.polymarket,
+                            category=match.category,
+                            event_type=match.event_type,
+                            match_score=match.match_score,
+                            match_reason=match.match_reason,
+                        )
+                        
+                        # Análise semântica com timeout
+                        try:
+                            result = await asyncio.wait_for(
+                                self.semantic_analyzer.analyze_pair(
+                                    match.kalshi.title,
+                                    match.polymarket.title,
+                                    match.kalshi.description or "",
+                                    match.polymarket.description or "",
+                                ),
+                                timeout=15  # 15 segundos por análise
+                            )
+                            
+                            analysis.is_same_event = result.get("is_same_event", False)
+                            analysis.semantic_confidence = result.get("confidence", 0)
+                            analysis.semantic_reasoning = result.get("reasoning", "")
+                            analysis.event_description = result.get("event_description", "")
+                            
+                            if analysis.is_same_event:
+                                same_event_count += 1
+                                logger.info(f"✓ MESMO EVENTO: {match.kalshi.title[:40]}...")
+                                
+                        except asyncio.TimeoutError:
+                            logger.warning(f"Timeout análise semântica")
+                        except Exception as e:
+                            logger.warning(f"Erro análise: {e}")
+                        
                         top_pairs.append(self._analysis_to_dict(analysis))
                         
-                except Exception as e:
-                    logger.warning(f"Erro análise semântica: {e}")
+                    except Exception as e:
+                        logger.warning(f"Erro processando match: {e}")
+                
+                logger.info(f"Semântica: {semantic_analyzed} analisados, {same_event_count} confirmados")
+            
+            # Se não tem análise semântica, converter matches direto
+            elif matches:
+                logger.info("Convertendo matches (sem análise semântica)...")
+                for match in matches[:100]:
+                    analysis = PairAnalysis(
+                        kalshi=match.kalshi,
+                        polymarket=match.polymarket,
+                        category=match.category,
+                        event_type=match.event_type,
+                        match_score=match.match_score,
+                        match_reason=match.match_reason,
+                    )
                     top_pairs.append(self._analysis_to_dict(analysis))
             
-            logger.info(f"Análise semântica: {semantic_analyzed} analisados, {same_event_count} confirmados")
-        else:
-            # Sem análise semântica
-            for match in matches[:100]:
-                analysis = PairAnalysis(
-                    kalshi=match.kalshi,
-                    polymarket=match.polymarket,
-                    category=match.category,
-                    event_type=match.event_type,
-                    match_score=match.match_score,
-                    match_reason=match.match_reason,
-                )
-                top_pairs.append(self._analysis_to_dict(analysis))
-        
-        # 4. Buscar orderbooks APENAS para pares confirmados
-        logger.info("Fase 4: Buscando orderbooks para pares confirmados...")
-        # TODO: Implementar busca de orderbooks para pares confirmados
+            # Ordenar: confirmados primeiro
+            top_pairs.sort(key=lambda x: (x.get("is_same_event", False), x.get("match_score", 0)), reverse=True)
+            
+        except Exception as e:
+            logger.error(f"Erro geral no scan: {e}")
+            import traceback
+            traceback.print_exc()
         
         # Calcular duração
         end_time = datetime.utcnow()
         duration = (end_time - start_time).total_seconds()
         
         logger.info(f"=== SCAN COMPLETO em {duration:.1f}s ===")
-        logger.info(f"Confirmados: {same_event_count} | Analisados: {semantic_analyzed}")
         
         return FullScanResult(
             timestamp=end_time,
@@ -192,7 +251,7 @@ class LargeScaleScanner:
         )
     
     async def _collect_all_kalshi(self) -> List[Market]:
-        """Coleta todos os mercados Kalshi SEM orderbooks."""
+        """Coleta mercados Kalshi."""
         all_markets = []
         
         async with KalshiCollector() as collector:
@@ -212,20 +271,20 @@ class LargeScaleScanner:
                     all_markets.extend(markets)
                     
                     if len(all_markets) % 200 == 0:
-                        logger.info(f"Kalshi: {len(all_markets)} mercados coletados...")
+                        logger.info(f"Kalshi: {len(all_markets)}...")
                     
                     if not next_cursor:
                         break
                     cursor = next_cursor
                     
                 except Exception as e:
-                    logger.error(f"Erro coletando Kalshi: {e}")
+                    logger.error(f"Erro página Kalshi: {e}")
                     break
         
         return all_markets
     
     async def _collect_all_polymarket(self) -> List[Market]:
-        """Coleta todos os mercados Polymarket SEM orderbooks."""
+        """Coleta mercados Polymarket SEM orderbooks."""
         all_markets = []
         
         async with PolymarketCollector() as collector:
@@ -242,11 +301,10 @@ class LargeScaleScanner:
                     if not markets:
                         break
                     
-                    # NÃO buscar orderbooks aqui - muito lento!
                     all_markets.extend(markets)
                     
-                    if len(all_markets) % 1000 == 0:
-                        logger.info(f"Polymarket: {len(all_markets)} mercados coletados...")
+                    if len(all_markets) % 500 == 0:
+                        logger.info(f"Polymarket: {len(all_markets)}...")
                     
                     offset += 100
                     
@@ -254,10 +312,9 @@ class LargeScaleScanner:
                         break
                         
                 except Exception as e:
-                    logger.error(f"Erro coletando Polymarket: {e}")
+                    logger.error(f"Erro página Polymarket: {e}")
                     break
         
-        logger.info(f"Polymarket: {len(all_markets)} mercados coletados (final)")
         return all_markets
     
     def _analysis_to_dict(self, analysis: PairAnalysis) -> Dict:
