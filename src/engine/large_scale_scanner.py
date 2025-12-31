@@ -114,27 +114,27 @@ class LargeScaleScanner:
             logger.info(f"Fase 3: Análise semântica de até {self.max_semantic_checks} candidatos...")
             
             # Ordenar por score e pegar top N
-            sorted_matches = sorted(matches, key=lambda x: x[2], reverse=True)[:self.max_semantic_checks]
+            sorted_matches = sorted(matches, key=lambda x: x.match_score, reverse=True)[:self.max_semantic_checks]
             
-            for kalshi, poly, score, reason, category, event_type in sorted_matches:
+            for match in sorted_matches:
                 semantic_analyzed += 1
                 
                 analysis = PairAnalysis(
-                    kalshi=kalshi,
-                    polymarket=poly,
-                    category=category,
-                    event_type=event_type,
-                    match_score=score,
-                    match_reason=reason,
+                    kalshi=match.kalshi,
+                    polymarket=match.polymarket,
+                    category=match.category,
+                    event_type=match.event_type,
+                    match_score=match.match_score,
+                    match_reason=match.match_reason,
                 )
                 
                 # Análise semântica
                 try:
                     semantic_result = await self.semantic_analyzer.analyze_pair(
-                        kalshi.title,
-                        poly.title,
-                        kalshi.description or "",
-                        poly.description or "",
+                        match.kalshi.title,
+                        match.polymarket.title,
+                        match.kalshi.description or "",
+                        match.polymarket.description or "",
                     )
                     
                     analysis.is_same_event = semantic_result.get("is_same_event", False)
@@ -144,7 +144,7 @@ class LargeScaleScanner:
                     
                     if analysis.is_same_event:
                         same_event_count += 1
-                        logger.info(f"✓ MESMO EVENTO: {kalshi.title[:50]} <-> {poly.title[:50]}")
+                        logger.info(f"✓ MESMO EVENTO: {match.kalshi.title[:50]} <-> {match.polymarket.title[:50]}")
                         # Inserir confirmados no início
                         top_pairs.insert(0, self._analysis_to_dict(analysis))
                     else:
@@ -157,14 +157,14 @@ class LargeScaleScanner:
             logger.info(f"Análise semântica: {semantic_analyzed} analisados, {same_event_count} confirmados")
         else:
             # Sem análise semântica
-            for kalshi, poly, score, reason, category, event_type in matches[:100]:
+            for match in matches[:100]:
                 analysis = PairAnalysis(
-                    kalshi=kalshi,
-                    polymarket=poly,
-                    category=category,
-                    event_type=event_type,
-                    match_score=score,
-                    match_reason=reason,
+                    kalshi=match.kalshi,
+                    polymarket=match.polymarket,
+                    category=match.category,
+                    event_type=match.event_type,
+                    match_score=match.match_score,
+                    match_reason=match.match_reason,
                 )
                 top_pairs.append(self._analysis_to_dict(analysis))
         
