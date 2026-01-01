@@ -76,9 +76,12 @@ class LargeScaleScanner:
         self.target_usd = target_usd
         self.min_similarity = min_similarity
         self.min_edge = min_edge
-        self.max_markets = max_markets_per_platform
+        # FORÇAR limite máximo de 500 para evitar timeout
+        self.max_markets = min(max_markets_per_platform, 500)
         self.use_semantic = use_semantic and SEMANTIC_AVAILABLE
         self.max_semantic_checks = max_semantic_checks
+        
+        logger.info(f"Scanner inicializado: max_markets={self.max_markets}, semantic={self.use_semantic}")
         
         # Inicializar matcher se disponível
         if SMART_MATCHER_AVAILABLE:
@@ -124,25 +127,15 @@ class LargeScaleScanner:
             
             # Kalshi
             try:
-                kalshi_markets = await asyncio.wait_for(
-                    self._collect_kalshi(),
-                    timeout=60
-                )
+                kalshi_markets = await self._collect_kalshi()
                 logger.info(f"Kalshi: {len(kalshi_markets)} mercados")
-            except asyncio.TimeoutError:
-                logger.error("Timeout coletando Kalshi")
             except Exception as e:
                 logger.error(f"Erro Kalshi: {e}")
             
             # Polymarket
             try:
-                poly_markets = await asyncio.wait_for(
-                    self._collect_polymarket(),
-                    timeout=60
-                )
+                poly_markets = await self._collect_polymarket()
                 logger.info(f"Polymarket: {len(poly_markets)} mercados")
-            except asyncio.TimeoutError:
-                logger.error("Timeout coletando Polymarket")
             except Exception as e:
                 logger.error(f"Erro Polymarket: {e}")
             
@@ -303,10 +296,10 @@ class LargeScaleScanner:
         """Coleta mercados Polymarket."""
         all_markets = []
         
-        try:
-            async with PolymarketCollector() as collector:
-                offset = 0
-                
+        async with PolymarketCollector() as collector:
+            offset = 0
+            
+            try:
                 while len(all_markets) < self.max_markets:
                     markets = await collector.get_markets(
                         active=True,
@@ -327,7 +320,8 @@ class LargeScaleScanner:
                     if len(markets) < 100 or len(all_markets) >= self.max_markets:
                         break
                         
-        except Exception as e:
-            logger.error(f"Erro coletando Polymarket: {e}")
+            except Exception as e:
+                logger.error(f"Erro coletando Polymarket: {e}")
         
+        logger.info(f"Polymarket: {len(all_markets)} mercados coletados")
         return all_markets[:self.max_markets]
