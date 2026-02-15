@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arbitragem Profissional | Kalshi × Polymarket</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-tertiary: #1a1a24;
+            --bg-card: #16161f;
+            --border-color: #2a2a3a;
+            --text-primary: #f0f0f5;
+            --text-secondary: #a0a0b0;
+            --text-muted: #606070;
+            --accent-green: #22c55e;
+            --accent-red: #ef4444;
+            --accent-yellow: #f59e0b;
+            --accent-blue: #3b82f6;
+            --accent-purple: #8b5cf6;
+            --accent-cyan: #06b6d4;
+            --poly-color: #8b5cf6;
+            --kalshi-color: #f59e0b;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        h1 span { font-weight: 400; opacity: 0.7; }
+        
+        .status-badge {
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .status-badge.connected {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--accent-green);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+        
+        .status-badge.disconnected {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--accent-red);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+        
+        .config-panel {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            border: 1px solid var(--border-color);
+        }
+        
+        .config-title {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--text-secondary);
+        }
+        
+        .config-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+        
+        .config-item label {
+            display: block;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: 0.25rem;
+        }
+        
+        .config-item input, .config-item select {
+            width: 100%;
+            padding: 0.5rem 0.75rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+        }
+        
+        .config-item input:focus, .config-item select:focus {
+            outline: none;
+            border-color: var(--accent-purple);
+        }
+        
+        /* Categories Grid */
+        .categories-section {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border-color);
+        }
+        
+        .categories-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 0.5rem;
+        }
+        
+        .category-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.8rem;
+        }
+        
+        .category-checkbox:hover {
+            border-color: var(--accent-purple);
+            background: rgba(139, 92, 246, 0.1);
+        }
+        
+        .category-checkbox input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--accent-purple);
+            cursor: pointer;
+        }
+        
+        .category-checkbox input[type="checkbox"]:checked + .checkbox-label {
+            color: var(--accent-purple);
+            font-weight: 600;
+        }
+        
+        .checkbox-label {
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+        
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
+            color: white;
+        }
+        
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(139, 92, 246, 0.3);
+        }
+        
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .stat-card {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 1rem;
+            text-align: center;
+            border: 1px solid var(--border-color);
+        }
+        
+        .stat-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .stat-value.green { color: var(--accent-green); }
+        .stat-value.yellow { color: var(--accent-yellow); }
+        .stat-value.red { color: var(--accent-red); }
+        
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .opportunities-section {
+            margin-top: 2rem;
+        }
+        
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+        
+        /* Opportunity Card */
+        .opp-card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+        }
+        
+        .opp-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.25rem;
+            border-bottom: 1px solid var(--border-color);
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.05), rgba(6, 182, 212, 0.05));
+        }
+        
+        .opp-title {
+            font-size: 0.95rem;
+            font-weight: 600;
+            flex: 1;
+        }
+        
+        .opp-badges {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        
+        .badge {
+            padding: 0.25rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+        
+        .badge-profit {
+            background: rgba(34, 197, 94, 0.2);
+            color: var(--accent-green);
+            font-size: 1.1rem;
+            padding: 0.5rem 1rem;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .badge-time {
+            background: var(--bg-tertiary);
+        }
+        
+        .badge-time.urgent {
+            background: linear-gradient(135deg, var(--accent-red), #dc2626);
+            color: white;
+        }
+        
+        .badge-time.soon {
+            background: linear-gradient(135deg, var(--accent-yellow), #d97706);
+            color: white;
+        }
+        
+        .badge-score {
+            background: rgba(59, 130, 246, 0.2);
+            color: var(--accent-blue);
+        }
+        
+        .opp-body {
+            padding: 1.25rem;
+        }
+        
+        .platforms-compare {
+            display: grid;
+            grid-template-columns: 1fr 50px 1fr;
+            gap: 1rem;
+            align-items: start;
+            margin-bottom: 1.5rem;
+        }
+        
+        .platform-card {
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+            padding: 1rem;
+        }
+        
+        .platform-card.poly {
+            border-left: 3px solid var(--poly-color);
+        }
+        
+        .platform-card.kalshi {
+            border-left: 3px solid var(--kalshi-color);
+        }
+        
+        .platform-name {
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .platform-name.poly { color: var(--poly-color); }
+        .platform-name.kalshi { color: var(--kalshi-color); }
+        
+        .platform-market {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.75rem;
+        }
+        
+        .prices-row {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 0.75rem;
+        }
+        
+        .price-box {
+            flex: 1;
+            text-align: center;
+            padding: 0.5rem;
+            background: var(--bg-secondary);
+            border-radius: 6px;
+        }
+        
+        .price-label {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+        
+        .price-value {
+            font-size: 1rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .price-value.yes { color: var(--accent-green); }
+        .price-value.no { color: var(--accent-red); }
+        
+        .action-badge {
+            display: inline-block;
+            padding: 0.35rem 0.75rem;
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(34, 197, 94, 0.1));
+            border: 1px solid var(--accent-green);
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--accent-green);
+        }
+        
+        .platform-link {
+            display: block;
+            margin-top: 0.75rem;
+            padding: 0.5rem;
+            background: var(--bg-secondary);
+            border-radius: 6px;
+            text-align: center;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.8rem;
+            transition: background 0.2s;
+        }
+        
+        .platform-link:hover {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+        
+        .vs-divider {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--text-muted);
+        }
+        
+        /* Strategy Section */
+        .strategy-section {
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .strategy-title {
+            font-size: 0.75rem;
+            color: var(--accent-cyan);
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        
+        .strategy-text {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 1rem;
+        }
+        
+        .returns-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+        }
+        
+        .return-card {
+            text-align: center;
+            padding: 0.75rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+        }
+        
+        .return-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+        }
+        
+        .return-value {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--accent-green);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .return-subtext {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+        }
+        
+        /* Details Sections */
+        .details-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+        }
+        
+        details {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        summary {
+            padding: 0.75rem 1rem;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--accent-purple);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        summary:hover {
+            background: rgba(139, 92, 246, 0.1);
+        }
+        
+        summary::marker {
+            display: none;
+        }
+        
+        summary::after {
+            content: '▼';
+            font-size: 0.6rem;
+        }
+        
+        details[open] summary::after {
+            content: '▲';
+        }
+        
+        .detail-content {
+            padding: 1rem;
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border-color);
+        }
+        
+        .fee-row, .payoff-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px dashed var(--border-color);
+            font-size: 0.8rem;
+        }
+        
+        .fee-row:last-child, .payoff-row:last-child {
+            border-bottom: none;
+        }
+        
+        .fee-label { color: var(--text-secondary); }
+        .fee-value { font-family: 'JetBrains Mono', monospace; }
+        
+        .payoff-positive { color: var(--accent-green); }
+        .payoff-negative { color: var(--accent-red); }
+        
+        /* Warnings */
+        .warnings-section {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 8px;
+        }
+        
+        .warning-item {
+            font-size: 0.8rem;
+            color: var(--accent-yellow);
+            display: flex;
+            align-items: flex-start;
+            gap: 0.5rem;
+        }
+        
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            background: var(--bg-card);
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+        }
+        
+        .empty-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+        
+        .empty-title {
+            font-size: 1.25rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .empty-text {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+        
+        /* Loading */
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(10, 10, 15, 0.9);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+        }
+        
+        .loading-overlay.active {
+            display: flex;
+        }
+        
+        .spinner {
+            width: 60px;
+            height: 60px;
+            border: 4px solid var(--bg-tertiary);
+            border-top-color: var(--accent-purple);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .loading-text {
+            margin-top: 1rem;
+            color: var(--text-secondary);
+        }
+        
+        /* Responsive */
+        @media (max-width: 900px) {
+            .stats-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+            .platforms-compare {
+                grid-template-columns: 1fr;
+            }
+            .vs-divider {
+                padding: 1rem 0;
+            }
+            .details-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner"></div>
+        <div class="loading-text">Analisando mercados...</div>
+    </div>
+    
+    <div class="container">
+        <header>
+            <h1>Arbitragem <span>Profissional</span></h1>
+            <div class="status-badge disconnected" id="statusBadge">
+                <span id="statusDot">●</span>
+                <span id="statusText">Desconectado</span>
+            </div>
+        </header>
+        
+        <!-- Config Panel -->
+        <div class="config-panel">
+            <div class="config-title">⚙️ Configurações</div>
+            <div class="config-grid">
+                <div class="config-item">
+                    <label>API Key Kalshi</label>
+                    <input type="password" id="apiKey" placeholder="Sua API Key">
+                </div>
+                <div class="config-item">
+                    <label>Lucro Mínimo (%)</label>
+                    <input type="number" id="minProfit" value="2.0" step="0.5" min="0">
+                </div>
+                <div class="config-item">
+                    <label>Lucro Mínimo ($)</label>
+                    <input type="number" id="minProfitAbs" value="1.0" step="0.5" min="0">
+                </div>
+                <div class="config-item">
+                    <label>Tamanho Máx ($)</label>
+                    <input type="number" id="maxSize" value="1000" step="100" min="100">
+                </div>
+                <div class="config-item">
+                    <label>Mercados por Plataforma</label>
+                    <select id="marketLimit">
+                        <option value="200">200</option>
+                        <option value="500" selected>500</option>
+                        <option value="1000">1000</option>
+                        <option value="2000">2000</option>
+                        <option value="5000">5000 (Todos)</option>
+                    </select>
+                </div>
+            </div>
+            
+            <!-- Filtro de Categorias -->
+            <div class="categories-section">
+                <div class="config-title" style="margin-top: 1.5rem;">🏷️ Filtrar por Categoria</div>
+                <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+                    Selecione uma ou mais categorias para concentrar a busca e encontrar mais oportunidades
+                </p>
+                <div class="categories-grid" id="categoriesGrid">
+                    <label class="category-checkbox">
+                        <input type="checkbox" value="all" id="catAll" checked>
+                        <span class="checkbox-label">📊 Todas</span>
+                    </label>
+                    <label class="category-checkbox">
+                        <input type="checkbox" value="politics" id="catPolitics">
+                        <span class="checkbox-label">🏛️ Política</span>
+                    </label>
+                    <label class="category-checkbox">
+                        <input type="checkbox" value="economics" id="catEconomics">
+                        <span class="checkbox-label">📈 Economia</span>
+                    </label>
+                    <label class="category-checkbox">
+                        <input type="checkbox" value="crypto" id="catCrypto">
+                        <span class="checkbox-label">₿ Cripto</span>
+                    </label>
+                    <label class="category-checkbox">
+                        <input type="checkbox" value="tech" id="catTech">
+                        <span class="checkbox-label">💻 Tecnologia</span>
+                    </label>
+                    <label class="category-checkbox">
+                        <input type="checkbox" value="sports" id="catSports">
+                        <span class="checkbox-label">⚽ Esportes</span>
+                    </label>
+                    <label class="category-checkbox">
+                        <input type="checkbox" value="entertainment" id="catEntertainment">
+                        <span class="checkbox-label">🎬 Entretenimento</span>
+                    </label>
+                    <label class="category-checkbox">
+                        <input type="checkbox" value="world" id="catWorld">
+                        <span class="checkbox-label">🌍 Mundo</span>
+                    </label>
+                    <label class="category-checkbox">
+                        <input type="checkbox" value="elections" id="catElections">
+                        <span class="checkbox-label">🗳️ Eleições</span>
+                    </label>
+                    <label class="category-checkbox">
+                        <input type="checkbox" value="finance" id="catFinance">
+                        <span class="checkbox-label">💰 Finanças</span>
+                    </label>
+                </div>
+            </div>
+            
+            <div style="margin-top: 1.5rem;">
+                <button class="btn btn-primary" id="scanBtn" style="width: 100%; padding: 1rem;">
+                    🔍 Buscar Arbitragem
+                </button>
+            </div>
+        </div>
+        
+        <!-- Stats -->
+        <div class="stats-grid" id="statsGrid" style="display: none;">
+            <div class="stat-card">
+                <div class="stat-value" id="statPoly">0</div>
+                <div class="stat-label">Polymarket</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="statKalshi">0</div>
+                <div class="stat-label">Kalshi</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="statMatches">0</div>
+                <div class="stat-label">Matches</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value green" id="statArbs">0</div>
+                <div class="stat-label">Arbitragens</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="statMinProfit">0%</div>
+                <div class="stat-label">Min Lucro</div>
+            </div>
+        </div>
+        
+        <!-- Results -->
+        <div class="opportunities-section">
+            <div class="section-header">
+                <h2 class="section-title">📊 Oportunidades de Arbitragem</h2>
+            </div>
+            <div id="results">
+                <div class="empty-state">
+                    <div class="empty-icon">🎯</div>
+                    <h3 class="empty-title">Configure e inicie a busca</h3>
+                    <p class="empty-text">
+                        Insira sua API Key do Kalshi e clique em "Buscar Arbitragem" para encontrar 
+                        oportunidades com análise profissional completa.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const API_URL = 'http://localhost:8000';
+        
+        // Load saved API key
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedKey = localStorage.getItem('kalshi_api_key');
+            if (savedKey) {
+                document.getElementById('apiKey').value = savedKey;
+                updateStatus(true);
+            }
+        });
+        
+        function updateStatus(connected) {
+            const badge = document.getElementById('statusBadge');
+            const text = document.getElementById('statusText');
+            if (connected) {
+                badge.className = 'status-badge connected';
+                text.textContent = 'API Key salva';
+            } else {
+                badge.className = 'status-badge disconnected';
+                text.textContent = 'Desconectado';
+            }
+        }
+        
+        document.getElementById('apiKey').addEventListener('change', (e) => {
+            localStorage.setItem('kalshi_api_key', e.target.value);
+            updateStatus(!!e.target.value);
+        });
+        
+        // ==========================================
+        // LÓGICA DE CATEGORIAS
+        // ==========================================
+        
+        function getSelectedCategories() {
+            const checkboxes = document.querySelectorAll('.category-checkbox input[type="checkbox"]:checked');
+            const categories = [];
+            checkboxes.forEach(cb => {
+                if (cb.value !== 'all') {
+                    categories.push(cb.value);
+                }
+            });
+            return categories;
+        }
+        
+        // Quando "Todas" é marcada, desmarca as outras
+        document.getElementById('catAll').addEventListener('change', (e) => {
+            if (e.target.checked) {
+                document.querySelectorAll('.category-checkbox input[type="checkbox"]').forEach(cb => {
+                    if (cb.id !== 'catAll') {
+                        cb.checked = false;
+                    }
+                });
+            }
+        });
+        
+        // Quando outra categoria é marcada, desmarca "Todas"
+        document.querySelectorAll('.category-checkbox input[type="checkbox"]').forEach(cb => {
+            if (cb.id !== 'catAll') {
+                cb.addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        document.getElementById('catAll').checked = false;
+                    }
+                    // Se nenhuma está marcada, marca "Todas"
+                    const anyChecked = Array.from(document.querySelectorAll('.category-checkbox input[type="checkbox"]:checked')).length > 0;
+                    if (!anyChecked) {
+                        document.getElementById('catAll').checked = true;
+                    }
+                });
+            }
+        });
+        
+        // ==========================================
+        // BUSCAR ARBITRAGEM
+        // ==========================================
+        
+        document.getElementById('scanBtn').addEventListener('click', async () => {
+            const apiKey = document.getElementById('apiKey').value;
+            if (!apiKey) {
+                alert('Insira sua API Key do Kalshi');
+                return;
+            }
+            
+            const btn = document.getElementById('scanBtn');
+            const overlay = document.getElementById('loadingOverlay');
+            const loadingText = document.querySelector('.loading-text');
+            
+            btn.disabled = true;
+            overlay.classList.add('active');
+            
+            // Obter categorias selecionadas
+            const selectedCategories = getSelectedCategories();
+            const isAllCategories = document.getElementById('catAll').checked;
+            
+            if (isAllCategories) {
+                loadingText.textContent = 'Analisando TODOS os mercados...';
+            } else {
+                loadingText.textContent = `Analisando categorias: ${selectedCategories.join(', ')}...`;
+            }
+            
+            try {
+                const response = await fetch(`${API_URL}/scan/professional`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        kalshi_api_key: apiKey,
+                        min_profit_percentage: parseFloat(document.getElementById('minProfit').value),
+                        min_profit_absolute: parseFloat(document.getElementById('minProfitAbs').value),
+                        max_size_per_trade: parseFloat(document.getElementById('maxSize').value),
+                        limit: parseInt(document.getElementById('marketLimit').value),
+                        categories: isAllCategories ? null : selectedCategories
+                    }),
+                    signal: AbortSignal.timeout(600000)
+                });
+                
+                const data = await response.json();
+                
+                // Update stats
+                document.getElementById('statsGrid').style.display = 'grid';
+                document.getElementById('statPoly').textContent = data.polymarket_markets || 0;
+                document.getElementById('statKalshi').textContent = data.kalshi_markets || 0;
+                document.getElementById('statMatches').textContent = data.matches_found || 0;
+                document.getElementById('statArbs').textContent = data.arbitrage_count || 0;
+                document.getElementById('statMinProfit').textContent = `${data.config?.min_profit_percentage || 2}%`;
+                
+                // Render opportunities
+                renderOpportunities(data.opportunities || []);
+                
+            } catch (error) {
+                alert(`Erro: ${error.message}`);
+            } finally {
+                btn.disabled = false;
+                overlay.classList.remove('active');
+            }
+        });
+        
+        function renderOpportunities(opportunities) {
+            const container = document.getElementById('results');
+            
+            if (!opportunities.length) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">✅</div>
+                        <h3 class="empty-title">Nenhuma Arbitragem Encontrada</h3>
+                        <p class="empty-text">
+                            Os mercados estão eficientes no momento. Nenhuma oportunidade passa nos filtros 
+                            profissionais configurados. Tente reduzir o lucro mínimo ou aumentar o número de mercados.
+                        </p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = opportunities.map((opp, i) => {
+                const daysText = opp.days_to_resolution !== null 
+                    ? `${opp.days_to_resolution} dias`
+                    : 'N/A';
+                const daysClass = opp.days_to_resolution <= 7 ? 'urgent' 
+                    : opp.days_to_resolution <= 30 ? 'soon' : '';
+                
+                return `
+                <div class="opp-card">
+                    <div class="opp-header">
+                        <div class="opp-title">#${i+1} ${opp.poly_title.substring(0, 80)}...</div>
+                        <div class="opp-badges">
+                            <span class="badge badge-time ${daysClass}">⏱ ${daysText}</span>
+                            <span class="badge badge-score">Score: ${opp.overall_score.toFixed(0)}</span>
+                            <span class="badge badge-profit">+${opp.net_profit_percentage.toFixed(1)}%</span>
+                        </div>
+                    </div>
+                    <div class="opp-body">
+                        <div class="platforms-compare">
+                            <div class="platform-card poly">
+                                <div class="platform-name poly">🟣 POLYMARKET</div>
+                                <div class="platform-market">${opp.poly_title.substring(0, 60)}...</div>
+                                <div class="prices-row">
+                                    <div class="price-box">
+                                        <div class="price-label">YES</div>
+                                        <div class="price-value yes">$${opp.poly_yes_price.toFixed(3)}</div>
+                                    </div>
+                                    <div class="price-box">
+                                        <div class="price-label">NO</div>
+                                        <div class="price-value no">$${opp.poly_no_price.toFixed(3)}</div>
+                                    </div>
+                                </div>
+                                <div class="action-badge">${opp.action_poly}</div>
+                                <a href="${opp.poly_url}" target="_blank" class="platform-link">🔗 Abrir no Polymarket</a>
+                            </div>
+                            
+                            <div class="vs-divider">VS</div>
+                            
+                            <div class="platform-card kalshi">
+                                <div class="platform-name kalshi">🟡 KALSHI</div>
+                                <div class="platform-market">${opp.kalshi_title.substring(0, 60)}...</div>
+                                <div class="prices-row">
+                                    <div class="price-box">
+                                        <div class="price-label">YES</div>
+                                        <div class="price-value yes">$${opp.kalshi_yes_price.toFixed(3)}</div>
+                                    </div>
+                                    <div class="price-box">
+                                        <div class="price-label">NO</div>
+                                        <div class="price-value no">$${opp.kalshi_no_price.toFixed(3)}</div>
+                                    </div>
+                                </div>
+                                <div class="action-badge">${opp.action_kalshi}</div>
+                                <a href="${opp.kalshi_url}" target="_blank" class="platform-link">🔗 Abrir no Kalshi</a>
+                            </div>
+                        </div>
+                        
+                        <div class="strategy-section">
+                            <div class="strategy-title">💡 ESTRATÉGIA</div>
+                            <div class="strategy-text">${opp.strategy}</div>
+                            
+                            <div class="returns-grid">
+                                <div class="return-card">
+                                    <div class="return-label">$100 investidos</div>
+                                    <div class="return-value">+$${(opp.net_profit_percentage * 1).toFixed(2)}</div>
+                                    <div class="return-subtext">Lucro líquido</div>
+                                </div>
+                                <div class="return-card">
+                                    <div class="return-label">$500 investidos</div>
+                                    <div class="return-value">+$${(opp.net_profit_percentage * 5).toFixed(2)}</div>
+                                    <div class="return-subtext">Lucro líquido</div>
+                                </div>
+                                <div class="return-card">
+                                    <div class="return-label">$1000 investidos</div>
+                                    <div class="return-value">+$${(opp.net_profit_percentage * 10).toFixed(2)}</div>
+                                    <div class="return-subtext">Lucro líquido</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="details-grid">
+                            <details>
+                                <summary>💰 Taxas Detalhadas</summary>
+                                <div class="detail-content">
+                                    <div class="fee-row">
+                                        <span class="fee-label">Polymarket Trading</span>
+                                        <span class="fee-value">${opp.fees_breakdown?.polymarket || '2%'}</span>
+                                    </div>
+                                    <div class="fee-row">
+                                        <span class="fee-label">Kalshi Taxas</span>
+                                        <span class="fee-value">${opp.fees_breakdown?.kalshi || '7% + 1%'}</span>
+                                    </div>
+                                    <div class="fee-row">
+                                        <span class="fee-label">Taxa Poly (por contrato)</span>
+                                        <span class="fee-value">$${opp.poly_fees.toFixed(4)}</span>
+                                    </div>
+                                    <div class="fee-row">
+                                        <span class="fee-label">Taxa Kalshi (por contrato)</span>
+                                        <span class="fee-value">$${opp.kalshi_fees.toFixed(4)}</span>
+                                    </div>
+                                    <div class="fee-row" style="font-weight: 700; color: var(--accent-yellow);">
+                                        <span class="fee-label">TOTAL TAXAS</span>
+                                        <span class="fee-value">$${opp.total_fees.toFixed(4)}</span>
+                                    </div>
+                                </div>
+                            </details>
+                            
+                            <details>
+                                <summary>📊 Cenários de Payoff</summary>
+                                <div class="detail-content">
+                                    ${opp.payoff_scenarios?.map(s => `
+                                        <div class="payoff-row">
+                                            <span class="fee-label">${s.scenario_name}</span>
+                                            <span class="fee-value ${s.net_return >= 0 ? 'payoff-positive' : 'payoff-negative'}">
+                                                ${s.net_return >= 0 ? '+' : ''}$${s.net_return.toFixed(2)}
+                                                (${s.roi_percentage >= 0 ? '+' : ''}${s.roi_percentage.toFixed(1)}%)
+                                            </span>
+                                        </div>
+                                    `).join('') || 'Sem dados'}
+                                    <div class="payoff-row" style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border-color);">
+                                        <span class="fee-label" style="color: var(--accent-green);">✅ Lucro Mínimo Garantido</span>
+                                        <span class="fee-value payoff-positive">$${opp.guaranteed_min_profit?.toFixed(2) || '0.00'}</span>
+                                    </div>
+                                    <div class="payoff-row">
+                                        <span class="fee-label" style="color: var(--accent-red);">⚠️ Perda Máx (falha parcial)</span>
+                                        <span class="fee-value payoff-negative">$${opp.max_loss_if_partial?.toFixed(2) || '0.00'}</span>
+                                    </div>
+                                </div>
+                            </details>
+                        </div>
+                        
+                        ${opp.warnings?.length ? `
+                            <div class="warnings-section">
+                                ${opp.warnings.map(w => `
+                                    <div class="warning-item">⚠️ ${w}</div>
+                                `).join('')}
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+                `;
+            }).join('');
+        }
+    </script>
+</body>
+</html>
+

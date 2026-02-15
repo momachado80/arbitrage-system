@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🐋 Whale Tracker - Rastreador de Insiders</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a25;
+            --bg-hover: #252535;
+            --accent-whale: #00d4ff;
+            --accent-alert: #ff6b6b;
+            --accent-warning: #ffd93d;
+            --accent-success: #6bcb77;
+            --accent-purple: #a855f7;
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0b0;
+            --text-muted: #606070;
+            --border: #2a2a3a;
+            --gradient-whale: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
+            --gradient-alert: linear-gradient(135deg, #ff6b6b 0%, #cc4444 100%);
+            --gradient-bg: radial-gradient(ellipse at top, #1a1a2e 0%, #0a0a0f 70%);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: var(--gradient-bg);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Header */
+        .header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 1.5rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+
+        .header-content {
+            max-width: 1600px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo-icon {
+            font-size: 2.5rem;
+        }
+
+        .logo-text h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: var(--gradient-whale);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .logo-text span {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 1rem;
+        }
+
+        .nav-link {
+            padding: 0.75rem 1.25rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .nav-link:hover, .nav-link.active {
+            background: var(--bg-hover);
+            color: var(--accent-whale);
+            border-color: var(--accent-whale);
+        }
+
+        /* Main */
+        .main {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 2rem;
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 2rem;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 1.5rem;
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .card-header h2 {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .card-icon {
+            font-size: 1.25rem;
+        }
+
+        /* Controls */
+        .control-group {
+            margin-bottom: 1.25rem;
+        }
+
+        .control-group label {
+            display: block;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .control-group input, .control-group select {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+        }
+
+        .control-group input:focus, .control-group select:focus {
+            outline: none;
+            border-color: var(--accent-whale);
+        }
+
+        .btn {
+            width: 100%;
+            padding: 1rem;
+            border: none;
+            border-radius: 10px;
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: var(--gradient-whale);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(0, 212, 255, 0.3);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-hover);
+            border-color: var(--accent-whale);
+        }
+
+        /* Stats */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+        }
+
+        .stat-card {
+            background: var(--bg-secondary);
+            border-radius: 10px;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .stat-value.whale {
+            color: var(--accent-whale);
+        }
+
+        .stat-value.alert {
+            color: var(--accent-alert);
+        }
+
+        .stat-value.warning {
+            color: var(--accent-warning);
+        }
+
+        .stat-value.success {
+            color: var(--accent-success);
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+        }
+
+        /* Main Content */
+        .content {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            background: var(--bg-card);
+            padding: 0.5rem;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+
+        .tab {
+            flex: 1;
+            padding: 0.875rem 1.5rem;
+            background: transparent;
+            border: none;
+            border-radius: 8px;
+            color: var(--text-secondary);
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .tab:hover {
+            background: var(--bg-hover);
+        }
+
+        .tab.active {
+            background: var(--gradient-whale);
+            color: white;
+        }
+
+        /* Alerts Panel */
+        .alerts-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            overflow: hidden;
+            flex: 1;
+        }
+
+        .alerts-header {
+            padding: 1.25rem 1.5rem;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .alerts-header h2 {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.1rem;
+        }
+
+        .alerts-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .alerts-actions button {
+            padding: 0.5rem 1rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .alerts-actions button:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+
+        .alerts-list {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .alert-item {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+            transition: background 0.2s;
+            cursor: pointer;
+        }
+
+        .alert-item:hover {
+            background: var(--bg-hover);
+        }
+
+        .alert-item.acknowledged {
+            opacity: 0.5;
+        }
+
+        .alert-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 0.75rem;
+        }
+
+        .alert-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .priority-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .priority-CRITICAL {
+            background: rgba(255, 107, 107, 0.2);
+            color: var(--accent-alert);
+            border: 1px solid var(--accent-alert);
+        }
+
+        .priority-HIGH {
+            background: rgba(255, 217, 61, 0.2);
+            color: var(--accent-warning);
+            border: 1px solid var(--accent-warning);
+        }
+
+        .priority-MEDIUM {
+            background: rgba(168, 85, 247, 0.2);
+            color: var(--accent-purple);
+            border: 1px solid var(--accent-purple);
+        }
+
+        .priority-LOW {
+            background: rgba(107, 203, 119, 0.2);
+            color: var(--accent-success);
+            border: 1px solid var(--accent-success);
+        }
+
+        .alert-time {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .alert-title {
+            font-weight: 600;
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .alert-message {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .alert-details {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+
+        .alert-detail {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            background: var(--bg-secondary);
+            padding: 0.35rem 0.75rem;
+            border-radius: 6px;
+        }
+
+        .alert-detail strong {
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Whales Panel */
+        .whales-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 1rem;
+            padding: 1.5rem;
+        }
+
+        .whale-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
+            transition: all 0.2s;
+        }
+
+        .whale-card:hover {
+            border-color: var(--accent-whale);
+            transform: translateY(-2px);
+        }
+
+        .whale-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+        }
+
+        .whale-address {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            color: var(--accent-whale);
+            cursor: pointer;
+        }
+
+        .whale-address:hover {
+            text-decoration: underline;
+        }
+
+        .whale-flags {
+            display: flex;
+            gap: 0.35rem;
+        }
+
+        .whale-flag {
+            font-size: 1rem;
+        }
+
+        .whale-stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.75rem;
+        }
+
+        .whale-stat {
+            background: var(--bg-card);
+            padding: 0.75rem;
+            border-radius: 8px;
+        }
+
+        .whale-stat-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: var(--text-primary);
+        }
+
+        .whale-stat-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+        }
+
+        /* Empty state */
+        .empty-state {
+            padding: 4rem 2rem;
+            text-align: center;
+            color: var(--text-muted);
+        }
+
+        .empty-state-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+
+        .empty-state h3 {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        /* Loading */
+        .loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 3rem;
+            gap: 1rem;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid var(--border);
+            border-top-color: var(--accent-whale);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        /* Status indicator */
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: var(--bg-secondary);
+            border-radius: 20px;
+            font-size: 0.85rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.online {
+            background: var(--accent-success);
+        }
+
+        .status-dot.scanning {
+            background: var(--accent-whale);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .main {
+                grid-template-columns: 1fr;
+            }
+            
+            .sidebar {
+                flex-direction: row;
+                flex-wrap: wrap;
+            }
+            
+            .sidebar .card {
+                flex: 1;
+                min-width: 300px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header-content {
+                flex-direction: column;
+                gap: 1rem;
+            }
+            
+            .nav-links {
+                width: 100%;
+                justify-content: center;
+            }
+            
+            .tabs {
+                flex-wrap: wrap;
+            }
+            
+            .whales-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">
+                <span class="logo-icon">🐋</span>
+                <div class="logo-text">
+                    <h1>Whale Tracker</h1>
+                    <span>Rastreador de Carteiras Anômalas</span>
+                </div>
+            </div>
+            <nav class="nav-links">
+                <a href="arbitragem-profissional.html" class="nav-link">📊 Arbitragem</a>
+                <a href="whale-tracker.html" class="nav-link active">🐋 Whale Tracker</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="main">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <!-- Scanner Controls -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">🔍</span>
+                    <h2>Scanner de Whales</h2>
+                </div>
+                
+                <div class="control-group">
+                    <label>Volume Mínimo (USD)</label>
+                    <input type="number" id="minVolume" value="10000" min="1000" step="1000">
+                </div>
+                
+                <div class="control-group">
+                    <label>Período de Análise</label>
+                    <select id="lookbackHours">
+                        <option value="6">Últimas 6 horas</option>
+                        <option value="12">Últimas 12 horas</option>
+                        <option value="24" selected>Últimas 24 horas</option>
+                        <option value="48">Últimas 48 horas</option>
+                        <option value="168">Última semana</option>
+                    </select>
+                </div>
+                
+                <button class="btn btn-primary" id="scanBtn" onclick="scanWhales()">
+                    <span>🐋</span>
+                    <span>Escanear Whales</span>
+                </button>
+            </div>
+            
+            <!-- Watch Wallet -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">👁️</span>
+                    <h2>Monitorar Carteira</h2>
+                </div>
+                
+                <div class="control-group">
+                    <label>Endereço da Carteira</label>
+                    <input type="text" id="walletAddress" placeholder="0x...">
+                </div>
+                
+                <button class="btn btn-secondary" onclick="watchWallet()">
+                    <span>➕</span>
+                    <span>Adicionar ao Monitoramento</span>
+                </button>
+            </div>
+            
+            <!-- Stats -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">📈</span>
+                    <h2>Estatísticas</h2>
+                </div>
+                
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value whale" id="statWhales">0</div>
+                        <div class="stat-label">Whales Detectados</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value alert" id="statAlerts">0</div>
+                        <div class="stat-label">Alertas Ativos</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value warning" id="statCritical">0</div>
+                        <div class="stat-label">Críticos</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value success" id="statNewWallets">0</div>
+                        <div class="stat-label">Carteiras Novas</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Content -->
+        <div class="content">
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab active" data-tab="alerts" onclick="switchTab('alerts')">
+                    <span>🔔</span>
+                    <span>Alertas</span>
+                </button>
+                <button class="tab" data-tab="whales" onclick="switchTab('whales')">
+                    <span>🐋</span>
+                    <span>Whales</span>
+                </button>
+                <button class="tab" data-tab="markets" onclick="switchTab('markets')">
+                    <span>📊</span>
+                    <span>Mercados</span>
+                </button>
+            </div>
+
+            <!-- Alerts Panel -->
+            <div class="alerts-panel" id="alertsPanel">
+                <div class="alerts-header">
+                    <h2>
+                        <span>🔔</span>
+                        Alertas de Atividade Suspeita
+                    </h2>
+                    <div class="alerts-actions">
+                        <button onclick="refreshAlerts()">🔄 Atualizar</button>
+                        <button onclick="clearAcknowledged()">✓ Limpar Lidos</button>
+                    </div>
+                </div>
+                <div class="alerts-list" id="alertsList">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🔔</div>
+                        <h3>Nenhum alerta ainda</h3>
+                        <p>Execute um scan para detectar atividades suspeitas</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Whales Panel -->
+            <div class="alerts-panel" id="whalesPanel" style="display: none;">
+                <div class="alerts-header">
+                    <h2>
+                        <span>🐋</span>
+                        Whales Detectados
+                    </h2>
+                    <div class="status-indicator">
+                        <span class="status-dot online"></span>
+                        <span id="whaleCount">0 whales</span>
+                    </div>
+                </div>
+                <div class="whales-grid" id="whalesGrid">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🐋</div>
+                        <h3>Nenhum whale detectado</h3>
+                        <p>Execute um scan para encontrar whales</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Markets Panel -->
+            <div class="alerts-panel" id="marketsPanel" style="display: none;">
+                <div class="alerts-header">
+                    <h2>
+                        <span>📊</span>
+                        Análise de Mercados
+                    </h2>
+                </div>
+                <div class="alerts-list" id="marketsList">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📊</div>
+                        <h3>Análise de mercado</h3>
+                        <p>Use o scan de whales para ver atividade por mercado</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const API_URL = 'http://localhost:8000';
+        let currentTab = 'alerts';
+        let whalesData = [];
+        let alertsData = [];
+
+        // Tab switching
+        function switchTab(tab) {
+            currentTab = tab;
+            
+            document.querySelectorAll('.tab').forEach(t => {
+                t.classList.toggle('active', t.dataset.tab === tab);
+            });
+            
+            document.getElementById('alertsPanel').style.display = tab === 'alerts' ? 'block' : 'none';
+            document.getElementById('whalesPanel').style.display = tab === 'whales' ? 'block' : 'none';
+            document.getElementById('marketsPanel').style.display = tab === 'markets' ? 'block' : 'none';
+        }
+
+        // Format address
+        function formatAddress(addr) {
+            if (!addr) return 'N/A';
+            return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+        }
+
+        // Format number
+        function formatNumber(num) {
+            if (num >= 1000000) return `$${(num / 1000000).toFixed(2)}M`;
+            if (num >= 1000) return `$${(num / 1000).toFixed(1)}K`;
+            return `$${num.toFixed(2)}`;
+        }
+
+        // Format time
+        function formatTime(isoString) {
+            const date = new Date(isoString);
+            return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        // Scan for whales
+        async function scanWhales() {
+            const btn = document.getElementById('scanBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner" style="width:20px;height:20px;border-width:2px;"></span><span>Escaneando...</span>';
+            
+            try {
+                const minVolume = document.getElementById('minVolume').value;
+                const lookbackHours = document.getElementById('lookbackHours').value;
+                
+                const response = await fetch(`${API_URL}/whale/scan`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        min_volume_usd: parseFloat(minVolume),
+                        lookback_hours: parseInt(lookbackHours)
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    whalesData = data.whales || [];
+                    renderWhales();
+                    updateStats();
+                    
+                    // Fetch alerts after scan
+                    await refreshAlerts();
+                    
+                    // Show whales tab
+                    switchTab('whales');
+                } else {
+                    alert('Erro no scan: ' + (data.message || 'Erro desconhecido'));
+                }
+            } catch (error) {
+                console.error('Erro:', error);
+                alert('Erro ao conectar com a API. Verifique se o servidor está rodando.');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<span>🐋</span><span>Escanear Whales</span>';
+            }
+        }
+
+        // Render whales
+        function renderWhales() {
+            const grid = document.getElementById('whalesGrid');
+            const count = document.getElementById('whaleCount');
+            
+            count.textContent = `${whalesData.length} whales`;
+            
+            if (whalesData.length === 0) {
+                grid.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🐋</div>
+                        <h3>Nenhum whale detectado</h3>
+                        <p>Tente reduzir o volume mínimo ou aumentar o período</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            grid.innerHTML = whalesData.map(whale => `
+                <div class="whale-card">
+                    <div class="whale-header">
+                        <span class="whale-address" onclick="copyAddress('${whale.address}')" title="Clique para copiar">
+                            ${formatAddress(whale.address)}
+                        </span>
+                        <div class="whale-flags">
+                            ${whale.flags?.is_whale ? '<span class="whale-flag" title="Whale confirmado">🐋</span>' : ''}
+                            ${whale.flags?.is_new_wallet ? '<span class="whale-flag" title="Carteira nova">🆕</span>' : ''}
+                            ${whale.flags?.concentrated_positions ? '<span class="whale-flag" title="Posições concentradas">🎯</span>' : ''}
+                        </div>
+                    </div>
+                    <div class="whale-stats">
+                        <div class="whale-stat">
+                            <div class="whale-stat-value">${formatNumber(whale.total_volume_usd)}</div>
+                            <div class="whale-stat-label">Volume Total</div>
+                        </div>
+                        <div class="whale-stat">
+                            <div class="whale-stat-value">${whale.total_trades}</div>
+                            <div class="whale-stat-label">Trades</div>
+                        </div>
+                        <div class="whale-stat">
+                            <div class="whale-stat-value">${formatNumber(whale.avg_trade_size)}</div>
+                            <div class="whale-stat-label">Média por Trade</div>
+                        </div>
+                        <div class="whale-stat">
+                            <div class="whale-stat-value">${whale.markets_traded}</div>
+                            <div class="whale-stat-label">Mercados</div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Refresh alerts
+        async function refreshAlerts() {
+            try {
+                const response = await fetch(`${API_URL}/whale/alerts?limit=50`);
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    alertsData = data.alerts || [];
+                    renderAlerts();
+                    updateStats();
+                }
+            } catch (error) {
+                console.error('Erro ao buscar alertas:', error);
+            }
+        }
+
+        // Render alerts
+        function renderAlerts() {
+            const list = document.getElementById('alertsList');
+            
+            if (alertsData.length === 0) {
+                list.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🔔</div>
+                        <h3>Nenhum alerta ainda</h3>
+                        <p>Execute um scan para detectar atividades suspeitas</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            list.innerHTML = alertsData.map(alert => `
+                <div class="alert-item ${alert.acknowledged ? 'acknowledged' : ''}" onclick="acknowledgeAlert('${alert.id}')">
+                    <div class="alert-header">
+                        <div class="alert-badge">
+                            <span class="priority-badge priority-${alert.priority_name}">${alert.priority_name}</span>
+                        </div>
+                        <span class="alert-time">${formatTime(alert.timestamp)}</span>
+                    </div>
+                    <div class="alert-title">${alert.title}</div>
+                    <div class="alert-message">${alert.message}</div>
+                    <div class="alert-details">
+                        ${alert.market_title ? `<span class="alert-detail">📊 ${alert.market_title.slice(0, 40)}...</span>` : ''}
+                        ${alert.addresses?.length ? `<span class="alert-detail">👛 <strong>${formatAddress(alert.addresses[0])}</strong></span>` : ''}
+                        ${alert.data?.trade_value_usd ? `<span class="alert-detail">💰 <strong>${formatNumber(alert.data.trade_value_usd)}</strong></span>` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Acknowledge alert
+        async function acknowledgeAlert(alertId) {
+            try {
+                await fetch(`${API_URL}/whale/alerts/${alertId}/acknowledge`, {
+                    method: 'POST'
+                });
+                await refreshAlerts();
+            } catch (error) {
+                console.error('Erro:', error);
+            }
+        }
+
+        // Watch wallet
+        async function watchWallet() {
+            const address = document.getElementById('walletAddress').value.trim();
+            
+            if (!address || !address.startsWith('0x')) {
+                alert('Por favor, insira um endereço válido (começando com 0x)');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_URL}/whale/watch`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ address })
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    alert(`✅ ${data.message}`);
+                    document.getElementById('walletAddress').value = '';
+                } else {
+                    alert('Erro: ' + (data.detail || data.message));
+                }
+            } catch (error) {
+                console.error('Erro:', error);
+                alert('Erro ao conectar com a API');
+            }
+        }
+
+        // Copy address
+        function copyAddress(address) {
+            navigator.clipboard.writeText(address);
+            // Could add a toast notification here
+        }
+
+        // Update stats
+        function updateStats() {
+            document.getElementById('statWhales').textContent = whalesData.length;
+            document.getElementById('statAlerts').textContent = alertsData.length;
+            document.getElementById('statCritical').textContent = alertsData.filter(a => a.priority_name === 'CRITICAL' || a.priority_name === 'HIGH').length;
+            document.getElementById('statNewWallets').textContent = whalesData.filter(w => w.flags?.is_new_wallet).length;
+        }
+
+        // Clear acknowledged
+        function clearAcknowledged() {
+            alertsData = alertsData.filter(a => !a.acknowledged);
+            renderAlerts();
+        }
+
+        // Auto-refresh alerts every 30 seconds
+        setInterval(refreshAlerts, 30000);
+
+        // Initial load
+        document.addEventListener('DOMContentLoaded', () => {
+            refreshAlerts();
+        });
+    </script>
+</body>
+</html>
+
+

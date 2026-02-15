@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analisador de Arbitragem - Polymarket</title>
+    <link rel="stylesheet" href="polymarket-analyzer.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                        <rect width="32" height="32" rx="8" fill="url(#gradient)"/>
+                        <path d="M16 8L24 16L16 24L8 16L16 8Z" fill="white"/>
+                        <defs>
+                            <linearGradient id="gradient" x1="0" y1="0" x2="32" y2="32">
+                                <stop offset="0%" stop-color="#6366f1"/>
+                                <stop offset="100%" stop-color="#8b5cf6"/>
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                    <h1>Polymarket Analyzer</h1>
+                </div>
+                <div class="header-actions">
+                    <button class="btn-icon" id="refreshBtn" title="Atualizar">
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                            <path d="M10 3V1M10 19V17M17 10H19M1 10H3M15.657 4.343L17.071 2.929M2.929 17.071L4.343 15.657M15.657 15.657L17.071 17.071M2.929 2.929L4.343 4.343" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            <path d="M10 3C6.134 3 3 6.134 3 10C3 13.866 6.134 17 10 17C13.866 17 17 13.866 17 10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                    </button>
+                    <div class="status-indicator" id="statusIndicator">
+                        <span class="status-dot"></span>
+                        <span class="status-text">Conectado</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main">
+        <div class="container">
+            <!-- Hero Section -->
+            <section class="hero">
+                <h2 class="hero-title">Análise de Arbitragem em Tempo Real</h2>
+                <p class="hero-subtitle">Identifique oportunidades de arbitragem no Polymarket baseadas em divergências de probabilidade</p>
+                
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">📊</div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="totalMarkets">-</div>
+                            <div class="stat-label">Mercados Escaneados</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">💰</div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="opportunitiesFound">-</div>
+                            <div class="stat-label">Oportunidades Encontradas</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">⚡</div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="avgEdge">-</div>
+                            <div class="stat-label">Edge Médio</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">🕐</div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="lastUpdate">-</div>
+                            <div class="stat-label">Última Atualização</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Filters -->
+            <section class="filters">
+                <div class="filter-group">
+                    <label>Limite de Mercados</label>
+                    <select id="marketLimit" class="select">
+                        <option value="100">100 mercados</option>
+                        <option value="200">200 mercados</option>
+                        <option value="300" selected>300 mercados</option>
+                        <option value="500">500 mercados</option>
+                        <option value="750">750 mercados</option>
+                        <option value="1000">1000 mercados</option>
+                    </select>
+                </div>
+                <button class="btn btn-primary" id="analyzeBtn">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M10 2L12.09 7.26L18 8.27L14 12.14L14.91 18.02L10 15.77L5.09 18.02L6 12.14L2 8.27L7.91 7.26L10 2Z" fill="currentColor"/>
+                    </svg>
+                    Analisar Mercados
+                </button>
+            </section>
+
+            <!-- Loading State -->
+            <div class="loading-container" id="loadingContainer">
+                <div class="spinner"></div>
+                <p>Analisando mercados do Polymarket...</p>
+                <p class="loading-subtitle">Isso pode levar alguns minutos</p>
+            </div>
+
+            <!-- Opportunities Grid -->
+            <section class="opportunities" id="opportunitiesSection">
+                <h3 class="section-title">Top Oportunidades de Arbitragem</h3>
+                <div class="opportunities-grid" id="opportunitiesGrid">
+                    <!-- Opportunities will be inserted here -->
+                </div>
+            </section>
+
+            <!-- Empty State -->
+            <div class="empty-state" id="emptyState">
+                <div class="empty-icon">🔍</div>
+                <h3>Nenhuma oportunidade encontrada</h3>
+                <p>Clique em "Analisar Mercados" para começar a busca</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Opportunity Modal -->
+    <div class="modal" id="opportunityModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">Detalhes da Oportunidade</h3>
+                <button class="modal-close" id="modalClose">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Modal content will be inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <p>⚠️ <strong>Aviso Legal:</strong> Este sistema é fornecido para fins educacionais. Sempre faça sua própria pesquisa antes de tomar decisões de investimento.</p>
+        </div>
+    </footer>
+
+    <script src="polymarket-analyzer.js"></script>
+</body>
+</html>
+

@@ -17,7 +17,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from src.collectors import KalshiCollector, PolymarketCollector
 from src.engine.arbitrage_calculator import ArbitrageCalculator, RejectionReason
@@ -195,7 +195,7 @@ class AutoScanner:
         
         return kalshi_markets, poly_markets
     
-    async def _analyze_pair(self, pair: MarketPair) -> OpportunityDetail | RejectionReason:
+    async def _analyze_pair(self, pair: MarketPair) -> Union[OpportunityDetail, RejectionReason]:
         """Analisa um par de mercados usando penalidade de risco do par."""
         # Usar penalidade de risco calculada pela análise de equivalência
         basis_risk_penalty = pair.risk_penalty

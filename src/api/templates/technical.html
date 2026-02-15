@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visão Técnica — Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>body { font-family: 'JetBrains Mono', monospace; }</style>
+</head>
+<body class="bg-slate-900 text-slate-300 min-h-screen">
+    <div class="max-w-4xl mx-auto px-6 py-10">
+        <header class="mb-8">
+            <a href="/" class="text-slate-400 hover:text-slate-200 text-sm mb-4 inline-block">← Voltar ao dashboard</a>
+            <h1 class="text-2xl font-bold text-slate-100">Visão Técnica</h1>
+            <p class="text-slate-500 mt-1">Audit report, threads, streaks e capital breakdown</p>
+        </header>
+
+        <div id="technical-content" class="space-y-6">
+            <p class="text-slate-500">Carregando…</p>
+        </div>
+    </div>
+
+    <script>
+        async function load() {
+            try {
+                const res = await fetch('/api/technical');
+                const d = await res.json();
+
+                const runMode = d.run_mode || '—';
+                const rawReasons = (d.raw_reasons || []).join(', ') || 'nenhuma';
+                const invStreak = d.invariants_ok_streak ?? '—';
+                const capStreak = d.capital_mismatch_ok_streak ?? '—';
+                const sessionId = d.session_id ?? '—';
+                const threads = d.thread_status || {};
+                const threadLines = Object.entries(threads).map(([k, v]) => `  ${k}: ${v ? 'alive' : 'dead'}`).join('\n') || '  (n/d)';
+                const cap = d.capital_breakdown || {};
+                const capLines = [
+                    `  total_capital:        ${cap.total_capital ?? '—'}`,
+                    `  available_capital:   ${cap.available_capital ?? '—'}`,
+                    `  locked_open_orders:  ${cap.locked_in_open_orders ?? '—'}`,
+                    `  locked_unresolved:   ${cap.locked_in_unresolved_markets ?? '—'}`,
+                    `  realized_pnl:        ${cap.realized_pnl ?? '—'}`,
+                ].join('\n');
+
+                const report = (d.audit_report || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                const riskInputs = d.risk_model_inputs || {};
+                const riskLines = [
+                    `  model_version:      ${riskInputs.model_version ?? '—'}`,
+                    `  percent_reserved:   ${riskInputs.percent_reserved ?? '—'}`,
+                    `  max_concentration:  ${riskInputs.max_concentration ?? '—'}`,
+                    `  open_positions:     ${riskInputs.open_positions ?? '—'}`,
+                    `  global_safe_mode:   ${riskInputs.global_safe_mode ?? '—'}`,
+                    `  risk_score:         ${riskInputs.risk_score ?? '—'}`,
+                ].join('\n');
+                const rev = d.reversion_metrics || {};
+                const revLines = [
+                    `  current_z:              ${rev.current_z ?? '—'}`,
+                    `  rolling_z_mean:          ${rev.rolling_z_mean ?? '—'}`,
+                    `  rolling_z_std:           ${rev.rolling_z_std ?? '—'}`,
+                    `  signal_count_last_24h:  ${rev.signal_count_last_24h ?? '—'}`,
+                    `  hit_rate_simulated:     ${rev.hit_rate_simulated ?? '—'}`,
+                    `  avg_reversion_magnitude: ${rev.average_reversion_magnitude ?? '—'}`,
+                    `  avg_time_to_reversion:  ${rev.average_time_to_reversion ?? '—'}`,
+                ].join('\n');
+
+                document.getElementById('technical-content').innerHTML = `
+                    <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                        <h2 class="text-sm font-semibold text-slate-400 uppercase mb-3">Estado Rápido</h2>
+                        <pre class="text-sm text-slate-300 whitespace-pre overflow-x-auto">run_mode:              ${runMode}
+raw_reasons:           ${rawReasons}
+invariants_ok_streak:  ${invStreak}
+capital_mismatch_ok:  ${capStreak}
+session_id:            ${sessionId}
+</pre>
+                    </div>
+                    <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                        <h2 class="text-sm font-semibold text-slate-400 uppercase mb-3">Thread Status</h2>
+                        <pre class="text-sm text-slate-300 whitespace-pre">${threadLines}</pre>
+                    </div>
+                    <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                        <h2 class="text-sm font-semibold text-slate-400 uppercase mb-3">Capital Breakdown</h2>
+                        <pre class="text-sm text-slate-300 whitespace-pre">${capLines}</pre>
+                    </div>
+                    <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                        <h2 class="text-sm font-semibold text-slate-400 uppercase mb-3">Risk Model Inputs</h2>
+                        <pre class="text-sm text-slate-300 whitespace-pre">${riskLines}</pre>
+                    </div>
+                    <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                        <h2 class="text-sm font-semibold text-slate-400 uppercase mb-3">Reversion Engine Metrics</h2>
+                        <pre class="text-sm text-slate-300 whitespace-pre">${revLines}</pre>
+                    </div>
+                    <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                        <h2 class="text-sm font-semibold text-slate-400 uppercase mb-3">Audit Report</h2>
+                        <pre class="text-xs text-slate-300 whitespace-pre overflow-x-auto max-h-96 overflow-y-auto">${report}</pre>
+                    </div>
+                `;
+            } catch (e) {
+                document.getElementById('technical-content').innerHTML = '<p class="text-red-400">Erro: ' + e.message + '</p>';
+            }
+        }
+        load();
+    </script>
+</body>
+</html>

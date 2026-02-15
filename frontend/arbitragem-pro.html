@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎯 Arbitragem Pro | Scanner Completo</title>
+    <style>
+        :root {
+            --bg-primary: #0a0f1c;
+            --bg-secondary: #111827;
+            --bg-card: #1a2235;
+            --bg-highlight: #1e3a5f;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-yellow: #f59e0b;
+            --accent-blue: #3b82f6;
+            --accent-purple: #8b5cf6;
+            --border-color: #334155;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { background: var(--bg-primary) !important; min-height: 100vh; }
+        
+        body {
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+        
+        .container { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+        
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+            padding: 1.5rem;
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-card) 100%);
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+        }
+        
+        header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #fff 0%, var(--accent-green) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            background: linear-gradient(135deg, var(--accent-green) 0%, #059669 100%);
+            color: white;
+            margin-top: 0.5rem;
+        }
+        
+        /* Config Section */
+        .config-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .config-section.connected {
+            border-color: var(--accent-green);
+        }
+        
+        .config-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        
+        .config-header h2 {
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .status-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        
+        .status-badge.connected {
+            background: var(--accent-green);
+            color: white;
+        }
+        
+        .status-badge.disconnected {
+            background: var(--accent-red);
+            color: white;
+        }
+        
+        .api-key-row {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        
+        .api-key-row input {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+        
+        .api-key-row input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+        
+        .btn {
+            padding: 0.75rem 1.25rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            white-space: nowrap;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-blue) 0%, var(--accent-purple) 100%);
+            color: white;
+        }
+        
+        .btn-green {
+            background: linear-gradient(135deg, var(--accent-green) 0%, #059669 100%);
+            color: white;
+        }
+        
+        .btn:hover { transform: translateY(-1px); }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+        
+        /* Categories */
+        .categories-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .categories-section h2 {
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .categories-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+        
+        .category-btn {
+            padding: 0.75rem 1rem;
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+        }
+        
+        .category-btn:hover {
+            border-color: var(--accent-blue);
+            color: var(--text-primary);
+        }
+        
+        .category-btn.selected {
+            border-color: var(--accent-green);
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--accent-green);
+        }
+        
+        .category-btn .count {
+            display: block;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+        }
+        
+        .scan-controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .scan-controls select {
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 0.9rem;
+        }
+        
+        /* Status Bar */
+        .status-bar {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .status-bar.loading { border-color: var(--accent-blue); }
+        .status-bar.success { border-color: var(--accent-green); }
+        .status-bar.warning { border-color: var(--accent-yellow); }
+        .status-bar.error { border-color: var(--accent-red); }
+        
+        .status-message {
+            font-size: 1rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        
+        .spinner {
+            width: 18px;
+            height: 18px;
+            border: 2px solid var(--border-color);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+        
+        .stat-item {
+            text-align: center;
+            padding: 0.75rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+        }
+        
+        .stat-value {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--accent-blue);
+        }
+        
+        .stat-value.green { color: var(--accent-green); }
+        .stat-value.yellow { color: var(--accent-yellow); }
+        
+        .stat-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+        
+        /* Opportunity Cards */
+        .opportunity-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            margin-bottom: 1rem;
+            overflow: hidden;
+        }
+        
+        .opportunity-card.guaranteed {
+            border-color: var(--accent-green);
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.1);
+        }
+        
+        .card-header {
+            padding: 1rem 1.25rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .card-header h3 { font-size: 0.95rem; font-weight: 600; }
+        
+        .header-badges {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        
+        .profit-badge {
+            font-size: 1.3rem;
+            font-weight: 800;
+            color: var(--accent-green);
+        }
+        
+        .time-badge {
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0.25rem 0.6rem;
+            border-radius: 4px;
+            background: var(--bg-tertiary);
+        }
+        .time-badge.urgent {
+            background: linear-gradient(135deg, #ff4444, #cc3333);
+            color: white;
+            animation: pulse 2s infinite;
+        }
+        .time-badge.soon {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: white;
+        }
+        .time-badge.later {
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        .card-body { padding: 1.25rem; }
+        
+        .platforms-row {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            gap: 1rem;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        
+        .platform-box {
+            padding: 1rem;
+            border-radius: 8px;
+            background: var(--bg-secondary);
+        }
+        
+        .platform-box.poly { border-left: 3px solid var(--accent-purple); }
+        .platform-box.kalshi { border-left: 3px solid var(--accent-yellow); }
+        
+        .platform-name {
+            font-size: 0.8rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        
+        .platform-name.poly { color: var(--accent-purple); }
+        .platform-name.kalshi { color: var(--accent-yellow); }
+        
+        .platform-title {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.75rem;
+        }
+        
+        .prices {
+            display: flex;
+            gap: 1rem;
+        }
+        
+        .price-item { text-align: center; }
+        .price-label { font-size: 0.65rem; color: var(--text-muted); }
+        .price-value { font-size: 1.1rem; font-weight: 700; }
+        .price-value.yes { color: var(--accent-green); }
+        .price-value.no { color: var(--accent-red); }
+        
+        .platform-link {
+            display: block;
+            padding: 0.5rem;
+            background: var(--bg-highlight);
+            color: var(--text-primary);
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            text-align: center;
+            margin-top: 0.75rem;
+            transition: all 0.2s;
+        }
+        
+        .platform-link:hover { background: var(--accent-blue); }
+        
+        .vs-divider {
+            font-weight: 800;
+            font-size: 1rem;
+            color: var(--text-muted);
+        }
+        
+        .strategy-box {
+            padding: 1rem;
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%);
+            border-radius: 8px;
+            margin-top: 1rem;
+        }
+        
+        .strategy-title {
+            font-size: 0.75rem;
+            color: var(--accent-green);
+            text-transform: uppercase;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        
+        .strategy-text {
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+        
+        .returns-row {
+            display: flex;
+            gap: 2rem;
+            margin-top: 0.75rem;
+        }
+        
+        .return-item { text-align: center; }
+        .return-label { font-size: 0.7rem; color: var(--text-muted); }
+        .return-value { font-size: 1.1rem; font-weight: 700; color: var(--accent-green); }
+        
+        .resolution-info {
+            margin-top: 1rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--border-color);
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+        .resolution-label { color: var(--text-muted); }
+        .resolution-date { font-weight: 600; color: var(--text-primary); margin-left: 0.5rem; }
+        
+        .math-details {
+            margin-top: 1rem;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .math-details summary {
+            padding: 0.75rem 1rem;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--accent-purple);
+            transition: background 0.2s;
+        }
+        .math-details summary:hover {
+            background: rgba(139, 92, 246, 0.1);
+        }
+        .math-explanation {
+            padding: 1rem;
+            margin: 0;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            color: var(--text-primary);
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border-color);
+        }
+        .fees-info {
+            padding: 0.75rem 1rem;
+            background: rgba(34, 197, 94, 0.1);
+            font-size: 0.75rem;
+            color: var(--accent-green);
+            border-top: 1px solid var(--border-color);
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 3rem 2rem;
+            background: var(--bg-card);
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+        }
+        
+        .empty-state-icon { font-size: 3rem; margin-bottom: 1rem; }
+        .empty-state h3 { font-size: 1.1rem; margin-bottom: 0.5rem; }
+        .empty-state p { color: var(--text-secondary); font-size: 0.9rem; }
+        
+        .info-text {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 0.5rem;
+        }
+        
+        @media (max-width: 768px) {
+            .platforms-row { grid-template-columns: 1fr; }
+            .vs-divider { text-align: center; padding: 0.5rem 0; }
+            .api-key-row { flex-direction: column; }
+            .categories-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎯 Arbitragem Pro</h1>
+            <p style="color: var(--text-secondary);">Scanner Completo | Polymarket × Kalshi</p>
+            <span class="badge">✓ 188k+ Mercados Disponíveis</span>
+        </header>
+        
+        <!-- Config Section -->
+        <div class="config-section" id="configSection">
+            <div class="config-header">
+                <h2>🔑 Configuração Kalshi</h2>
+                <span class="status-badge disconnected" id="connectionStatus">Desconectado</span>
+            </div>
+            
+            <div class="api-key-row">
+                <input type="text" id="apiKey" placeholder="Cole sua API Key do Kalshi (será salva automaticamente)">
+                <button class="btn btn-primary" id="connectBtn" onclick="connectKalshi()">
+                    🔗 Conectar
+                </button>
+            </div>
+            
+            <p class="info-text" id="configInfo">Sua API Key é salva localmente no navegador. Não é enviada para nenhum servidor externo.</p>
+        </div>
+        
+        <!-- Categories Section -->
+        <div class="categories-section" id="categoriesSection" style="display: none;">
+            <h2>📁 Selecione a Categoria</h2>
+            
+            <div class="categories-grid" id="categoriesGrid">
+                <button class="category-btn selected" data-category="all" onclick="selectCategory('all')">
+                    🌐 Todas
+                    <span class="count">Comparar tudo</span>
+                </button>
+                <button class="category-btn" data-category="Politics" onclick="selectCategory('Politics')">
+                    🏛️ Política
+                    <span class="count">Eleições, governo</span>
+                </button>
+                <button class="category-btn" data-category="Economics" onclick="selectCategory('Economics')">
+                    📈 Economia
+                    <span class="count">Fed, taxas, inflação</span>
+                </button>
+                <button class="category-btn" data-category="World" onclick="selectCategory('World')">
+                    🌍 Mundo
+                    <span class="count">Geopolítica, líderes</span>
+                </button>
+                <button class="category-btn" data-category="Crypto" onclick="selectCategory('Crypto')">
+                    ₿ Crypto
+                    <span class="count">Bitcoin, ETFs</span>
+                </button>
+                <button class="category-btn" data-category="Entertainment" onclick="selectCategory('Entertainment')">
+                    🎬 Entretenimento
+                    <span class="count">Filmes, TV, música</span>
+                </button>
+                <button class="category-btn" data-category="Science" onclick="selectCategory('Science')">
+                    🔬 Ciência
+                    <span class="count">Tech, IA, espaço</span>
+                </button>
+                <button class="category-btn" data-category="Climate" onclick="selectCategory('Climate')">
+                    🌡️ Clima
+                    <span class="count">Temperatura, eventos</span>
+                </button>
+            </div>
+            
+            <div class="scan-controls">
+                <select id="marketLimit">
+                    <option value="200">200 mercados</option>
+                    <option value="500" selected>500 mercados</option>
+                    <option value="1000">1000 mercados</option>
+                    <option value="2000">2000 mercados</option>
+                    <option value="5000">5000 mercados (lento)</option>
+                </select>
+                
+                <button class="btn btn-green" id="scanBtn" onclick="startScan()">
+                    🔍 Buscar Arbitragem
+                </button>
+            </div>
+        </div>
+        
+        <!-- Status Bar -->
+        <div class="status-bar" id="statusBar" style="display: none;">
+            <div class="status-message" id="statusMessage"></div>
+            <div class="stats-grid" id="statsGrid" style="display: none;"></div>
+        </div>
+        
+        <!-- Results -->
+        <div id="results"></div>
+    </div>
+    
+    <script>
+        const API_URL = 'http://localhost:8000';
+        let isConnected = false;
+        let selectedCategory = 'all';
+        let kalshiCategories = {};
+        
+        // Carregar API Key salva ao iniciar
+        window.onload = function() {
+            const savedKey = localStorage.getItem('kalshi_api_key');
+            if (savedKey) {
+                document.getElementById('apiKey').value = savedKey;
+                // Auto-conectar
+                connectKalshi();
+            }
+        };
+        
+        function selectCategory(category) {
+            selectedCategory = category;
+            document.querySelectorAll('.category-btn').forEach(btn => {
+                btn.classList.toggle('selected', btn.dataset.category === category);
+            });
+        }
+        
+        async function connectKalshi() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const connectBtn = document.getElementById('connectBtn');
+            const connectionStatus = document.getElementById('connectionStatus');
+            const configInfo = document.getElementById('configInfo');
+            
+            if (!apiKey) {
+                configInfo.innerHTML = '❌ Insira sua API Key do Kalshi';
+                configInfo.style.color = 'var(--accent-red)';
+                return;
+            }
+            
+            connectBtn.disabled = true;
+            connectBtn.innerHTML = '<div class="spinner" style="width:14px;height:14px;"></div> Conectando...';
+            configInfo.innerHTML = 'Verificando API Key...';
+            configInfo.style.color = 'var(--text-muted)';
+            
+            try {
+                const response = await fetch(`${API_URL}/kalshi/test-auth`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ api_key: apiKey })
+                });
+                
+                const data = await response.json();
+                
+                if (data.authenticated) {
+                    isConnected = true;
+                    kalshiCategories = data.categories || {};
+                    
+                    // Salvar API Key
+                    localStorage.setItem('kalshi_api_key', apiKey);
+                    
+                    // Atualizar UI
+                    connectionStatus.textContent = '✓ Conectado';
+                    connectionStatus.className = 'status-badge connected';
+                    document.getElementById('configSection').classList.add('connected');
+                    document.getElementById('categoriesSection').style.display = 'block';
+                    
+                    configInfo.innerHTML = `✅ ${data.total_markets} mercados disponíveis. API Key salva automaticamente.`;
+                    configInfo.style.color = 'var(--accent-green)';
+                    
+                    connectBtn.innerHTML = '✓ Conectado';
+                    
+                } else {
+                    connectionStatus.textContent = 'Erro';
+                    connectionStatus.className = 'status-badge disconnected';
+                    configInfo.innerHTML = `❌ ${data.message}`;
+                    configInfo.style.color = 'var(--accent-red)';
+                    connectBtn.innerHTML = '🔗 Conectar';
+                    connectBtn.disabled = false;
+                }
+                
+            } catch (error) {
+                connectionStatus.textContent = 'Erro';
+                connectionStatus.className = 'status-badge disconnected';
+                configInfo.innerHTML = `❌ Erro de conexão: ${error.message}`;
+                configInfo.style.color = 'var(--accent-red)';
+                connectBtn.innerHTML = '🔗 Conectar';
+                connectBtn.disabled = false;
+            }
+        }
+        
+        async function startScan() {
+            const apiKey = localStorage.getItem('kalshi_api_key');
+            if (!apiKey) {
+                alert('Conecte sua API Key primeiro');
+                return;
+            }
+            
+            const scanBtn = document.getElementById('scanBtn');
+            const statusBar = document.getElementById('statusBar');
+            const statusMessage = document.getElementById('statusMessage');
+            const statsGrid = document.getElementById('statsGrid');
+            const results = document.getElementById('results');
+            const limit = parseInt(document.getElementById('marketLimit').value);
+            
+            scanBtn.disabled = true;
+            scanBtn.innerHTML = '<div class="spinner" style="width:14px;height:14px;"></div> Analisando...';
+            
+            statusBar.style.display = 'block';
+            statusBar.className = 'status-bar loading';
+            statusMessage.innerHTML = `<div class="spinner"></div><span>Buscando mercados (${selectedCategory === 'all' ? 'todas categorias' : selectedCategory})...</span>`;
+            statsGrid.style.display = 'none';
+            results.innerHTML = '';
+            
+            try {
+                const response = await fetch(`${API_URL}/scan/category`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        kalshi_api_key: apiKey,
+                        category: selectedCategory === 'all' ? null : selectedCategory,
+                        limit: limit
+                    }),
+                    signal: AbortSignal.timeout(600000) // 10 min timeout (análise pode demorar)
+                });
+                
+                const data = await response.json();
+                
+                // Stats
+                statsGrid.innerHTML = `
+                    <div class="stat-item">
+                        <div class="stat-value">${data.polymarket_markets || 0}</div>
+                        <div class="stat-label">Polymarket</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">${data.kalshi_markets || 0}</div>
+                        <div class="stat-label">Kalshi</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">${data.matches_found || 0}</div>
+                        <div class="stat-label">Matches</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value ${(data.arbitrage_count || 0) > 0 ? 'green' : ''}">${data.arbitrage_count || 0}</div>
+                        <div class="stat-label">Arbitragens</div>
+                    </div>
+                `;
+                statsGrid.style.display = 'grid';
+                
+                // Status
+                if (data.status === 'error') {
+                    statusBar.className = 'status-bar error';
+                    statusMessage.innerHTML = `<span>❌ ${data.message}</span>`;
+                } else if ((data.arbitrage_count || 0) > 0) {
+                    statusBar.className = 'status-bar success';
+                    statusMessage.innerHTML = `<span>🎯 ${data.message}</span>`;
+                } else {
+                    statusBar.className = 'status-bar warning';
+                    statusMessage.innerHTML = `<span>ℹ️ ${data.message}</span>`;
+                }
+                
+                renderOpportunities(data.opportunities || []);
+                
+            } catch (error) {
+                statusBar.className = 'status-bar error';
+                statusMessage.innerHTML = `<span>❌ Erro: ${error.message}</span>`;
+                
+                results.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">⚠️</div>
+                        <h3>Erro de Conexão</h3>
+                        <p>Verifique se a API está rodando em localhost:8000</p>
+                    </div>
+                `;
+            } finally {
+                scanBtn.disabled = false;
+                scanBtn.innerHTML = '🔍 Buscar Arbitragem';
+            }
+        }
+        
+        function renderOpportunities(opportunities) {
+            const results = document.getElementById('results');
+            
+            if (!opportunities || opportunities.length === 0) {
+                results.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📊</div>
+                        <h3>Nenhuma Arbitragem Encontrada</h3>
+                        <p>Os mercados estão eficientes nesta categoria. Tente outra categoria ou aumente o número de mercados.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            let html = '';
+            
+            opportunities.forEach((opp, index) => {
+                // Formatação da data de resolução
+                const resolutionDate = opp.resolution_date || 'Não informado';
+                const daysToRes = opp.days_to_resolution;
+                let daysText = '';
+                let daysClass = '';
+                if (daysToRes !== null && daysToRes !== undefined) {
+                    if (daysToRes <= 7) {
+                        daysText = `⚡ ${daysToRes} dias`;
+                        daysClass = 'urgent';
+                    } else if (daysToRes <= 30) {
+                        daysText = `📅 ${daysToRes} dias`;
+                        daysClass = 'soon';
+                    } else {
+                        daysText = `📆 ${daysToRes} dias`;
+                        daysClass = 'later';
+                    }
+                }
+                
+                html += `
+                    <div class="opportunity-card guaranteed">
+                        <div class="card-header">
+                            <h3>${opp.event}</h3>
+                            <div class="header-badges">
+                                ${daysText ? `<span class="time-badge ${daysClass}">${daysText}</span>` : ''}
+                                <span class="profit-badge">+${opp.profit_percentage.toFixed(1)}%</span>
+                            </div>
+                        </div>
+                        
+                        <div class="card-body">
+                            <div class="platforms-row">
+                                <div class="platform-box poly">
+                                    <div class="platform-name poly">🟣 Polymarket</div>
+                                    <div class="platform-title">${(opp.poly_question || '').substring(0, 60)}...</div>
+                                    <div class="prices">
+                                        <div class="price-item">
+                                            <div class="price-label">YES</div>
+                                            <div class="price-value yes">$${opp.poly_yes_price.toFixed(3)}</div>
+                                        </div>
+                                        <div class="price-item">
+                                            <div class="price-label">NO</div>
+                                            <div class="price-value no">$${opp.poly_no_price.toFixed(3)}</div>
+                                        </div>
+                                    </div>
+                                    <a href="${opp.poly_url}" target="_blank" class="platform-link">🔗 Abrir no Polymarket</a>
+                                </div>
+                                
+                                <div class="vs-divider">VS</div>
+                                
+                                <div class="platform-box kalshi">
+                                    <div class="platform-name kalshi">🟡 Kalshi</div>
+                                    <div class="platform-title">${(opp.kalshi_title || '').substring(0, 60)}...</div>
+                                    <div class="prices">
+                                        <div class="price-item">
+                                            <div class="price-label">YES</div>
+                                            <div class="price-value yes">$${opp.kalshi_yes_price.toFixed(3)}</div>
+                                        </div>
+                                        <div class="price-item">
+                                            <div class="price-label">NO</div>
+                                            <div class="price-value no">$${opp.kalshi_no_price.toFixed(3)}</div>
+                                        </div>
+                                    </div>
+                                    <a href="${opp.kalshi_url}" target="_blank" class="platform-link">🔗 Abrir no Kalshi</a>
+                                </div>
+                            </div>
+                            
+                            <div class="strategy-box">
+                                <div class="strategy-title">💡 ESTRATÉGIA DE ARBITRAGEM</div>
+                                <div class="strategy-text">${opp.strategy}</div>
+                                
+                                <div class="returns-row">
+                                    <div class="return-item">
+                                        <div class="return-label">$100 →</div>
+                                        <div class="return-value">+$${opp.return_100.toFixed(2)}</div>
+                                    </div>
+                                    <div class="return-item">
+                                        <div class="return-label">$1000 →</div>
+                                        <div class="return-value">+$${opp.return_1000.toFixed(2)}</div>
+                                    </div>
+                                </div>
+                                
+                                <div class="resolution-info">
+                                    <span class="resolution-label">📆 Resolução:</span>
+                                    <span class="resolution-date">${resolutionDate}</span>
+                                </div>
+                            </div>
+                            
+                            ${opp.explanation ? `
+                            <details class="math-details">
+                                <summary>📐 Ver Cálculo Matemático Completo (com taxas)</summary>
+                                <pre class="math-explanation">${opp.explanation}</pre>
+                                <div class="fees-info">
+                                    <span>✅ Taxas já incluídas: Polymarket 2% | Kalshi 7% sobre lucro</span>
+                                </div>
+                            </details>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            results.innerHTML = html;
+        }
+    </script>
+</body>
+</html>
+

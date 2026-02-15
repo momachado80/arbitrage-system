@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎯 Smart Event Trader - Sinais em Tempo Real</title>
+    
+    <!-- React -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-dark: #0f0f1a;
+            --bg-card: #1a1a2e;
+            --bg-card-hover: #252542;
+            --accent-primary: #6366f1;
+            --accent-success: #22c55e;
+            --accent-warning: #f59e0b;
+            --accent-danger: #ef4444;
+            --accent-cyan: #06b6d4;
+            --text-primary: #ffffff;
+            --text-secondary: #a1a1aa;
+            --text-muted: #71717a;
+            --border: #27273a;
+            --gradient-primary: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            --gradient-success: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+            --gradient-danger: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .app { display: flex; flex-direction: column; min-height: 100vh; }
+
+        /* Header */
+        .header {
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+
+        .header-content {
+            max-width: 1800px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo { display: flex; align-items: center; gap: 0.75rem; }
+        .logo-icon { font-size: 2rem; }
+        .logo h1 {
+            font-size: 1.5rem;
+            font-weight: 800;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .logo span { font-size: 0.85rem; color: var(--text-secondary); }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: var(--bg-dark);
+            border-radius: 20px;
+            font-size: 0.85rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        .status-dot.connected { background: var(--accent-success); }
+        .status-dot.disconnected { background: var(--accent-danger); }
+
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+        .main {
+            flex: 1;
+            padding: 2rem;
+            max-width: 1800px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        /* Stats Bar */
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .stat-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+        .stat-icon.primary { background: rgba(99, 102, 241, 0.2); }
+        .stat-icon.success { background: rgba(34, 197, 94, 0.2); }
+        .stat-icon.warning { background: rgba(245, 158, 11, 0.2); }
+        .stat-icon.danger { background: rgba(239, 68, 68, 0.2); }
+
+        .stat-info h3 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .stat-info p { font-size: 0.85rem; color: var(--text-muted); }
+
+        /* Grid Layout */
+        .content-grid {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 2rem;
+        }
+
+        /* Signals Panel */
+        .signals-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 1.25rem 1.5rem;
+            background: rgba(0, 0, 0, 0.2);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-header h2 {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .panel-filters { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+        .filter-btn {
+            padding: 0.5rem 1rem;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .filter-btn:hover, .filter-btn.active {
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
+            color: white;
+        }
+
+        .signals-list { max-height: 700px; overflow-y: auto; }
+
+        /* Signal Card */
+        .signal-card {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border);
+            transition: background 0.2s;
+            cursor: pointer;
+        }
+        .signal-card:hover { background: var(--bg-card-hover); }
+        .signal-card.urgent { border-left: 4px solid var(--accent-danger); }
+        .signal-card.normal { border-left: 4px solid var(--accent-warning); }
+
+        .signal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+        }
+
+        .signal-badge { display: flex; align-items: center; gap: 0.5rem; }
+
+        .urgency-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .urgency-badge.urgent {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--accent-danger);
+            border: 1px solid var(--accent-danger);
+        }
+        .urgency-badge.normal {
+            background: rgba(245, 158, 11, 0.2);
+            color: var(--accent-warning);
+            border: 1px solid var(--accent-warning);
+        }
+
+        .confidence-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.25rem 0.75rem;
+            background: var(--bg-dark);
+            border-radius: 20px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .signal-time { font-size: 0.8rem; color: var(--text-muted); }
+
+        .signal-title {
+            font-weight: 600;
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+            line-height: 1.4;
+        }
+
+        .signal-category {
+            display: inline-block;
+            padding: 0.2rem 0.6rem;
+            background: var(--accent-primary);
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            text-transform: capitalize;
+        }
+
+        .signal-details {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+
+        .detail-item {
+            background: var(--bg-dark);
+            padding: 0.75rem;
+            border-radius: 8px;
+        }
+        .detail-label { font-size: 0.7rem; color: var(--text-muted); margin-bottom: 0.25rem; }
+        .detail-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        .detail-value.positive { color: var(--accent-success); }
+        .detail-value.negative { color: var(--accent-danger); }
+
+        .signal-action { display: flex; gap: 0.75rem; }
+
+        .btn-primary {
+            flex: 1;
+            padding: 0.875rem;
+            background: var(--gradient-success);
+            border: none;
+            border-radius: 10px;
+            color: white;
+            font-weight: 600;
+            font-size: 0.95rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(34, 197, 94, 0.3);
+        }
+
+        .btn-secondary {
+            padding: 0.875rem 1.25rem;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-secondary:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--accent-primary);
+            color: var(--text-primary);
+        }
+
+        /* Sidebar */
+        .sidebar { display: flex; flex-direction: column; gap: 1.5rem; }
+
+        .performance-card, .activity-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 1.5rem;
+        }
+
+        .performance-card h3, .activity-card h3 {
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .category-bar { margin-bottom: 1rem; }
+        .category-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+        .category-name { font-size: 0.85rem; font-weight: 500; text-transform: capitalize; }
+        .category-stats {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--accent-success);
+        }
+
+        .bar-container {
+            height: 8px;
+            background: var(--bg-dark);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.5s ease;
+            background: var(--accent-primary);
+        }
+
+        /* Nav Menu */
+        .nav-menu { display: flex; gap: 0.5rem; margin-left: 2rem; }
+        .nav-btn {
+            padding: 0.5rem 1rem;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .nav-btn:hover, .nav-btn.active {
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
+            color: white;
+        }
+
+        /* Loading & Empty */
+        .loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 4rem;
+            gap: 1rem;
+        }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid var(--border);
+            border-top-color: var(--accent-primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .empty-state {
+            padding: 4rem 2rem;
+            text-align: center;
+            color: var(--text-muted);
+        }
+        .empty-state-icon { font-size: 4rem; margin-bottom: 1rem; }
+        .empty-state h3 { font-size: 1.25rem; color: var(--text-secondary); margin-bottom: 0.5rem; }
+
+        .error-banner {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid var(--accent-danger);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            color: var(--accent-danger);
+            text-align: center;
+        }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .content-grid { grid-template-columns: 1fr; }
+            .sidebar { flex-direction: row; flex-wrap: wrap; }
+            .sidebar > * { flex: 1; min-width: 300px; }
+        }
+        @media (max-width: 768px) {
+            .header-content { flex-direction: column; gap: 1rem; }
+            .stats-bar { grid-template-columns: repeat(2, 1fr); }
+            .signal-details { grid-template-columns: 1fr; }
+            .nav-menu { margin-left: 0; margin-top: 1rem; flex-wrap: wrap; }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useCallback } = React;
+
+        // ============================================
+        // API Configuration - NestJS Backend
+        // ============================================
+        const API_BASE_URL = 'http://localhost:3000';
+
+        // ============================================
+        // API Client Functions
+        // ============================================
+        
+        /**
+         * Fetch overview stats from /stats/overview
+         */
+        async function fetchOverviewStats() {
+            try {
+                const res = await fetch(`${API_BASE_URL}/stats/overview`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return await res.json();
+            } catch (error) {
+                console.error('Error fetching overview stats:', error);
+                return null;
+            }
+        }
+
+        /**
+         * Fetch category stats from /stats/by-category
+         */
+        async function fetchCategoryStats() {
+            try {
+                const res = await fetch(`${API_BASE_URL}/stats/by-category`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return await res.json();
+            } catch (error) {
+                console.error('Error fetching category stats:', error);
+                return [];
+            }
+        }
+
+        /**
+         * Fetch signals from /signals with optional filters
+         */
+        async function fetchSignals(params = {}) {
+            try {
+                const queryParams = new URLSearchParams();
+                if (params.status) queryParams.append('status', params.status);
+                if (params.category) queryParams.append('category', params.category);
+                if (params.isUrgent !== undefined) queryParams.append('isUrgent', params.isUrgent);
+                queryParams.append('limit', '50');
+
+                const url = `${API_BASE_URL}/signals?${queryParams.toString()}`;
+                const res = await fetch(url);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                return data.data || data; // Handle paginated or direct response
+            } catch (error) {
+                console.error('Error fetching signals:', error);
+                return [];
+            }
+        }
+
+        /**
+         * Fetch equity curve from /stats/equity-curve
+         */
+        async function fetchEquityCurve() {
+            try {
+                const res = await fetch(`${API_BASE_URL}/stats/equity-curve`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return await res.json();
+            } catch (error) {
+                console.error('Error fetching equity curve:', error);
+                return { points: [], maxDrawdown: 0, finalEquity: 0 };
+            }
+        }
+
+        /**
+         * Trigger dev seed
+         */
+        async function seedDatabase() {
+            try {
+                const res = await fetch(`${API_BASE_URL}/dev/seed`, { method: 'POST' });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return await res.json();
+            } catch (error) {
+                console.error('Error seeding database:', error);
+                return null;
+            }
+        }
+
+        // ============================================
+        // Main App Component
+        // ============================================
+        function App() {
+            const [page, setPage] = useState('dashboard');
+            const [signals, setSignals] = useState([]);
+            const [overviewStats, setOverviewStats] = useState(null);
+            const [categoryStats, setCategoryStats] = useState([]);
+            const [equityCurve, setEquityCurve] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+            const [filter, setFilter] = useState({ category: null, isUrgent: null });
+            const [connected, setConnected] = useState(false);
+
+            // Fetch all data on mount
+            useEffect(() => {
+                loadAllData();
+            }, []);
+
+            // Refetch signals when filter changes
+            useEffect(() => {
+                loadSignals();
+            }, [filter]);
+
+            const loadAllData = async () => {
+                setLoading(true);
+                setError(null);
+                try {
+                    const [overview, categories, equity, sigs] = await Promise.all([
+                        fetchOverviewStats(),
+                        fetchCategoryStats(),
+                        fetchEquityCurve(),
+                        fetchSignals({ status: 'active' })
+                    ]);
+
+                    setOverviewStats(overview);
+                    setCategoryStats(categories);
+                    setEquityCurve(equity);
+                    setSignals(sigs);
+                    setConnected(true);
+                } catch (e) {
+                    setError('Erro ao conectar com a API. Verifique se o backend está rodando.');
+                    setConnected(false);
+                }
+                setLoading(false);
+            };
+
+            const loadSignals = async () => {
+                const params = { status: 'active' };
+                if (filter.category) params.category = filter.category;
+                if (filter.isUrgent) params.isUrgent = true;
+                const sigs = await fetchSignals(params);
+                setSignals(sigs);
+            };
+
+            const handleSeed = async () => {
+                setLoading(true);
+                const result = await seedDatabase();
+                if (result) {
+                    alert(`Seed completo! Criados: ${result.created.markets} markets, ${result.created.signals} signals, ${result.created.executions} executions`);
+                    await loadAllData();
+                }
+                setLoading(false);
+            };
+
+            const handleFilterCategory = (cat) => {
+                setFilter(prev => ({
+                    ...prev,
+                    category: prev.category === cat ? null : cat
+                }));
+            };
+
+            const handleFilterUrgent = () => {
+                setFilter(prev => ({
+                    ...prev,
+                    isUrgent: !prev.isUrgent
+                }));
+            };
+
+            // Format percentage
+            const formatPercent = (value) => {
+                if (value === null || value === undefined) return '0%';
+                return `${(value * 100).toFixed(1)}%`;
+            };
+
+            return (
+                <div className="app">
+                    {/* Header */}
+                    <header className="header">
+                        <div className="header-content">
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                                <div className="logo">
+                                    <span className="logo-icon">🎯</span>
+                                    <div>
+                                        <h1>Smart Event Trader</h1>
+                                        <span>Connected to NestJS API</span>
+                                    </div>
+                                </div>
+                                <nav className="nav-menu">
+                                    <button 
+                                        className={`nav-btn ${page === 'dashboard' ? 'active' : ''}`}
+                                        onClick={() => setPage('dashboard')}
+                                    >
+                                        📊 Dashboard
+                                    </button>
+                                    <button 
+                                        className={`nav-btn ${page === 'signals' ? 'active' : ''}`}
+                                        onClick={() => setPage('signals')}
+                                    >
+                                        🎯 Signals
+                                    </button>
+                                    <button 
+                                        className={`nav-btn ${page === 'stats' ? 'active' : ''}`}
+                                        onClick={() => setPage('stats')}
+                                    >
+                                        📈 Stats
+                                    </button>
+                                </nav>
+                            </div>
+                            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                                <button 
+                                    onClick={handleSeed}
+                                    style={{
+                                        padding: '0.5rem 1rem',
+                                        background: 'var(--gradient-primary)',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        color: 'white',
+                                        fontWeight: '600',
+                                        cursor: 'pointer',
+                                        fontSize: '0.85rem'
+                                    }}
+                                >
+                                    🌱 Seed Demo Data
+                                </button>
+                                <button 
+                                    onClick={loadAllData}
+                                    style={{
+                                        padding: '0.5rem 1rem',
+                                        background: 'var(--bg-dark)',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: '8px',
+                                        color: 'var(--text-secondary)',
+                                        cursor: 'pointer',
+                                        fontSize: '0.85rem'
+                                    }}
+                                >
+                                    🔄 Refresh
+                                </button>
+                                <div className="connection-status">
+                                    <span className={`status-dot ${connected ? 'connected' : 'disconnected'}`}></span>
+                                    <span>{connected ? 'API Connected' : 'Disconnected'}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* Main Content */}
+                    <main className="main">
+                        {error && (
+                            <div className="error-banner">
+                                ⚠️ {error}
+                                <button 
+                                    onClick={loadAllData}
+                                    style={{ marginLeft: '1rem', padding: '0.25rem 0.5rem', cursor: 'pointer' }}
+                                >
+                                    Retry
+                                </button>
+                            </div>
+                        )}
+
+                        {page === 'dashboard' && (
+                            <DashboardPage 
+                                overviewStats={overviewStats}
+                                categoryStats={categoryStats}
+                                signals={signals}
+                                loading={loading}
+                                formatPercent={formatPercent}
+                                filter={filter}
+                                onFilterCategory={handleFilterCategory}
+                                onFilterUrgent={handleFilterUrgent}
+                            />
+                        )}
+
+                        {page === 'signals' && (
+                            <SignalsPage 
+                                signals={signals}
+                                loading={loading}
+                                filter={filter}
+                                onFilterCategory={handleFilterCategory}
+                                onFilterUrgent={handleFilterUrgent}
+                            />
+                        )}
+
+                        {page === 'stats' && (
+                            <StatsPage 
+                                overviewStats={overviewStats}
+                                categoryStats={categoryStats}
+                                equityCurve={equityCurve}
+                                loading={loading}
+                                formatPercent={formatPercent}
+                            />
+                        )}
+                    </main>
+                </div>
+            );
+        }
+
+        // ============================================
+        // Dashboard Page
+        // ============================================
+        function DashboardPage({ overviewStats, categoryStats, signals, loading, formatPercent, filter, onFilterCategory, onFilterUrgent }) {
+            if (loading) {
+                return (
+                    <div className="loading">
+                        <div className="spinner"></div>
+                        <span>Carregando dados...</span>
+                    </div>
+                );
+            }
+
+            const urgentSignals = signals.filter(s => s.isUrgent);
+
+            return (
+                <>
+                    {/* Stats Bar - Connected to /stats/overview */}
+                    <div className="stats-bar">
+                        <div className="stat-card">
+                            <div className="stat-icon primary">🎯</div>
+                            <div className="stat-info">
+                                <h3>{overviewStats?.totalTrades || 0}</h3>
+                                <p>Total Trades</p>
+                            </div>
+                        </div>
+                        <div className="stat-card">
+                            <div className="stat-icon success">✅</div>
+                            <div className="stat-info">
+                                <h3>{overviewStats?.totalWinningTrades || 0}</h3>
+                                <p>Winning Trades</p>
+                            </div>
+                        </div>
+                        <div className="stat-card">
+                            <div className="stat-icon warning">📈</div>
+                            <div className="stat-info">
+                                <h3>{formatPercent(overviewStats?.overallWinRate)}</h3>
+                                <p>Win Rate</p>
+                            </div>
+                        </div>
+                        <div className="stat-card">
+                            <div className="stat-icon danger">💰</div>
+                            <div className="stat-info">
+                                <h3>{formatPercent(overviewStats?.averageRoiPerTrade)}</h3>
+                                <p>Avg ROI/Trade</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Content Grid */}
+                    <div className="content-grid">
+                        {/* Signals Panel */}
+                        <div className="signals-panel">
+                            <div className="panel-header">
+                                <h2>🔔 Active Signals</h2>
+                                <div className="panel-filters">
+                                    <button 
+                                        className={`filter-btn ${!filter.category && !filter.isUrgent ? 'active' : ''}`}
+                                        onClick={() => { onFilterCategory(null); }}
+                                    >
+                                        All
+                                    </button>
+                                    <button 
+                                        className={`filter-btn ${filter.isUrgent ? 'active' : ''}`}
+                                        onClick={onFilterUrgent}
+                                    >
+                                        🔴 Urgent
+                                    </button>
+                                    <button 
+                                        className={`filter-btn ${filter.category === 'politics' ? 'active' : ''}`}
+                                        onClick={() => onFilterCategory('politics')}
+                                    >
+                                        🏛️ Politics
+                                    </button>
+                                    <button 
+                                        className={`filter-btn ${filter.category === 'crypto' ? 'active' : ''}`}
+                                        onClick={() => onFilterCategory('crypto')}
+                                    >
+                                        💰 Crypto
+                                    </button>
+                                    <button 
+                                        className={`filter-btn ${filter.category === 'tech' ? 'active' : ''}`}
+                                        onClick={() => onFilterCategory('tech')}
+                                    >
+                                        💻 Tech
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="signals-list">
+                                {signals.length === 0 ? (
+                                    <div className="empty-state">
+                                        <div className="empty-state-icon">📭</div>
+                                        <h3>No signals found</h3>
+                                        <p>Click "Seed Demo Data" to populate with sample data</p>
+                                    </div>
+                                ) : (
+                                    signals.map(signal => (
+                                        <SignalCard key={signal.id} signal={signal} />
+                                    ))
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Sidebar - Connected to /stats/by-category */}
+                        <div className="sidebar">
+                            <div className="performance-card">
+                                <h3>📊 Win Rate by Category</h3>
+                                
+                                {categoryStats.length === 0 ? (
+                                    <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                                        No category data available yet
+                                    </div>
+                                ) : (
+                                    categoryStats.map(cat => (
+                                        <div className="category-bar" key={cat.category}>
+                                            <div className="category-header">
+                                                <span className="category-name">{cat.category}</span>
+                                                <span className="category-stats">
+                                                    {(cat.winRate * 100).toFixed(0)}% ({cat.totalTrades} trades)
+                                                </span>
+                                            </div>
+                                            <div className="bar-container">
+                                                <div 
+                                                    className="bar-fill"
+                                                    style={{ width: `${cat.winRate * 100}%` }}
+                                                />
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+
+                            <div className="activity-card">
+                                <h3>💡 Quick Stats</h3>
+                                <div style={{ display: 'grid', gap: '0.75rem' }}>
+                                    <div style={{ background: 'var(--bg-dark)', padding: '0.75rem', borderRadius: '8px' }}>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Expectancy</div>
+                                        <div style={{ fontFamily: 'JetBrains Mono', fontWeight: '600', color: (overviewStats?.expectancyPerTrade || 0) >= 0 ? 'var(--accent-success)' : 'var(--accent-danger)' }}>
+                                            {((overviewStats?.expectancyPerTrade || 0) * 100).toFixed(1)}%
+                                        </div>
+                                    </div>
+                                    <div style={{ background: 'var(--bg-dark)', padding: '0.75rem', borderRadius: '8px' }}>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Total P/L</div>
+                                        <div style={{ fontFamily: 'JetBrains Mono', fontWeight: '600', color: (overviewStats?.totalProfitLoss || 0) >= 0 ? 'var(--accent-success)' : 'var(--accent-danger)' }}>
+                                            ${overviewStats?.totalProfitLoss?.toFixed(2) || '0.00'}
+                                        </div>
+                                    </div>
+                                    <div style={{ background: 'var(--bg-dark)', padding: '0.75rem', borderRadius: '8px' }}>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Total Staked</div>
+                                        <div style={{ fontFamily: 'JetBrains Mono', fontWeight: '600' }}>
+                                            ${overviewStats?.totalStakeAmount?.toFixed(2) || '0.00'}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </>
+            );
+        }
+
+        // ============================================
+        // Signal Card Component
+        // ============================================
+        function SignalCard({ signal }) {
+            const formatDate = (dateStr) => {
+                return new Date(dateStr).toLocaleDateString('pt-BR', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            };
+
+            return (
+                <div className={`signal-card ${signal.isUrgent ? 'urgent' : 'normal'}`}>
+                    <div className="signal-header">
+                        <div className="signal-badge">
+                            <span className={`urgency-badge ${signal.isUrgent ? 'urgent' : 'normal'}`}>
+                                {signal.isUrgent ? 'URGENT' : 'NORMAL'}
+                            </span>
+                            <span className="confidence-badge">
+                                🎯 {signal.confidenceScore}%
+                            </span>
+                        </div>
+                        <span className="signal-time">{formatDate(signal.createdAt)}</span>
+                    </div>
+
+                    <span className="signal-category">{signal.market?.category || 'N/A'}</span>
+                    <h4 className="signal-title">{signal.market?.title || 'Unknown Market'}</h4>
+
+                    <div className="signal-details">
+                        <div className="detail-item">
+                            <div className="detail-label">Direction</div>
+                            <div className="detail-value" style={{ color: signal.direction === 'YES' ? 'var(--accent-success)' : 'var(--accent-danger)' }}>
+                                {signal.direction}
+                            </div>
+                        </div>
+                        <div className="detail-item">
+                            <div className="detail-label">Entry Price</div>
+                            <div className="detail-value">
+                                ${parseFloat(signal.entryPriceSuggested).toFixed(2)}
+                            </div>
+                        </div>
+                        <div className="detail-item">
+                            <div className="detail-label">Target</div>
+                            <div className="detail-value positive">
+                                ${parseFloat(signal.targetPrice).toFixed(2)}
+                            </div>
+                        </div>
+                    </div>
+
+                    {signal.rationale && (
+                        <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem', fontStyle: 'italic' }}>
+                            "{signal.rationale}"
+                        </div>
+                    )}
+
+                    <div className="signal-action">
+                        <button className="btn-primary">
+                            📊 View Details
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        // ============================================
+        // Signals Page
+        // ============================================
+        function SignalsPage({ signals, loading, filter, onFilterCategory, onFilterUrgent }) {
+            if (loading) {
+                return <div className="loading"><div className="spinner"></div></div>;
+            }
+
+            return (
+                <div className="signals-panel" style={{ maxWidth: '100%' }}>
+                    <div className="panel-header">
+                        <h2>🎯 All Signals</h2>
+                        <div className="panel-filters">
+                            <button className={`filter-btn ${!filter.category ? 'active' : ''}`} onClick={() => onFilterCategory(null)}>All</button>
+                            <button className={`filter-btn ${filter.isUrgent ? 'active' : ''}`} onClick={onFilterUrgent}>Urgent</button>
+                            <button className={`filter-btn ${filter.category === 'politics' ? 'active' : ''}`} onClick={() => onFilterCategory('politics')}>Politics</button>
+                            <button className={`filter-btn ${filter.category === 'crypto' ? 'active' : ''}`} onClick={() => onFilterCategory('crypto')}>Crypto</button>
+                            <button className={`filter-btn ${filter.category === 'tech' ? 'active' : ''}`} onClick={() => onFilterCategory('tech')}>Tech</button>
+                            <button className={`filter-btn ${filter.category === 'sports' ? 'active' : ''}`} onClick={() => onFilterCategory('sports')}>Sports</button>
+                            <button className={`filter-btn ${filter.category === 'finance' ? 'active' : ''}`} onClick={() => onFilterCategory('finance')}>Finance</button>
+                        </div>
+                    </div>
+                    <div className="signals-list" style={{ maxHeight: 'none' }}>
+                        {signals.map(signal => <SignalCard key={signal.id} signal={signal} />)}
+                        {signals.length === 0 && (
+                            <div className="empty-state">
+                                <div className="empty-state-icon">📭</div>
+                                <h3>No signals match your filter</h3>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // ============================================
+        // Stats Page
+        // ============================================
+        function StatsPage({ overviewStats, categoryStats, equityCurve, loading, formatPercent }) {
+            if (loading) {
+                return <div className="loading"><div className="spinner"></div></div>;
+            }
+
+            return (
+                <div>
+                    <h2 style={{ marginBottom: '1.5rem' }}>📈 Trading Statistics</h2>
+
+                    {/* Overview Stats */}
+                    <div className="stats-bar" style={{ marginBottom: '2rem' }}>
+                        <div className="stat-card">
+                            <div className="stat-icon primary">📊</div>
+                            <div className="stat-info">
+                                <h3>{overviewStats?.totalTrades || 0}</h3>
+                                <p>Total Trades</p>
+                            </div>
+                        </div>
+                        <div className="stat-card">
+                            <div className="stat-icon success">✅</div>
+                            <div className="stat-info">
+                                <h3>{overviewStats?.totalWinningTrades || 0} / {overviewStats?.totalLosingTrades || 0}</h3>
+                                <p>Wins / Losses</p>
+                            </div>
+                        </div>
+                        <div className="stat-card">
+                            <div className="stat-icon warning">🎯</div>
+                            <div className="stat-info">
+                                <h3>{formatPercent(overviewStats?.overallWinRate)}</h3>
+                                <p>Win Rate</p>
+                            </div>
+                        </div>
+                        <div className="stat-card">
+                            <div className="stat-icon danger">💹</div>
+                            <div className="stat-info">
+                                <h3>{formatPercent(overviewStats?.averageRoiPerTrade)}</h3>
+                                <p>Avg ROI</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="content-grid">
+                        {/* Category Stats */}
+                        <div className="signals-panel">
+                            <div className="panel-header">
+                                <h2>📊 Performance by Category</h2>
+                            </div>
+                            <div style={{ padding: '1.5rem' }}>
+                                {categoryStats.length === 0 ? (
+                                    <div className="empty-state">
+                                        <p>No category data. Run seed to add demo data.</p>
+                                    </div>
+                                ) : (
+                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                        <thead>
+                                            <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                                                <th style={{ padding: '0.75rem', textAlign: 'left', color: 'var(--text-muted)' }}>Category</th>
+                                                <th style={{ padding: '0.75rem', textAlign: 'center', color: 'var(--text-muted)' }}>Trades</th>
+                                                <th style={{ padding: '0.75rem', textAlign: 'center', color: 'var(--text-muted)' }}>Wins</th>
+                                                <th style={{ padding: '0.75rem', textAlign: 'center', color: 'var(--text-muted)' }}>Losses</th>
+                                                <th style={{ padding: '0.75rem', textAlign: 'center', color: 'var(--text-muted)' }}>Win Rate</th>
+                                                <th style={{ padding: '0.75rem', textAlign: 'center', color: 'var(--text-muted)' }}>Avg ROI</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {categoryStats.map(cat => (
+                                                <tr key={cat.category} style={{ borderBottom: '1px solid var(--border)' }}>
+                                                    <td style={{ padding: '0.75rem', textTransform: 'capitalize', fontWeight: '600' }}>{cat.category}</td>
+                                                    <td style={{ padding: '0.75rem', textAlign: 'center' }}>{cat.totalTrades}</td>
+                                                    <td style={{ padding: '0.75rem', textAlign: 'center', color: 'var(--accent-success)' }}>{cat.totalWinningTrades}</td>
+                                                    <td style={{ padding: '0.75rem', textAlign: 'center', color: 'var(--accent-danger)' }}>{cat.totalLosingTrades}</td>
+                                                    <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '600' }}>{(cat.winRate * 100).toFixed(1)}%</td>
+                                                    <td style={{ padding: '0.75rem', textAlign: 'center', color: cat.averageRoiPerTrade >= 0 ? 'var(--accent-success)' : 'var(--accent-danger)' }}>
+                                                        {(cat.averageRoiPerTrade * 100).toFixed(1)}%
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Equity Curve */}
+                        <div className="sidebar">
+                            <div className="performance-card">
+                                <h3>📉 Equity Curve</h3>
+                                <div style={{ display: 'grid', gap: '1rem' }}>
+                                    <div style={{ background: 'var(--bg-dark)', padding: '1rem', borderRadius: '8px' }}>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Final Equity</div>
+                                        <div style={{ fontFamily: 'JetBrains Mono', fontSize: '1.5rem', fontWeight: '700', color: (equityCurve?.finalEquity || 0) >= 0 ? 'var(--accent-success)' : 'var(--accent-danger)' }}>
+                                            {((equityCurve?.finalEquity || 0) * 100).toFixed(1)}%
+                                        </div>
+                                    </div>
+                                    <div style={{ background: 'var(--bg-dark)', padding: '1rem', borderRadius: '8px' }}>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Max Drawdown</div>
+                                        <div style={{ fontFamily: 'JetBrains Mono', fontSize: '1.5rem', fontWeight: '700', color: 'var(--accent-danger)' }}>
+                                            -{((equityCurve?.maxDrawdown || 0) * 100).toFixed(1)}%
+                                        </div>
+                                    </div>
+                                    <div style={{ background: 'var(--bg-dark)', padding: '1rem', borderRadius: '8px' }}>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Total Trades</div>
+                                        <div style={{ fontFamily: 'JetBrains Mono', fontSize: '1.5rem', fontWeight: '700' }}>
+                                            {equityCurve?.totalTrades || 0}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Mini equity chart (text-based) */}
+                                {equityCurve?.points?.length > 0 && (
+                                    <div style={{ marginTop: '1rem' }}>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Equity History</div>
+                                        <div style={{ display: 'flex', gap: '2px', alignItems: 'flex-end', height: '60px' }}>
+                                            {equityCurve.points.slice(-20).map((point, i) => (
+                                                <div 
+                                                    key={i}
+                                                    style={{
+                                                        flex: 1,
+                                                        background: point.equity >= 0 ? 'var(--accent-success)' : 'var(--accent-danger)',
+                                                        height: `${Math.min(100, Math.abs(point.equity * 100) + 20)}%`,
+                                                        borderRadius: '2px'
+                                                    }}
+                                                    title={`${(point.equity * 100).toFixed(1)}%`}
+                                                />
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // ============================================
+        // Render App
+        // ============================================
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

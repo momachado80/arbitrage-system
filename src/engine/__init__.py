@@ -12,6 +12,25 @@ from .market_matcher import MarketMatcher, MarketPair, similarity_to_equivalence
 from .auto_scanner import AutoScanner, ScanResult, OpportunityDetail, run_continuous_scanner
 from .market_indexer import MarketIndexer, MarketIndex
 from .large_scale_scanner import LargeScaleScanner, FullScanResult
+from .probability_calibrator import (
+    ProbabilityCalibrator,
+    CategoryTypeMetrics,
+    MarketCategory,
+    TradeType,
+    calculate_brier_score,
+    calculate_lambda,
+    # Constantes
+    SCHEMA_VERSION,
+    HALF_LIFE_FAST,
+    HALF_LIFE_SLOW,
+    E_MAX,
+    ALPHA,
+    K_MIN,
+    K_MIN_GLOBAL,
+    N_MIN,
+    THETA,
+    BASELINE_BRIER_BY_CATEGORY,
+)
 
 __all__ = [
     "ExecutionSimulator",
@@ -33,4 +52,21 @@ __all__ = [
     "MarketIndex",
     "LargeScaleScanner",
     "FullScanResult",
+    # Probability Calibration
+    "ProbabilityCalibrator",
+    "CategoryTypeMetrics",
+    "MarketCategory",
+    "TradeType",
+    "calculate_brier_score",
+    "calculate_lambda",
+    "SCHEMA_VERSION",
+    "HALF_LIFE_FAST",
+    "HALF_LIFE_SLOW",
+    "E_MAX",
+    "ALPHA",
+    "K_MIN",
+    "K_MIN_GLOBAL",
+    "N_MIN",
+    "THETA",
+    "BASELINE_BRIER_BY_CATEGORY",
 ]

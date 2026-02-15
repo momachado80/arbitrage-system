@@ -1,0 +1,615 @@
+"""
+Dashboard Server — Painel Web para o Sistema de Trading
+==========================================================
+
+FastAPI + Jinja2 + Tailwind + Chart.js + Heroicons.
+
+Apenas leitura + ACK. Sem alteração de config. Sem envio de ordens.
+Roda em 127.0.0.1 (porta configurável).
+
+Uso:
+    uvicorn src.api.dashboard_server:app --host 127.0.0.1 --port 8765
+"""
+
+import os
+import tempfile
+import time
+from collections import deque
+from typing import Any, Dict, List, Optional
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
+
+from src.api.dashboard_metrics import (
+    HUMAN_REASON_MAP,
+    apply_narrative_alignment,
+    build_explanation_text,
+    compute_confidence_score,
+    compute_concentration,
+    compute_drawdown_from_tracker,
+    compute_financial_risk_from_inputs,
+    get_human_status,
+    get_status_color,
+    humanize_reasons,
+)
+from src.api.drawdown_tracker import DrawdownTracker
+from src.api.event_timeline import EventTimeline
+
+# Re-export para compatibilidade com testes
+__all__ = ["HUMAN_REASON_MAP", "create_dashboard_app"]
+
+CAPITAL_HISTORY_MAX = 100
+EVENTS_MAX = 20
+
+
+def _get_reversion_metrics(system_context: Dict[str, Any]) -> Dict[str, Any]:
+    """Métricas do Reversion Engine para /technical. Não afeta core."""
+    collector = system_context.get("reversion_metrics_collector")
+    if collector is None or not hasattr(collector, "get_metrics"):
+        return {
+            "current_z": None,
+            "rolling_z_mean": None,
+            "rolling_z_std": None,
+            "signal_count_last_24h": 0,
+            "hit_rate_simulated": None,
+            "average_reversion_magnitude": None,
+            "average_time_to_reversion": None,
+        }
+    try:
+        return collector.get_metrics()
+    except Exception:
+        return {
+            "current_z": None,
+            "rolling_z_mean": None,
+            "rolling_z_std": None,
+            "signal_count_last_24h": 0,
+            "hit_rate_simulated": None,
+            "average_reversion_magnitude": None,
+            "average_time_to_reversion": None,
+        }
+
+
+def _last_reconcile_age(safety_state: Any) -> Optional[float]:
+    """Idade em segundos do último reconcile OK. None se nunca."""
+    if safety_state is None:
+        return None
+    ts = safety_state.last_reconcile_ok_ts
+    if ts is None:
+        return None
+    return time.time() - ts
+
+
+def _build_exposure_summary(
+    position_manager: Any,
+    capital_manager: Any,
+) -> List[Dict[str, Any]]:
+    """Resume exposição por mercado (% do capital)."""
+    if position_manager is None or capital_manager is None:
+        return []
+    try:
+        total = capital_manager.total_capital
+        if total <= 0:
+            return []
+        all_pos = position_manager.get_all_positions()
+        by_market: Dict[str, float] = {}
+        for (_mid, _side), pos in all_pos.items():
+            shares = getattr(pos, "shares", 0.0)
+            avg = getattr(pos, "avg_entry_price", 0.0)
+            exp = shares * avg if shares and avg else 0
+            if exp > 0:
+                key = f"{pos.market_id}|{pos.outcome_side}"
+                by_market[key] = by_market.get(key, 0) + exp
+        return [
+            {
+                "market": k.replace("|", " "),
+                "exposure": round(v, 2),
+                "percent": round(100 * v / total, 1),
+            }
+            for k, v in sorted(by_market.items(), key=lambda x: -x[1])
+        ]
+    except Exception:
+        return []
+
+
+def _derive_events(
+    safety_state: Any,
+    prev: Dict[str, Any],
+    humanize_reason_map: Dict[str, str],
+    event_timeline: EventTimeline,
+) -> List[Dict[str, Any]]:
+    """Deriva eventos a partir de mudanças de estado e registra na timeline."""
+    events = []
+    now = time.time()
+    if safety_state is None:
+        return events
+
+    rec_ts = safety_state.last_reconcile_ok_ts
+    if rec_ts is not None and (prev.get("last_reconcile_ts") or 0) < rec_ts:
+        ev = {"ts": now, "type": "reconcile_ok", "message": "Reconciliação confirmada"}
+        events.append(ev)
+        event_timeline.add("reconcile_ok", "Reconciliação confirmada", now)
+
+    safe = safety_state.global_safe_mode
+    prev_safe = prev.get("global_safe_mode", False)
+    if safe and not prev_safe:
+        ev = {"ts": now, "type": "safe_mode_on", "message": "Modo de segurança ativado"}
+        events.append(ev)
+        event_timeline.add("safe_mode_on", "Modo de segurança ativado", now)
+    elif not safe and prev_safe:
+        ev = {"ts": now, "type": "safe_mode_off", "message": "Modo de segurança desativado"}
+        events.append(ev)
+        event_timeline.add("safe_mode_off", "Modo de segurança desativado", now)
+
+    reasons = safety_state.reasons
+    prev_reasons = prev.get("reasons", set())
+    for r in reasons - prev_reasons:
+        msg = humanize_reason_map.get(r, r)
+        ev = {"ts": now, "type": "reason_added", "message": msg}
+        events.append(ev)
+        event_timeline.add("reason_added", msg, now)
+    for r in prev_reasons - reasons:
+        msg = humanize_reason_map.get(r, r)
+        ev = {"ts": now, "type": "reason_removed", "message": msg}
+        events.append(ev)
+        event_timeline.add("reason_removed", msg, now)
+
+    return events
+
+
+def create_dashboard_app(system_context: Dict[str, Any]) -> FastAPI:
+    """
+    Cria app FastAPI do dashboard.
+
+    system_context: dict do create_system (safety_state, capital_manager,
+        position_manager, trade_ledger, config, etc.) + build_audit_report.
+    """
+    app = FastAPI(title="Dashboard Robot", docs_url=None, redoc_url=None)
+
+    _dir = os.path.dirname(os.path.abspath(__file__))
+    templates = Jinja2Templates(directory=os.path.join(_dir, "templates"))
+
+    safety_state = system_context.get("safety_state")
+    capital_manager = system_context.get("capital_manager")
+    position_manager = system_context.get("position_manager")
+    trade_ledger = system_context.get("trade_ledger")
+    app_config = system_context.get("config")
+
+    # Estado em memória (por instância do app)
+    capital_history: deque = deque(maxlen=CAPITAL_HISTORY_MAX)
+    event_timeline: EventTimeline = EventTimeline(maxlen=EVENTS_MAX)
+
+    state_dir = system_context.get("state_dir")
+    if not state_dir or state_dir == "mock":
+        state_dir = tempfile.mkdtemp(prefix="dashboard_dd_")
+    else:
+        state_dir = str(state_dir)
+
+    def _on_drawdown_reset() -> None:
+        try:
+            event_timeline.add(
+                "dashboard_state_reset",
+                "Estado do dashboard reiniciado por segurança",
+                time.time(),
+            )
+        except Exception:
+            pass
+
+    drawdown_tracker: DrawdownTracker = DrawdownTracker(
+        state_dir=state_dir,
+        on_reset_callback=_on_drawdown_reset,
+    )
+
+    _prev_state: Dict[str, Any] = {}
+    _first_build: bool = True
+
+    def _build_audit_report() -> str:
+        fn = system_context.get("build_audit_report")
+        if callable(fn):
+            return fn(
+                capital_manager=capital_manager,
+                position_manager=position_manager,
+                trade_ledger=trade_ledger,
+                safety_state=safety_state,
+            )
+        return "Relatório de auditoria não disponível."
+
+    def _ack_reason(reason: str, note: str) -> bool:
+        try:
+            from src.orchestrator import ack_reason
+
+            watcher = system_context.get("watcher_thread")
+            return ack_reason(reason, note, system_context, watcher_thread=watcher)
+        except Exception:
+            return False
+
+    def _build_dashboard_payload() -> Dict[str, Any]:
+        """Constrói JSON consolidado para o dashboard 2.1."""
+        run_mode = app_config.run_mode if app_config else "OBSERVE"
+        buy_blocked = safety_state.buy_blocked if safety_state else False
+        global_safe_mode = safety_state.global_safe_mode if safety_state else False
+        reasons = sorted(safety_state.reasons) if safety_state else []
+        human_status = get_human_status(safety_state)
+        status_color = get_status_color(safety_state)
+
+        # Capital
+        if capital_manager:
+            s = capital_manager.snapshot()
+            cap_data = {
+                "total_capital": s.get("total_capital", 0.0),
+                "available_capital": s.get("available_capital", 0.0),
+                "locked_in_open_orders": s.get("locked_in_open_orders", 0.0),
+                "locked_in_unresolved_markets": s.get(
+                    "locked_in_unresolved_markets", 0.0
+                ),
+                "realized_pnl": s.get("realized_pnl", 0.0),
+            }
+            ts = time.time()
+            snap = {"ts": ts, "total_capital": cap_data["total_capital"], "realized_pnl": cap_data["realized_pnl"]}
+            if not capital_history:
+                capital_history.append(snap)
+            else:
+                capital_history.append(snap)
+        else:
+            cap_data = {
+                "total_capital": 0.0,
+                "available_capital": 0.0,
+                "locked_in_open_orders": 0.0,
+                "locked_in_unresolved_markets": 0.0,
+                "realized_pnl": 0.0,
+            }
+            if not capital_history:
+                capital_history.append({"ts": time.time(), "total_capital": 0.0, "realized_pnl": 0.0})
+
+        # Positions
+        positions = []
+        if position_manager:
+            all_pos = position_manager.get_all_positions()
+            for (_mid, _side), pos in all_pos.items():
+                shares = getattr(pos, "shares", 0.0)
+                avg = getattr(pos, "avg_entry_price", 0.0)
+                est = shares * avg if shares and avg else None
+                positions.append({
+                    "market": pos.market_id,
+                    "side": pos.outcome_side,
+                    "shares": shares,
+                    "avg_entry_price": avg,
+                    "estimated_value": est,
+                })
+
+        # Exposure
+        exposure_summary = _build_exposure_summary(
+            position_manager, capital_manager
+        )
+        total_cap = cap_data.get("total_capital") or 0.0
+        exposure_pct = (
+            sum(e["exposure"] for e in exposure_summary) / total_cap * 100
+            if total_cap > 0 else 0.0
+        )
+
+        base_explanation = build_explanation_text(
+            safety_state,
+            app_config,
+            position_manager=position_manager,
+            capital_manager=capital_manager,
+            exposure_percent=exposure_pct,
+        )
+
+        # Eventos derivados de mudanças (não no primeiro build)
+        nonlocal _first_build
+        if not _first_build:
+            _derive_events(
+                safety_state, _prev_state, HUMAN_REASON_MAP, event_timeline
+            )
+        _first_build = False
+
+        _prev_state.update({
+            "last_reconcile_ts": (
+                safety_state.last_reconcile_ok_ts if safety_state else None
+            ),
+            "global_safe_mode": global_safe_mode,
+            "reasons": set(safety_state.reasons) if safety_state else set(),
+        })
+
+        # Confidence score
+        ctx = {
+            "safety_state": safety_state,
+            "config": app_config,
+            "app_config": app_config,
+        }
+        confidence = compute_confidence_score(ctx)
+
+        # Risco financeiro (modelo gradual)
+        max_concentration = (
+            max((e.get("percent", 0) for e in exposure_summary), default=0.0)
+            / 100.0
+        )
+        financial_risk = compute_financial_risk_from_inputs(
+            cap_data,
+            len([p for p in positions if (p.get("shares") or 0) > 0]),
+            safety_state,
+            max_concentration,
+        )
+
+        # risk_level_changed
+        prev_risk = _prev_state.get("risk_level")
+        if prev_risk is not None and prev_risk != financial_risk.get("level"):
+            event_timeline.add(
+                "risk_level_changed",
+                f"Nível de risco: {prev_risk} → {financial_risk.get('level', '?')}",
+                time.time(),
+            )
+        _prev_state["risk_level"] = financial_risk.get("level")
+
+        # Explicação com harmonização narrativa
+        explanation = apply_narrative_alignment(
+            base_explanation, confidence, financial_risk
+        )
+
+        # Concentração (maior exposição)
+        concentration = compute_concentration(exposure_summary, total_cap)
+
+        # Drawdown persistente
+        current_cap = cap_data.get("total_capital", 0.0)
+        drawdown_tracker.update(current_cap, event_timeline)
+        drawdown = compute_drawdown_from_tracker(drawdown_tracker, current_cap)
+
+        # Uptime
+        start_time = system_context.get("system_start_time")
+        uptime_seconds = (
+            time.time() - start_time
+            if start_time is not None
+            else None
+        )
+
+        # Recent events formato {timestamp, text}
+        recent = event_timeline.get_recent(20)
+        recent_events_payload = [
+            {"timestamp": e.get("timestamp", ""), "text": e.get("text", e.get("message", ""))}
+            for e in recent
+        ]
+        recent_events_legacy = [
+            {"ts": e["ts"], "message": e.get("text", e.get("message", ""))}
+            for e in recent
+        ]
+
+        return {
+            "run_mode": run_mode,
+            "human_status": human_status,
+            "status_color": status_color,
+            "buy_blocked": buy_blocked,
+            "global_safe_mode": global_safe_mode,
+            "last_reconcile_age_seconds": _last_reconcile_age(safety_state),
+            "invariants_ok_streak": (
+                safety_state.invariants_ok_streak if safety_state else 0
+            ),
+            "capital_mismatch_ok_streak": (
+                safety_state.capital_mismatch_ok_streak if safety_state else 0
+            ),
+            "capital": cap_data,
+            "positions": positions,
+            "exposure_summary": exposure_summary,
+            "recent_events": recent_events_legacy,
+            "recent_events_v2": recent_events_payload,
+            "explanation_text": explanation,
+            "reasons": reasons,
+            "human_reasons": humanize_reasons(
+                set(safety_state.reasons) if safety_state else set()
+            ),
+            "capital_history": list(capital_history),
+            "confidence_score": confidence,
+            "financial_risk": financial_risk,
+            "concentration": concentration,
+            "drawdown": drawdown,
+            "uptime_seconds": uptime_seconds,
+        }
+
+    # -------------------------------------------------------------------------
+    # GET /
+    # -------------------------------------------------------------------------
+    @app.get("/", response_class=HTMLResponse)
+    async def index(request: Request):
+        return templates.TemplateResponse(
+            request=request,
+            name="dashboard.html",
+            context={},
+        )
+
+    # -------------------------------------------------------------------------
+    # GET /technical
+    # -------------------------------------------------------------------------
+    @app.get("/technical", response_class=HTMLResponse)
+    async def technical_page(request: Request):
+        return templates.TemplateResponse(
+            request=request,
+            name="technical.html",
+            context={},
+        )
+
+    # -------------------------------------------------------------------------
+    # GET /api/dashboard
+    # -------------------------------------------------------------------------
+    @app.get("/api/dashboard")
+    async def api_dashboard():
+        return _build_dashboard_payload()
+
+    # -------------------------------------------------------------------------
+    # GET /api/status (retrocompatibilidade)
+    # -------------------------------------------------------------------------
+    @app.get("/api/status")
+    async def api_status():
+        p = _build_dashboard_payload()
+        return {
+            "run_mode": p["run_mode"],
+            "buy_blocked": p["buy_blocked"],
+            "global_safe_mode": p["global_safe_mode"],
+            "human_status": p["human_status"],
+            "last_reconcile_age_seconds": p["last_reconcile_age_seconds"],
+            "reasons": p["reasons"],
+            "human_reasons": p["human_reasons"],
+            "invariants_ok_streak": p["invariants_ok_streak"],
+            "capital_mismatch_ok_streak": p["capital_mismatch_ok_streak"],
+            "activity_text": p["explanation_text"],
+        }
+
+    # -------------------------------------------------------------------------
+    # GET /api/capital
+    # -------------------------------------------------------------------------
+    @app.get("/api/capital")
+    async def api_capital():
+        p = _build_dashboard_payload()
+        return p["capital"]
+
+    # -------------------------------------------------------------------------
+    # GET /api/positions
+    # -------------------------------------------------------------------------
+    @app.get("/api/positions")
+    async def api_positions():
+        p = _build_dashboard_payload()
+        return {"positions": p["positions"]}
+
+    # -------------------------------------------------------------------------
+    # GET /api/audit
+    # -------------------------------------------------------------------------
+    @app.get("/api/audit")
+    async def api_audit():
+        return {"report": _build_audit_report()}
+
+    # -------------------------------------------------------------------------
+    # GET /api/technical (dados para página técnica)
+    # -------------------------------------------------------------------------
+    @app.get("/api/technical")
+    async def api_technical():
+        report = _build_audit_report()
+        p = _build_dashboard_payload()
+        system = system_context
+        threads = {}
+        if system.get("market_engine"):
+            t = system["market_engine"]
+            threads["market_engine"] = t.is_alive()
+        if system.get("reconciler_loop"):
+            t = system["reconciler_loop"]
+            threads["reconciler"] = t.is_alive()
+        if system.get("watcher_thread"):
+            threads["watcher"] = system["watcher_thread"].is_alive()
+
+        fr = p.get("financial_risk") or {}
+        risk_model_inputs = {
+            "model_version": fr.get("model_version"),
+            "percent_reserved": fr.get("percent_reserved"),
+            "max_concentration": fr.get("max_concentration"),
+            "open_positions": fr.get("open_positions"),
+            "global_safe_mode": fr.get("global_safe_mode"),
+            "risk_score": fr.get("score"),
+        }
+        reversion_metrics = _get_reversion_metrics(system_context)
+        return {
+            "audit_report": report,
+            "run_mode": p["run_mode"],
+            "raw_reasons": p["reasons"],
+            "invariants_ok_streak": p["invariants_ok_streak"],
+            "capital_mismatch_ok_streak": p["capital_mismatch_ok_streak"],
+            "session_id": (
+                safety_state.last_reconcile_session_id
+                if safety_state else 0
+            ),
+            "capital_breakdown": p["capital"],
+            "thread_status": threads,
+            "risk_model_inputs": risk_model_inputs,
+            "reversion_metrics": reversion_metrics,
+        }
+
+    # -------------------------------------------------------------------------
+    # POST /api/ack
+    # -------------------------------------------------------------------------
+    class AckBody(BaseModel):
+        reason: str
+        note: str = ""
+
+    @app.post("/api/ack")
+    async def api_ack(body: AckBody):
+        reason = (body.reason or "").strip()
+        if not reason:
+            raise HTTPException(
+                status_code=400,
+                detail="reason obrigatório",
+            )
+
+        if safety_state is None:
+            raise HTTPException(
+                status_code=400,
+                detail="safety_state não disponível",
+            )
+
+        if reason not in safety_state.reasons:
+            raise HTTPException(
+                status_code=400,
+                detail=f"reason '{reason}' não está ativa",
+            )
+
+        from src.safety.safety_state import SAFE_MODE
+
+        if reason == SAFE_MODE:
+            other = safety_state.reasons - {SAFE_MODE}
+            if other:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Não é possível confirmar Modo Seguro com outros alertas ativos",
+                )
+
+        ok = _ack_reason(reason, body.note)
+        if not ok:
+            raise HTTPException(
+                status_code=400,
+                detail="ACK rejeitado: pré-condições não atendidas",
+            )
+        return {"ok": True, "reason": reason}
+
+    return app
+
+
+# -----------------------------------------------------------------------------
+# Mock system para rodar standalone
+# -----------------------------------------------------------------------------
+
+def _create_mock_system() -> Dict[str, Any]:
+    """Sistema mínimo para dashboard sem orchestrator (demo)."""
+    from src.risk.capital_manager import CapitalManager
+    from src.risk.position_manager import PositionManager
+    from src.engine.trade_ledger import TradeLedger
+    from src.engine.probability_calibrator import ProbabilityCalibrator
+    from src.safety.safety_state import SafetyState
+    from src.config.config import load_app_config_from_env
+    from src.safety.audit_report import build_audit_report
+
+    cfg = load_app_config_from_env()
+    cm = CapitalManager(initial_capital=1000.0)
+    tmpdir = tempfile.mkdtemp(prefix="dashboard_demo_")
+    cal = ProbabilityCalibrator(state_path=os.path.join(tmpdir, "cal.json"))
+    pm = PositionManager(state_path=os.path.join(tmpdir, "pos.json"))
+    tl = TradeLedger(
+        state_path=os.path.join(tmpdir, "ledger.json"),
+        calibrator=cal,
+        capital_manager=cm,
+    )
+    ss = SafetyState()
+
+    return {
+        "system_start_time": time.time(),
+        "safety_state": ss,
+        "capital_manager": cm,
+        "position_manager": pm,
+        "trade_ledger": tl,
+        "config": cfg,
+        "config_snapshot": None,
+        "ack_store": None,
+        "reconciler_loop": None,
+        "market_engine": None,
+        "exchange_api": None,
+        "build_audit_report": build_audit_report,
+        "watcher_thread": None,
+    }
+
+
+app = create_dashboard_app(_create_mock_system())

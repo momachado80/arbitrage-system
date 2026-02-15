@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎯 Arbitragem Real | Polymarket × Kalshi</title>
+    <style>
+        :root {
+            --bg-primary: #0a0f1c;
+            --bg-secondary: #111827;
+            --bg-card: #1a2235;
+            --bg-highlight: #1e3a5f;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-yellow: #f59e0b;
+            --accent-blue: #3b82f6;
+            --accent-purple: #8b5cf6;
+            --border-color: #334155;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        html, body {
+            background: var(--bg-primary) !important;
+            min-height: 100vh;
+        }
+        
+        body {
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+            padding: 2rem;
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-card) 100%);
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+        }
+        
+        header h1 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, #fff 0%, var(--accent-green) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-top: 0.5rem;
+        }
+        
+        .badge-real {
+            background: linear-gradient(135deg, var(--accent-green) 0%, #059669 100%);
+            color: white;
+        }
+        
+        /* Login Form */
+        .login-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .login-section.authenticated {
+            border-color: var(--accent-green);
+        }
+        
+        .login-section h2 {
+            font-size: 1.2rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .login-form {
+            display: grid;
+            grid-template-columns: 1fr 1fr auto;
+            gap: 1rem;
+            align-items: end;
+        }
+        
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        
+        .form-group label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+        
+        .form-group input {
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 1rem;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+        
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-blue) 0%, var(--accent-purple) 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover { transform: translateY(-2px); }
+        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+        
+        .btn-green {
+            background: linear-gradient(135deg, var(--accent-green) 0%, #059669 100%);
+            color: white;
+        }
+        
+        .auth-status {
+            margin-top: 1rem;
+            padding: 1rem;
+            border-radius: 8px;
+            background: var(--bg-secondary);
+        }
+        
+        .auth-status.success {
+            border-left: 4px solid var(--accent-green);
+        }
+        
+        .auth-status.error {
+            border-left: 4px solid var(--accent-red);
+        }
+        
+        .categories-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+        
+        .category-tag {
+            padding: 0.25rem 0.5rem;
+            background: var(--bg-highlight);
+            border-radius: 4px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+        
+        /* Scan Section */
+        .scan-section {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        
+        .btn-scan {
+            padding: 1rem 3rem;
+            font-size: 1.1rem;
+        }
+        
+        /* Status */
+        .status-bar {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .status-bar.loading { border-color: var(--accent-blue); }
+        .status-bar.success { border-color: var(--accent-green); }
+        .status-bar.warning { border-color: var(--accent-yellow); }
+        .status-bar.error { border-color: var(--accent-red); }
+        
+        .status-message {
+            font-size: 1.1rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border-color);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+        
+        .stat-item {
+            text-align: center;
+            padding: 1rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+        }
+        
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent-blue);
+        }
+        
+        .stat-value.green { color: var(--accent-green); }
+        .stat-value.yellow { color: var(--accent-yellow); }
+        
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+        
+        /* Opportunity Cards */
+        .opportunity-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+        }
+        
+        .opportunity-card.guaranteed {
+            border-color: var(--accent-green);
+            box-shadow: 0 0 30px rgba(16, 185, 129, 0.15);
+        }
+        
+        .opportunity-card.value {
+            border-color: var(--accent-yellow);
+        }
+        
+        .card-header {
+            padding: 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .card-header h3 { font-size: 1.05rem; font-weight: 600; }
+        
+        .card-type {
+            padding: 0.4rem 0.8rem;
+            border-radius: 8px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+        
+        .card-type.guaranteed { background: var(--accent-green); color: white; }
+        .card-type.value { background: var(--accent-yellow); color: black; }
+        
+        .profit-badge {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--accent-green);
+        }
+        
+        .platforms-comparison {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            gap: 1rem;
+            padding: 1.5rem;
+        }
+        
+        .platform-box {
+            padding: 1.25rem;
+            border-radius: 12px;
+            background: var(--bg-secondary);
+        }
+        
+        .platform-box.poly { border-left: 4px solid var(--accent-purple); }
+        .platform-box.kalshi { border-left: 4px solid var(--accent-yellow); }
+        
+        .platform-name {
+            font-weight: 700;
+            font-size: 0.9rem;
+            margin-bottom: 0.75rem;
+        }
+        
+        .platform-name.poly { color: var(--accent-purple); }
+        .platform-name.kalshi { color: var(--accent-yellow); }
+        
+        .platform-title {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+        }
+        
+        .prices {
+            display: flex;
+            gap: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .price-item { text-align: center; }
+        .price-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; }
+        .price-value { font-size: 1.2rem; font-weight: 700; }
+        .price-value.yes { color: var(--accent-green); }
+        .price-value.no { color: var(--accent-red); }
+        
+        .platform-link {
+            display: block;
+            padding: 0.6rem 1rem;
+            background: var(--bg-highlight);
+            color: var(--text-primary);
+            text-decoration: none;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        
+        .platform-link:hover { background: var(--accent-blue); }
+        
+        .vs-divider {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 1.2rem;
+            color: var(--text-muted);
+        }
+        
+        .strategy-section {
+            padding: 1.5rem;
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%);
+            border-top: 1px solid var(--border-color);
+        }
+        
+        .strategy-title {
+            font-size: 0.8rem;
+            color: var(--accent-green);
+            text-transform: uppercase;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        
+        .strategy-text {
+            font-size: 1rem;
+            font-weight: 600;
+            background: var(--bg-secondary);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        
+        .returns-row {
+            display: flex;
+            gap: 2rem;
+        }
+        
+        .return-item { text-align: center; }
+        .return-label { font-size: 0.75rem; color: var(--text-muted); }
+        .return-value { font-size: 1.2rem; font-weight: 700; color: var(--accent-green); }
+        
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            background: var(--bg-card);
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+        }
+        
+        .empty-state-icon { font-size: 4rem; margin-bottom: 1rem; }
+        .empty-state h3 { font-size: 1.3rem; margin-bottom: 0.5rem; }
+        .empty-state p { color: var(--text-secondary); max-width: 500px; margin: 0 auto; }
+        
+        .info-note {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: rgba(59, 130, 246, 0.1);
+            border-radius: 8px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+        
+        @media (max-width: 768px) {
+            .login-form { grid-template-columns: 1fr; }
+            .platforms-comparison { grid-template-columns: 1fr; }
+            .vs-divider { padding: 0.5rem 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎯 Arbitragem Real</h1>
+            <p>Polymarket × Kalshi | Dados 100% Reais</p>
+            <span class="badge badge-real">✓ Zero Simulação</span>
+        </header>
+        
+        <!-- Login Section -->
+        <div class="login-section" id="loginSection">
+            <h2>🔑 API Key Kalshi</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
+                Insira sua API Key do Kalshi para acessar todos os mercados reais.
+            </p>
+            
+            <div class="login-form" style="grid-template-columns: 1fr auto;">
+                <div class="form-group">
+                    <label for="apiKey">API Key</label>
+                    <input type="text" id="apiKey" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="font-family: monospace;">
+                </div>
+                <button class="btn btn-primary" id="loginBtn" onclick="testApiKey()">
+                    🔓 Verificar API Key
+                </button>
+            </div>
+            
+            <div id="authStatus"></div>
+        </div>
+        
+        <!-- Scan Section -->
+        <div class="scan-section" id="scanSection" style="display: none;">
+            <button class="btn btn-green btn-scan" id="scanBtn" onclick="startScan()">
+                🔍 Buscar Arbitragem Real
+            </button>
+            
+            <div class="info-note">
+                Compara preços REAIS de ambas as plataformas e calcula oportunidades de arbitragem com matemática precisa.
+            </div>
+        </div>
+        
+        <!-- Status -->
+        <div class="status-bar" id="statusBar" style="display: none;">
+            <div class="status-message" id="statusMessage"></div>
+            <div class="stats-grid" id="statsGrid" style="display: none;"></div>
+        </div>
+        
+        <!-- Results -->
+        <div id="results"></div>
+    </div>
+    
+    <script>
+        const API_URL = 'http://localhost:8000';
+        let isAuthenticated = false;
+        let kalshiCategories = {};
+        
+        async function testApiKey() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const loginBtn = document.getElementById('loginBtn');
+            const authStatus = document.getElementById('authStatus');
+            
+            if (!apiKey) {
+                authStatus.innerHTML = `
+                    <div class="auth-status error">
+                        ❌ Insira sua API Key do Kalshi.
+                    </div>
+                `;
+                return;
+            }
+            
+            loginBtn.disabled = true;
+            loginBtn.innerHTML = '<div class="spinner" style="width:16px;height:16px;"></div> Verificando...';
+            
+            authStatus.innerHTML = `
+                <div class="auth-status">
+                    <div class="spinner" style="display:inline-block;margin-right:8px;"></div>
+                    Conectando ao Kalshi com API Key...
+                </div>
+            `;
+            
+            try {
+                const response = await fetch(`${API_URL}/kalshi/test-auth`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ api_key: apiKey })
+                });
+                
+                const data = await response.json();
+                
+                if (data.authenticated) {
+                    isAuthenticated = true;
+                    kalshiCategories = data.categories || {};
+                    
+                    // Show categories
+                    let categoriesHtml = '';
+                    if (Object.keys(kalshiCategories).length > 0) {
+                        categoriesHtml = '<div class="categories-grid">';
+                        for (const [cat, count] of Object.entries(kalshiCategories)) {
+                            categoriesHtml += `<span class="category-tag">${cat}: ${count}</span>`;
+                        }
+                        categoriesHtml += '</div>';
+                    }
+                    
+                    authStatus.innerHTML = `
+                        <div class="auth-status success">
+                            ✅ <strong>${data.message}</strong>
+                            ${categoriesHtml}
+                        </div>
+                    `;
+                    
+                    document.getElementById('loginSection').classList.add('authenticated');
+                    document.getElementById('scanSection').style.display = 'block';
+                    
+                } else {
+                    authStatus.innerHTML = `
+                        <div class="auth-status error">
+                            ${data.message}
+                        </div>
+                    `;
+                }
+                
+            } catch (error) {
+                authStatus.innerHTML = `
+                    <div class="auth-status error">
+                        ❌ Erro de conexão: ${error.message}
+                    </div>
+                `;
+            } finally {
+                loginBtn.disabled = false;
+                loginBtn.innerHTML = '🔓 Verificar API Key';
+            }
+        }
+        
+        async function startScan() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const scanBtn = document.getElementById('scanBtn');
+            const statusBar = document.getElementById('statusBar');
+            const statusMessage = document.getElementById('statusMessage');
+            const statsGrid = document.getElementById('statsGrid');
+            const results = document.getElementById('results');
+            
+            scanBtn.disabled = true;
+            scanBtn.innerHTML = '<div class="spinner" style="width:18px;height:18px;"></div> Analisando...';
+            
+            statusBar.style.display = 'block';
+            statusBar.className = 'status-bar loading';
+            statusMessage.innerHTML = '<div class="spinner"></div><span>Buscando mercados reais e calculando arbitragem...</span>';
+            statsGrid.style.display = 'none';
+            results.innerHTML = '';
+            
+            try {
+                const response = await fetch(`${API_URL}/real/arbitrage-auth`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        kalshi_api_key: apiKey,
+                        limit: 200
+                    }),
+                    signal: AbortSignal.timeout(180000) // 3 min timeout
+                });
+                
+                const data = await response.json();
+                
+                // Stats
+                statsGrid.innerHTML = `
+                    <div class="stat-item">
+                        <div class="stat-value">${data.polymarket_markets || 0}</div>
+                        <div class="stat-label">Polymarket</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">${data.kalshi_markets || 0}</div>
+                        <div class="stat-label">Kalshi</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">${data.matches_found || 0}</div>
+                        <div class="stat-label">Correspondências</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value ${data.true_arbitrage_count > 0 ? 'green' : ''}">${data.true_arbitrage_count || 0}</div>
+                        <div class="stat-label">Arb. Garantidas</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value ${data.value_opportunities_count > 0 ? 'yellow' : ''}">${data.value_opportunities_count || 0}</div>
+                        <div class="stat-label">Oport. Valor</div>
+                    </div>
+                `;
+                statsGrid.style.display = 'grid';
+                
+                // Status message
+                if (data.status === 'error') {
+                    statusBar.className = 'status-bar error';
+                    statusMessage.innerHTML = `<span>${data.message}</span>`;
+                } else if ((data.true_arbitrage_count || 0) > 0) {
+                    statusBar.className = 'status-bar success';
+                    statusMessage.innerHTML = `<span>${data.message}</span>`;
+                } else if ((data.value_opportunities_count || 0) > 0) {
+                    statusBar.className = 'status-bar warning';
+                    statusMessage.innerHTML = `<span>${data.message}</span>`;
+                } else {
+                    statusBar.className = 'status-bar';
+                    statusMessage.innerHTML = `<span>${data.message}</span>`;
+                }
+                
+                renderOpportunities(data.opportunities || []);
+                
+            } catch (error) {
+                statusBar.className = 'status-bar error';
+                statusMessage.innerHTML = `<span>❌ Erro: ${error.message}</span>`;
+                
+                results.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">⚠️</div>
+                        <h3>Erro de Conexão</h3>
+                        <p>Verifique se a API está rodando em localhost:8000</p>
+                    </div>
+                `;
+            } finally {
+                scanBtn.disabled = false;
+                scanBtn.innerHTML = '🔍 Buscar Arbitragem Real';
+            }
+        }
+        
+        function renderOpportunities(opportunities) {
+            const results = document.getElementById('results');
+            
+            if (!opportunities || opportunities.length === 0) {
+                results.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📊</div>
+                        <h3>Nenhuma Oportunidade Encontrada</h3>
+                        <p>Os mercados estão eficientes no momento ou não há mercados correspondentes entre as plataformas. Isso é normal - arbitragens reais são raras.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            let html = '';
+            
+            opportunities.forEach((opp, index) => {
+                const cardClass = opp.is_true_arbitrage ? 'guaranteed' : 'value';
+                const typeLabel = opp.is_true_arbitrage ? '🔒 GARANTIDA' : '⚠️ VALOR';
+                const typeClass = opp.is_true_arbitrage ? 'guaranteed' : 'value';
+                
+                html += `
+                    <div class="opportunity-card ${cardClass}">
+                        <div class="card-header">
+                            <div>
+                                <h3>${opp.event}</h3>
+                                <small style="color: var(--text-muted);">
+                                    Confiança: ${opp.confidence}% | Palavras: ${(opp.common_words || []).join(', ')}
+                                </small>
+                            </div>
+                            <div style="text-align: right;">
+                                <span class="card-type ${typeClass}">${typeLabel}</span>
+                                <div class="profit-badge">+${opp.profit_percentage.toFixed(1)}%</div>
+                            </div>
+                        </div>
+                        
+                        <div class="platforms-comparison">
+                            <div class="platform-box poly">
+                                <div class="platform-name poly">🟣 Polymarket</div>
+                                <div class="platform-title">${(opp.poly_question || '').substring(0, 80)}...</div>
+                                <div class="prices">
+                                    <div class="price-item">
+                                        <div class="price-label">YES</div>
+                                        <div class="price-value yes">$${opp.poly_yes_price.toFixed(3)}</div>
+                                    </div>
+                                    <div class="price-item">
+                                        <div class="price-label">NO</div>
+                                        <div class="price-value no">$${opp.poly_no_price.toFixed(3)}</div>
+                                    </div>
+                                </div>
+                                <a href="${opp.poly_url}" target="_blank" class="platform-link">🔗 Abrir Polymarket</a>
+                            </div>
+                            
+                            <div class="vs-divider">VS</div>
+                            
+                            <div class="platform-box kalshi">
+                                <div class="platform-name kalshi">🟡 Kalshi</div>
+                                <div class="platform-title">${(opp.kalshi_title || '').substring(0, 80)}...</div>
+                                <div class="prices">
+                                    <div class="price-item">
+                                        <div class="price-label">YES</div>
+                                        <div class="price-value yes">$${opp.kalshi_yes_price.toFixed(3)}</div>
+                                    </div>
+                                    <div class="price-item">
+                                        <div class="price-label">NO</div>
+                                        <div class="price-value no">$${opp.kalshi_no_price.toFixed(3)}</div>
+                                    </div>
+                                </div>
+                                <a href="${opp.kalshi_url}" target="_blank" class="platform-link">🔗 Abrir Kalshi</a>
+                            </div>
+                        </div>
+                        
+                        <div class="strategy-section">
+                            <div class="strategy-title">💡 Ação Recomendada</div>
+                            <div class="strategy-text">${opp.strategy}</div>
+                            
+                            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">
+                                ${opp.explanation || ''}<br>
+                                ${opp.why_profitable || ''}
+                            </p>
+                            
+                            <div class="returns-row">
+                                <div class="return-item">
+                                    <div class="return-label">$100 →</div>
+                                    <div class="return-value">+$${opp.return_100.toFixed(2)}</div>
+                                </div>
+                                <div class="return-item">
+                                    <div class="return-label">$1000 →</div>
+                                    <div class="return-value">+$${opp.return_1000.toFixed(2)}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            results.innerHTML = html;
+        }
+    </script>
+</body>
+</html>
+

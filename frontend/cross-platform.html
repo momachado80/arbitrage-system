@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arbitragem Cross-Platform | Polymarket vs Kalshi</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a24;
+            --bg-card-hover: #22222e;
+            --accent-primary: #00d9ff;
+            --accent-secondary: #7c3aed;
+            --accent-success: #10b981;
+            --accent-warning: #f59e0b;
+            --accent-danger: #ef4444;
+            --text-primary: #ffffff;
+            --text-secondary: #a1a1aa;
+            --text-muted: #71717a;
+            --border-color: rgba(255, 255, 255, 0.08);
+            --glow-primary: rgba(0, 217, 255, 0.3);
+            --glow-secondary: rgba(124, 58, 237, 0.3);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            background: var(--bg-primary) !important;
+            background-color: #0a0a0f !important;
+        }
+
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        main {
+            background: var(--bg-primary);
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* Header */
+        .header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            padding: 16px 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .logo h1 {
+            font-size: 1.4rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: var(--bg-card);
+            border-radius: 8px;
+            font-size: 0.875rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-success);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Hero */
+        .hero {
+            padding: 40px 0 30px;
+            text-align: center;
+            background: var(--bg-primary);
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: rgba(0, 217, 255, 0.1);
+            border: 1px solid rgba(0, 217, 255, 0.3);
+            border-radius: 20px;
+            font-size: 0.875rem;
+            color: var(--accent-primary);
+            margin-bottom: 20px;
+        }
+
+        .hero h2 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+            line-height: 1.2;
+        }
+
+        .hero h2 span {
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero p {
+            font-size: 1rem;
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin: 0 auto 24px;
+        }
+
+        /* Stats */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 30px;
+            background: var(--bg-primary);
+        }
+
+        @media (max-width: 900px) {
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .stat-card:hover {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 20px var(--glow-primary);
+        }
+
+        .stat-icon {
+            font-size: 1.5rem;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent-primary);
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        /* Controls */
+        .controls {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            background: var(--bg-primary);
+        }
+
+        .select {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 12px 20px;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .select:hover {
+            border-color: var(--accent-primary);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 28px;
+            border-radius: 10px;
+            font-family: inherit;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px var(--glow-primary);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Loading */
+        .loading {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            padding: 60px 0;
+            background: var(--bg-primary);
+        }
+
+        .loading.active {
+            display: flex;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid var(--border-color);
+            border-top-color: var(--accent-primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 16px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading p {
+            color: var(--text-secondary);
+            font-size: 1rem;
+        }
+
+        /* Opportunities */
+        .opportunities {
+            padding-bottom: 40px;
+            background: var(--bg-primary);
+        }
+
+        .section-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .opportunities-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .opportunity-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .opportunity-card:hover {
+            border-color: var(--accent-success);
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.15);
+        }
+
+        .opp-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .opp-rank {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .rank-badge {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--accent-success), #059669);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.9rem;
+        }
+
+        .opp-event {
+            font-size: 1rem;
+            font-weight: 600;
+            max-width: 500px;
+        }
+
+        .opp-profit {
+            text-align: right;
+        }
+
+        .profit-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent-success);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .profit-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .opp-platforms {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+            align-items: start;
+        }
+
+        @media (max-width: 768px) {
+            .opp-platforms {
+                grid-template-columns: 1fr;
+            }
+            .vs-badge {
+                margin: 8px auto;
+            }
+        }
+
+        .platform-box {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 14px;
+        }
+
+        .platform-name {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            font-size: 0.95rem;
+        }
+
+        .platform-poly { color: #8b5cf6; }
+        .platform-kalshi { color: #f59e0b; }
+
+        .platform-market {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+            line-height: 1.4;
+        }
+
+        .platform-prices {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 10px;
+        }
+
+        .price-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .price-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        .price-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .price-yes { color: var(--accent-success); }
+        .price-no { color: var(--accent-danger); }
+
+        .platform-link {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 16px;
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(139, 92, 246, 0.1));
+            border: 1px solid rgba(139, 92, 246, 0.4);
+            border-radius: 10px;
+            color: #fff;
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            margin-top: 12px;
+            cursor: pointer;
+        }
+
+        .platform-link:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(139, 92, 246, 0.3);
+        }
+
+        .platform-link.poly {
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.3), rgba(139, 92, 246, 0.15));
+            border-color: rgba(139, 92, 246, 0.5);
+        }
+
+        .platform-link.poly:hover {
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.5), rgba(139, 92, 246, 0.3));
+            border-color: #8b5cf6;
+            box-shadow: 0 4px 20px rgba(139, 92, 246, 0.4);
+        }
+
+        .platform-link.kalshi {
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.3), rgba(245, 158, 11, 0.15));
+            border-color: rgba(245, 158, 11, 0.5);
+        }
+
+        .platform-link.kalshi:hover {
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.5), rgba(245, 158, 11, 0.3));
+            border-color: #f59e0b;
+            box-shadow: 0 4px 20px rgba(245, 158, 11, 0.4);
+        }
+
+        .vs-badge {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            background: var(--bg-secondary);
+            border-radius: 50%;
+            font-weight: 700;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            align-self: center;
+        }
+
+        .opp-action {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 10px;
+            padding: 14px;
+            margin-bottom: 14px;
+        }
+
+        .action-title {
+            font-weight: 600;
+            color: var(--accent-success);
+            margin-bottom: 6px;
+            font-size: 0.9rem;
+        }
+
+        .action-text {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .opp-returns {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .return-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .return-invest {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .return-profit {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+            color: var(--accent-success);
+        }
+
+        /* Empty State */
+        .empty-state {
+            display: none;
+            text-align: center;
+            padding: 60px 20px;
+            background: var(--bg-primary);
+        }
+
+        .empty-state.active {
+            display: block;
+        }
+
+        .empty-icon {
+            font-size: 3rem;
+            margin-bottom: 16px;
+        }
+
+        .empty-state h3 {
+            font-size: 1.3rem;
+            margin-bottom: 10px;
+        }
+
+        .empty-state p {
+            color: var(--text-secondary);
+        }
+
+        /* Note */
+        .note {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 10px;
+            padding: 14px;
+            margin-top: 20px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .note strong {
+            color: var(--accent-warning);
+        }
+
+        /* Footer */
+        .footer {
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border-color);
+            padding: 20px 0;
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <div class="logo-icon">⚡</div>
+                    <h1>Cross-Platform Arbitrage</h1>
+                </div>
+                <div class="status" id="status">
+                    <span class="status-dot"></span>
+                    <span>Conectado</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <div class="container">
+            <section class="hero">
+                <div class="hero-badge">🎯 Arbitragem Cross-Platform</div>
+                <h2>Polymarket <span>vs</span> Kalshi</h2>
+                <p>Compare preços de eventos idênticos em diferentes plataformas</p>
+            </section>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">📊</div>
+                    <div class="stat-value" id="polyMarkets">-</div>
+                    <div class="stat-label">Polymarket</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">📈</div>
+                    <div class="stat-value" id="kalshiMarkets">-</div>
+                    <div class="stat-label">Kalshi</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">🔗</div>
+                    <div class="stat-value" id="matchesFound">-</div>
+                    <div class="stat-label">Matches</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">💰</div>
+                    <div class="stat-value" id="opportunities">-</div>
+                    <div class="stat-label">Oportunidades</div>
+                </div>
+            </div>
+
+            <div class="controls">
+                <select class="select" id="marketLimit">
+                    <option value="50">50 mercados</option>
+                    <option value="100" selected>100 mercados</option>
+                    <option value="150">150 mercados</option>
+                    <option value="200">200 mercados</option>
+                </select>
+                <button class="btn btn-primary" id="analyzeBtn">🔍 Analisar</button>
+            </div>
+
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>Buscando oportunidades...</p>
+            </div>
+
+            <section class="opportunities" id="opportunitiesSection" style="display: none;">
+                <h3 class="section-title">🎯 Oportunidades de Arbitragem</h3>
+                <div class="opportunities-grid" id="opportunitiesGrid"></div>
+                <div class="note">
+                    <strong>⚠️ Nota:</strong> Dados do Kalshi são simulados (API pública limitada). Verifique preços antes de operar.
+                </div>
+            </section>
+
+            <div class="empty-state active" id="emptyState">
+                <div class="empty-icon">🔍</div>
+                <h3>Clique em "Analisar" para começar</h3>
+                <p>O sistema irá comparar preços entre Polymarket e Kalshi</p>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p>⚠️ Sistema educacional. Faça sua própria pesquisa antes de investir.</p>
+        </div>
+    </footer>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const marketLimit = document.getElementById('marketLimit');
+        const loading = document.getElementById('loading');
+        const emptyState = document.getElementById('emptyState');
+        const opportunitiesSection = document.getElementById('opportunitiesSection');
+        const opportunitiesGrid = document.getElementById('opportunitiesGrid');
+
+        const polyMarketsEl = document.getElementById('polyMarkets');
+        const kalshiMarketsEl = document.getElementById('kalshiMarkets');
+        const matchesFoundEl = document.getElementById('matchesFound');
+        const opportunitiesEl = document.getElementById('opportunities');
+
+        analyzeBtn.addEventListener('click', analyze);
+
+        async function analyze() {
+            const limit = marketLimit.value;
+            
+            loading.classList.add('active');
+            emptyState.classList.remove('active');
+            opportunitiesSection.style.display = 'none';
+            analyzeBtn.disabled = true;
+            analyzeBtn.innerHTML = '⏳ Analisando...';
+
+            try {
+                const response = await fetch(`${API_BASE}/crossplatform/sync?limit=${limit}`, {
+                    signal: AbortSignal.timeout(180000)
+                });
+
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+                const data = await response.json();
+                
+                polyMarketsEl.textContent = data.polymarket_markets || 0;
+                kalshiMarketsEl.textContent = data.kalshi_markets || 0;
+                matchesFoundEl.textContent = data.matches_found || 0;
+                opportunitiesEl.textContent = data.opportunities_found || 0;
+
+                if (data.opportunities && data.opportunities.length > 0) {
+                    displayOpportunities(data.opportunities);
+                    opportunitiesSection.style.display = 'block';
+                    emptyState.classList.remove('active');
+                } else {
+                    opportunitiesSection.style.display = 'none';
+                    emptyState.classList.add('active');
+                    emptyState.querySelector('h3').textContent = 'Nenhuma arbitragem encontrada';
+                    emptyState.querySelector('p').textContent = 'Os preços estão alinhados';
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Erro: ' + error.message);
+            } finally {
+                loading.classList.remove('active');
+                analyzeBtn.disabled = false;
+                analyzeBtn.innerHTML = '🔍 Analisar';
+            }
+        }
+
+        function displayOpportunities(opportunities) {
+            opportunitiesGrid.innerHTML = '';
+
+            opportunities.forEach((opp, index) => {
+                const card = document.createElement('div');
+                card.className = 'opportunity-card';
+                
+                const polyUrl = opp.poly_url || 'https://polymarket.com';
+                const kalshiUrl = opp.kalshi_url || 'https://kalshi.com/markets';
+                
+                card.innerHTML = `
+                    <div class="opp-header">
+                        <div class="opp-rank">
+                            <div class="rank-badge">#${index + 1}</div>
+                            <div class="opp-event">${escapeHtml(opp.event_name)}</div>
+                        </div>
+                        <div class="opp-profit">
+                            <div class="profit-value">+${opp.profit_percentage.toFixed(1)}%</div>
+                            <div class="profit-label">Lucro</div>
+                        </div>
+                    </div>
+
+                    <div class="opp-platforms">
+                        <div class="platform-box">
+                            <div class="platform-name platform-poly">🟣 Polymarket</div>
+                            <div class="platform-market">${escapeHtml(opp.poly_market_title)}</div>
+                            <div class="platform-prices">
+                                <div class="price-item">
+                                    <span class="price-label">YES:</span>
+                                    <span class="price-value price-yes">$${opp.poly_yes_price.toFixed(3)}</span>
+                                </div>
+                                <div class="price-item">
+                                    <span class="price-label">NO:</span>
+                                    <span class="price-value price-no">$${opp.poly_no_price.toFixed(3)}</span>
+                                </div>
+                            </div>
+                            <a href="${polyUrl}" target="_blank" rel="noopener noreferrer" class="platform-link poly">
+                                🔗 Abrir no Polymarket
+                            </a>
+                        </div>
+
+                        <div class="vs-badge">VS</div>
+
+                        <div class="platform-box">
+                            <div class="platform-name platform-kalshi">🟠 Kalshi</div>
+                            <div class="platform-market">${escapeHtml(opp.kalshi_market_title)}</div>
+                            <div class="platform-prices">
+                                <div class="price-item">
+                                    <span class="price-label">YES:</span>
+                                    <span class="price-value price-yes">$${opp.kalshi_yes_price.toFixed(3)}</span>
+                                </div>
+                                <div class="price-item">
+                                    <span class="price-label">NO:</span>
+                                    <span class="price-value price-no">$${opp.kalshi_no_price.toFixed(3)}</span>
+                                </div>
+                            </div>
+                            <a href="${kalshiUrl}" target="_blank" rel="noopener noreferrer" class="platform-link kalshi">
+                                🔗 Abrir no Kalshi
+                            </a>
+                        </div>
+                    </div>
+
+                    <div class="opp-action">
+                        <div class="action-title">💡 Ação Recomendada</div>
+                        <div class="action-text">${escapeHtml(opp.action)}</div>
+                    </div>
+
+                    <div class="opp-returns">
+                        <div class="return-item">
+                            <span class="return-invest">$100 →</span>
+                            <span class="return-profit">+$${opp.returns_100.toFixed(2)}</span>
+                        </div>
+                        <div class="return-item">
+                            <span class="return-invest">$1000 →</span>
+                            <span class="return-profit">+$${opp.returns_1000.toFixed(2)}</span>
+                        </div>
+                    </div>
+                `;
+
+                opportunitiesGrid.appendChild(card);
+            });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        async function checkHealth() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                if (response.ok) {
+                    document.getElementById('status').innerHTML = '<span class="status-dot"></span><span>Conectado</span>';
+                }
+            } catch (error) {
+                document.getElementById('status').innerHTML = '<span class="status-dot" style="background: #ef4444;"></span><span>Desconectado</span>';
+            }
+        }
+
+        checkHealth();
+    </script>
+</body>
+</html>

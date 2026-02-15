@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arbitragem Real | Polymarket × Kalshi</title>
+    <style>
+        :root {
+            --bg-primary: #0a0f1c;
+            --bg-secondary: #111827;
+            --bg-card: #1a2235;
+            --bg-highlight: #1e3a5f;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-yellow: #f59e0b;
+            --accent-blue: #3b82f6;
+            --accent-purple: #8b5cf6;
+            --border-color: #334155;
+            --border-subtle: #1e293b;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        html, body {
+            background: var(--bg-primary) !important;
+            min-height: 100vh;
+        }
+        
+        body {
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+            background: var(--bg-primary);
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+            padding: 2rem;
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-card) 100%);
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+        }
+        
+        header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, #fff 0%, var(--accent-blue) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        header p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }
+        
+        .badge-real {
+            display: inline-block;
+            background: linear-gradient(135deg, var(--accent-green) 0%, #059669 100%);
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-top: 0.5rem;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 1rem 2rem;
+            border: none;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-blue) 0%, var(--accent-purple) 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4);
+        }
+        
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .status-bar {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .status-bar.loading {
+            border-color: var(--accent-blue);
+        }
+        
+        .status-bar.success {
+            border-color: var(--accent-green);
+        }
+        
+        .status-bar.error {
+            border-color: var(--accent-red);
+        }
+        
+        .status-bar.warning {
+            border-color: var(--accent-yellow);
+        }
+        
+        .status-message {
+            font-size: 1.1rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border-color);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+        
+        .stat-item {
+            text-align: center;
+            padding: 1rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+        }
+        
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent-blue);
+        }
+        
+        .stat-value.green { color: var(--accent-green); }
+        .stat-value.yellow { color: var(--accent-yellow); }
+        .stat-value.red { color: var(--accent-red); }
+        
+        .stat-label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .opportunity-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+        }
+        
+        .opportunity-card.guaranteed {
+            border-color: var(--accent-green);
+            box-shadow: 0 0 30px rgba(16, 185, 129, 0.15);
+        }
+        
+        .opportunity-card.value {
+            border-color: var(--accent-yellow);
+        }
+        
+        .card-header {
+            padding: 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        
+        .card-header h3 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            flex: 1;
+        }
+        
+        .card-type {
+            padding: 0.4rem 0.8rem;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+        
+        .card-type.guaranteed {
+            background: linear-gradient(135deg, var(--accent-green) 0%, #059669 100%);
+            color: white;
+        }
+        
+        .card-type.value {
+            background: linear-gradient(135deg, var(--accent-yellow) 0%, #d97706 100%);
+            color: white;
+        }
+        
+        .profit-badge {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--accent-green);
+        }
+        
+        .platforms-comparison {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            gap: 1rem;
+            padding: 1.5rem;
+            align-items: stretch;
+        }
+        
+        .platform-box {
+            padding: 1.25rem;
+            border-radius: 12px;
+            background: var(--bg-secondary);
+        }
+        
+        .platform-box.poly {
+            border-left: 4px solid var(--accent-purple);
+        }
+        
+        .platform-box.kalshi {
+            border-left: 4px solid var(--accent-yellow);
+        }
+        
+        .platform-name {
+            font-weight: 700;
+            font-size: 0.9rem;
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .platform-name.poly { color: var(--accent-purple); }
+        .platform-name.kalshi { color: var(--accent-yellow); }
+        
+        .platform-title {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+            line-height: 1.4;
+        }
+        
+        .prices {
+            display: flex;
+            gap: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .price-item {
+            text-align: center;
+        }
+        
+        .price-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+        
+        .price-value {
+            font-size: 1.3rem;
+            font-weight: 700;
+        }
+        
+        .price-value.yes { color: var(--accent-green); }
+        .price-value.no { color: var(--accent-red); }
+        
+        .platform-link {
+            display: inline-block;
+            padding: 0.6rem 1rem;
+            background: var(--bg-highlight);
+            color: var(--text-primary);
+            text-decoration: none;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            text-align: center;
+            width: 100%;
+        }
+        
+        .platform-link:hover {
+            background: var(--accent-blue);
+        }
+        
+        .vs-divider {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 1.2rem;
+            color: var(--text-muted);
+        }
+        
+        .strategy-section {
+            padding: 1.5rem;
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%);
+            border-top: 1px solid var(--border-subtle);
+        }
+        
+        .strategy-title {
+            font-size: 0.8rem;
+            color: var(--accent-green);
+            text-transform: uppercase;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .strategy-text {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            background: var(--bg-secondary);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        
+        .returns-row {
+            display: flex;
+            gap: 2rem;
+            justify-content: flex-start;
+        }
+        
+        .return-item {
+            text-align: center;
+        }
+        
+        .return-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+        
+        .return-value {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--accent-green);
+        }
+        
+        .explanation-section {
+            padding: 1.5rem;
+            border-top: 1px solid var(--border-subtle);
+        }
+        
+        .explanation-toggle {
+            background: none;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            width: 100%;
+            text-align: left;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.2s;
+        }
+        
+        .explanation-toggle:hover {
+            border-color: var(--accent-blue);
+            color: var(--text-primary);
+        }
+        
+        .explanation-content {
+            display: none;
+            margin-top: 1rem;
+            padding: 1rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+        }
+        
+        .explanation-content.show {
+            display: block;
+        }
+        
+        .explanation-block {
+            margin-bottom: 1rem;
+        }
+        
+        .explanation-block:last-child {
+            margin-bottom: 0;
+        }
+        
+        .explanation-block h4 {
+            font-size: 0.85rem;
+            color: var(--accent-blue);
+            margin-bottom: 0.5rem;
+        }
+        
+        .explanation-block p {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            white-space: pre-line;
+            line-height: 1.6;
+        }
+        
+        .risk-warning {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .risk-warning h4 {
+            color: var(--accent-red) !important;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            background: var(--bg-card);
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+        }
+        
+        .empty-state-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+        
+        .empty-state h3 {
+            font-size: 1.3rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .empty-state p {
+            color: var(--text-secondary);
+            max-width: 500px;
+            margin: 0 auto;
+        }
+        
+        .info-box {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .info-box h3 {
+            font-size: 1rem;
+            color: var(--accent-blue);
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .info-box ul {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .info-box li {
+            padding: 0.5rem 0;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: flex-start;
+            gap: 0.5rem;
+        }
+        
+        .info-box li::before {
+            content: "✓";
+            color: var(--accent-green);
+            font-weight: bold;
+        }
+        
+        @media (max-width: 768px) {
+            .platforms-comparison {
+                grid-template-columns: 1fr;
+            }
+            
+            .vs-divider {
+                padding: 0.5rem 0;
+            }
+            
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            header h1 {
+                font-size: 1.8rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎯 Arbitragem Real</h1>
+            <p>Polymarket × Kalshi | Scanner de Oportunidades</p>
+            <span class="badge-real">✓ 100% Dados Reais - Zero Simulação</span>
+        </header>
+        
+        <div class="info-box" style="border-color: var(--accent-yellow);">
+            <h3 style="color: var(--accent-yellow);">⚠️ Limitação das APIs Públicas</h3>
+            <ul>
+                <li><strong>Polymarket:</strong> API pública retorna mercados de política, economia, entretenimento ✓</li>
+                <li><strong>Kalshi:</strong> API pública retorna APENAS esportes (NBA player props) ✗</li>
+                <li>Para acessar mercados de política no Kalshi, é necessário autenticação ou scraping</li>
+                <li>Resultado: <strong>pouquíssimas correspondências</strong> entre as plataformas</li>
+            </ul>
+        </div>
+        
+        <div class="info-box">
+            <h3>🎯 Alternativas Disponíveis</h3>
+            <ul>
+                <li><strong>Arbitragem Intra-Polymarket:</strong> Mercados correlacionados na mesma plataforma</li>
+                <li><strong>Implementar login no Kalshi:</strong> Usar credenciais para acessar todos os mercados</li>
+                <li><strong>Web Scraping:</strong> Extrair dados diretamente do site do Kalshi</li>
+            </ul>
+        </div>
+        
+        <div class="controls">
+            <button class="btn btn-primary" id="crossBtn" onclick="startCrossPlatform()">
+                <span>🔄</span> Cross-Platform (Poly × Kalshi)
+            </button>
+            <button class="btn btn-primary" id="polyBtn" onclick="startPolymarketOnly()" style="background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);">
+                <span>🟣</span> Apenas Polymarket (Correlacionados)
+            </button>
+        </div>
+        
+        <div class="status-bar" id="statusBar" style="display: none;">
+            <div class="status-message" id="statusMessage">
+                <div class="spinner"></div>
+                <span>Iniciando análise...</span>
+            </div>
+            <div class="stats-grid" id="statsGrid" style="display: none;"></div>
+        </div>
+        
+        <div id="results"></div>
+    </div>
+    
+    <script>
+        const API_URL = 'http://localhost:8000';
+        let currentMode = 'cross';
+        
+        async function startCrossPlatform() {
+            currentMode = 'cross';
+            await doScan('cross');
+        }
+        
+        async function startPolymarketOnly() {
+            currentMode = 'poly';
+            await doScan('poly');
+        }
+        
+        async function doScan(mode) {
+            const crossBtn = document.getElementById('crossBtn');
+            const polyBtn = document.getElementById('polyBtn');
+            const statusBar = document.getElementById('statusBar');
+            const statusMessage = document.getElementById('statusMessage');
+            const statsGrid = document.getElementById('statsGrid');
+            const results = document.getElementById('results');
+            
+            // UI feedback
+            crossBtn.disabled = true;
+            polyBtn.disabled = true;
+            
+            if (mode === 'cross') {
+                crossBtn.innerHTML = '<div class="spinner" style="width:16px;height:16px;"></div> Analisando...';
+            } else {
+                polyBtn.innerHTML = '<div class="spinner" style="width:16px;height:16px;"></div> Analisando...';
+            }
+            
+            statusBar.style.display = 'block';
+            statusBar.className = 'status-bar loading';
+            
+            const statusText = mode === 'cross' 
+                ? 'Buscando mercados reais do Polymarket e Kalshi...'
+                : 'Analisando mercados correlacionados no Polymarket...';
+            statusMessage.innerHTML = `<div class="spinner"></div><span>${statusText}</span>`;
+            statsGrid.style.display = 'none';
+            results.innerHTML = '';
+            
+            try {
+                let endpoint, data;
+                
+                if (mode === 'cross') {
+                    const response = await fetch(`${API_URL}/real/arbitrage?limit=150`, {
+                        method: 'GET',
+                        signal: AbortSignal.timeout(120000)
+                    });
+                    
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    data = await response.json();
+                    
+                    // Stats para cross-platform
+                    statsGrid.innerHTML = `
+                        <div class="stat-item">
+                            <div class="stat-value">${data.polymarket_markets}</div>
+                            <div class="stat-label">Polymarket</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value">${data.kalshi_markets}</div>
+                            <div class="stat-label">Kalshi</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value">${data.matches_found}</div>
+                            <div class="stat-label">Correspondências</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value ${data.true_arbitrage_count > 0 ? 'green' : ''}">${data.true_arbitrage_count}</div>
+                            <div class="stat-label">Arb. Garantidas</div>
+                        </div>
+                    `;
+                    statsGrid.style.display = 'grid';
+                    
+                    // Status message
+                    if (data.matches_found === 0) {
+                        statusBar.className = 'status-bar warning';
+                        statusMessage.innerHTML = `<span>⚠️ ${data.message}</span>`;
+                    } else if (data.true_arbitrage_count > 0) {
+                        statusBar.className = 'status-bar success';
+                        statusMessage.innerHTML = `<span>🎯 ${data.message}</span>`;
+                    } else {
+                        statusBar.className = 'status-bar';
+                        statusMessage.innerHTML = `<span>ℹ️ ${data.message}</span>`;
+                    }
+                    
+                    renderOpportunities(data.opportunities);
+                    
+                } else {
+                    // Polymarket correlacionado
+                    const response = await fetch(`${API_URL}/polymarket/analyze?limit=200`, {
+                        method: 'GET',
+                        signal: AbortSignal.timeout(120000)
+                    });
+                    
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const jobData = await response.json();
+                    
+                    // Poll for results
+                    statusMessage.innerHTML = `<div class="spinner"></div><span>Análise em progresso (Job: ${jobData.job_id})...</span>`;
+                    
+                    data = await pollForResults(jobData.job_id);
+                    
+                    // Stats para Polymarket
+                    const oppCount = (data.correlated_arbitrage || []).length;
+                    statsGrid.innerHTML = `
+                        <div class="stat-item">
+                            <div class="stat-value">${data.markets_analyzed || 0}</div>
+                            <div class="stat-label">Mercados Analisados</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value ${oppCount > 0 ? 'green' : ''}">${oppCount}</div>
+                            <div class="stat-label">Oportunidades</div>
+                        </div>
+                    `;
+                    statsGrid.style.display = 'grid';
+                    
+                    if (oppCount > 0) {
+                        statusBar.className = 'status-bar success';
+                        statusMessage.innerHTML = `<span>🎯 ${oppCount} oportunidades de arbitragem correlacionada encontradas!</span>`;
+                    } else {
+                        statusBar.className = 'status-bar';
+                        statusMessage.innerHTML = `<span>ℹ️ Nenhuma oportunidade de arbitragem correlacionada no momento.</span>`;
+                    }
+                    
+                    renderPolymarketOpportunities(data.correlated_arbitrage || []);
+                }
+                
+            } catch (error) {
+                statusBar.className = 'status-bar error';
+                statusMessage.innerHTML = `<span>❌ Erro: ${error.message}</span>`;
+                
+                results.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">⚠️</div>
+                        <h3>Erro de Conexão</h3>
+                        <p>Não foi possível conectar à API. Verifique se o servidor está rodando em localhost:8000</p>
+                    </div>
+                `;
+            } finally {
+                crossBtn.disabled = false;
+                polyBtn.disabled = false;
+                crossBtn.innerHTML = '<span>🔄</span> Cross-Platform (Poly × Kalshi)';
+                polyBtn.innerHTML = '<span>🟣</span> Apenas Polymarket (Correlacionados)';
+            }
+        }
+        
+        async function pollForResults(jobId, maxAttempts = 120) {
+            for (let i = 0; i < maxAttempts; i++) {
+                try {
+                    const response = await fetch(`${API_URL}/polymarket/analyze/status/${jobId}`);
+                    const data = await response.json();
+                    
+                    if (data.status === 'completed') {
+                        return data;
+                    } else if (data.status === 'error') {
+                        throw new Error(data.error || 'Erro na análise');
+                    }
+                    
+                    // Wait 1 second before next poll
+                    await new Promise(r => setTimeout(r, 1000));
+                } catch (e) {
+                    if (i === maxAttempts - 1) throw e;
+                }
+            }
+            throw new Error('Timeout - análise demorou muito');
+        }
+        
+        function renderOpportunities(opportunities) {
+            const results = document.getElementById('results');
+            
+            if (!opportunities || opportunities.length === 0) {
+                results.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📊</div>
+                        <h3>Nenhuma Oportunidade Encontrada</h3>
+                        <p>Os mercados estão eficientes no momento ou não há mercados correspondentes entre as plataformas. Tente novamente mais tarde.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            let html = '';
+            
+            opportunities.forEach((opp, index) => {
+                const cardClass = opp.is_true_arbitrage ? 'guaranteed' : 'value';
+                const typeLabel = opp.is_true_arbitrage ? '🔒 ARBITRAGEM GARANTIDA' : '⚠️ OPORTUNIDADE DE VALOR';
+                const typeClass = opp.is_true_arbitrage ? 'guaranteed' : 'value';
+                
+                html += `
+                    <div class="opportunity-card ${cardClass}">
+                        <div class="card-header">
+                            <div>
+                                <h3>${opp.event_description}</h3>
+                                <small style="color: var(--text-muted);">Confiança: ${(opp.confidence_match * 100).toFixed(0)}%</small>
+                            </div>
+                            <div style="text-align: right;">
+                                <span class="card-type ${typeClass}">${typeLabel}</span>
+                                <div class="profit-badge">+${opp.profit_percentage.toFixed(1)}%</div>
+                            </div>
+                        </div>
+                        
+                        <div class="platforms-comparison">
+                            <div class="platform-box poly">
+                                <div class="platform-name poly">🟣 Polymarket</div>
+                                <div class="platform-title">${opp.poly_question.substring(0, 100)}${opp.poly_question.length > 100 ? '...' : ''}</div>
+                                <div class="prices">
+                                    <div class="price-item">
+                                        <div class="price-label">YES</div>
+                                        <div class="price-value yes">$${opp.poly_yes_price.toFixed(3)}</div>
+                                    </div>
+                                    <div class="price-item">
+                                        <div class="price-label">NO</div>
+                                        <div class="price-value no">$${opp.poly_no_price.toFixed(3)}</div>
+                                    </div>
+                                </div>
+                                <a href="${opp.poly_url}" target="_blank" class="platform-link">🔗 Abrir no Polymarket</a>
+                            </div>
+                            
+                            <div class="vs-divider">VS</div>
+                            
+                            <div class="platform-box kalshi">
+                                <div class="platform-name kalshi">🟡 Kalshi</div>
+                                <div class="platform-title">${opp.kalshi_title.substring(0, 100)}${opp.kalshi_title.length > 100 ? '...' : ''}</div>
+                                <div class="prices">
+                                    <div class="price-item">
+                                        <div class="price-label">YES</div>
+                                        <div class="price-value yes">$${opp.kalshi_yes_price.toFixed(3)}</div>
+                                    </div>
+                                    <div class="price-item">
+                                        <div class="price-label">NO</div>
+                                        <div class="price-value no">$${opp.kalshi_no_price.toFixed(3)}</div>
+                                    </div>
+                                </div>
+                                <a href="${opp.kalshi_url}" target="_blank" class="platform-link">🔗 Abrir no Kalshi</a>
+                            </div>
+                        </div>
+                        
+                        <div class="strategy-section">
+                            <div class="strategy-title">💡 Ação Recomendada</div>
+                            <div class="strategy-text">${opp.strategy}</div>
+                            
+                            <div class="returns-row">
+                                <div class="return-item">
+                                    <div class="return-label">Investindo $100</div>
+                                    <div class="return-value">+$${opp.return_on_100.toFixed(2)}</div>
+                                </div>
+                                <div class="return-item">
+                                    <div class="return-label">Investindo $1000</div>
+                                    <div class="return-value">+$${opp.return_on_1000.toFixed(2)}</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="explanation-section">
+                            <button class="explanation-toggle" onclick="toggleExplanation(${index})">
+                                <span>📖 Ver explicação completa</span>
+                                <span id="toggle-icon-${index}">▼</span>
+                            </button>
+                            
+                            <div class="explanation-content" id="explanation-${index}">
+                                <div class="explanation-block">
+                                    <h4>📋 O que é esta oportunidade?</h4>
+                                    <p>${opp.explanation}</p>
+                                </div>
+                                
+                                <div class="explanation-block">
+                                    <h4>🧮 Por que é lucrativo?</h4>
+                                    <p>${opp.why_profitable}</p>
+                                </div>
+                                
+                                <div class="risk-warning">
+                                    <div class="explanation-block">
+                                        <h4>⚠️ Riscos</h4>
+                                        <p>${opp.risk_warning}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            results.innerHTML = html;
+        }
+        
+        function toggleExplanation(index) {
+            const content = document.getElementById(`explanation-${index}`);
+            const icon = document.getElementById(`toggle-icon-${index}`);
+            
+            content.classList.toggle('show');
+            icon.textContent = content.classList.contains('show') ? '▲' : '▼';
+        }
+        
+        function renderPolymarketOpportunities(opportunities) {
+            const results = document.getElementById('results');
+            
+            if (!opportunities || opportunities.length === 0) {
+                results.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📊</div>
+                        <h3>Nenhuma Arbitragem Correlacionada</h3>
+                        <p>Não foram encontradas inconsistências de preço entre mercados relacionados no Polymarket no momento.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            let html = '';
+            
+            opportunities.forEach((opp, index) => {
+                const profitPct = opp.profit_percentage || ((opp.price_diff / Math.max(opp.market_a_price, 0.01)) * 100);
+                
+                html += `
+                    <div class="opportunity-card guaranteed">
+                        <div class="card-header">
+                            <div>
+                                <h3>${opp.description || 'Arbitragem Correlacionada'}</h3>
+                                <small style="color: var(--text-muted);">Tipo: ${opp.type || 'Correlação'}</small>
+                            </div>
+                            <div style="text-align: right;">
+                                <span class="card-type guaranteed">🔗 CORRELACIONADA</span>
+                                <div class="profit-badge">+${profitPct.toFixed(1)}%</div>
+                            </div>
+                        </div>
+                        
+                        <div class="platforms-comparison">
+                            <div class="platform-box poly">
+                                <div class="platform-name poly">🟣 Mercado A</div>
+                                <div class="platform-title">${opp.market_a_question || opp.market_a || ''}</div>
+                                <div class="prices">
+                                    <div class="price-item">
+                                        <div class="price-label">PREÇO</div>
+                                        <div class="price-value yes">$${(opp.market_a_price || 0).toFixed(3)}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="vs-divider">→</div>
+                            
+                            <div class="platform-box kalshi">
+                                <div class="platform-name kalshi" style="color: var(--accent-purple);">🟣 Mercado B</div>
+                                <div class="platform-title">${opp.market_b_question || opp.market_b || ''}</div>
+                                <div class="prices">
+                                    <div class="price-item">
+                                        <div class="price-label">PREÇO</div>
+                                        <div class="price-value yes">$${(opp.market_b_price || 0).toFixed(3)}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="strategy-section">
+                            <div class="strategy-title">💡 Lógica da Arbitragem</div>
+                            <div class="strategy-text">${opp.explanation || opp.strategy || 'Inconsistência de preço detectada entre mercados relacionados.'}</div>
+                            
+                            <div class="returns-row">
+                                <div class="return-item">
+                                    <div class="return-label">Diferença de Preço</div>
+                                    <div class="return-value">$${(opp.price_diff || 0).toFixed(3)}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            results.innerHTML = html;
+        }
+    </script>
+</body>
+</html>
+
