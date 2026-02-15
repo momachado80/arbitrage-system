@@ -1,18 +1,24 @@
 # Kalshi-Polymarket Arbitrage System
-# Dependências Python
+# Dependências para deploy Render (Python 3.11)
 
-# HTTP Client assíncrono
+# HTTP / WebSocket
+aiohttp>=3.9.0
 httpx>=0.25.0
+websockets>=12.0
+
+# JSON (watcher/client)
+orjson>=3.9.0
 
 # API Framework
 fastapi>=0.100.0
 uvicorn>=0.23.0
 jinja2>=3.0.0
 
-# Validação de tipos
+# Validação
 pydantic>=2.0.0
+
+# SSL (aiohttp HTTPS)
+certifi>=2023.7.22
 
 # Utilitários
 python-dateutil>=2.8.0
-
-aiohttp
