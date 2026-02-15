@@ -431,8 +431,8 @@ def _start_dashboard_thread(system: Dict[str, Any], config: AppConfig) -> None:
     def _run() -> None:
         uvicorn.run(
             app,
-            host="127.0.0.1",
-            port=port,
+            host="0.0.0.0",
+            port=int(os.environ.get("PORT", str(port))),
             log_level="warning",
         )
 

@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.log
+*.db
+.env
+temp_clob/
+node_modules/
+.DS_Store
+.pytest_cache/
