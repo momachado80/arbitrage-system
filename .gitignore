@@ -7,3 +7,4 @@ temp_clob/
 node_modules/
 .DS_Store
 .pytest_cache/
+.venv_render/

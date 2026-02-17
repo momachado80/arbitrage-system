@@ -3,9 +3,15 @@ Kalshi-Polymarket Arbitrage System
 ==================================
 
 Sistema de detecção de arbitragem entre mercados de previsão.
+
+Import lazy para permitir deploy: server pode carregar sem main/collectors.
 """
 
-from .main import ArbitrageScanner, demo_data_collection
+try:
+    from .main import ArbitrageScanner, demo_data_collection
+except ImportError:
+    ArbitrageScanner = None  # type: ignore[misc, assignment]
+    demo_data_collection = None  # type: ignore[misc, assignment]
 
 __all__ = [
     "ArbitrageScanner",

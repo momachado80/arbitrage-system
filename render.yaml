@@ -1,14 +1,4 @@
-services:
-  - type: web
-    name: polymarket-bot
-    env: python
-    plan: free
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "python -m src.orchestrator"
-    envVars:
-      - key: PYTHON_VERSION
-        value: "3.11"
-      - key: RUN_MODE
-        value: "OBSERVE"
-      - key: ENABLE_DASHBOARD
-        value: "true"
+# Render - Configuração para Trading System
+# Use este start command no Render Dashboard se o Procfile apontar para api:app
+# Start Command: uvicorn src.server:app --host 0.0.0.0 --port $PORT
+# Health Check Path: /health

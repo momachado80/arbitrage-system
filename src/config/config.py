@@ -15,7 +15,7 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
-VALID_RUN_MODES = ("OBSERVE", "PAPER", "LIVE")
+VALID_RUN_MODES = ("OBSERVE", "PAPER", "LIVE", "REALISTIC_SIMULATION")
 DEFAULT_RUN_MODE = "OBSERVE"
 
 

@@ -70,10 +70,20 @@ from src.engine.market_data import MarketDataEngine
 
 # --- Execution stubs ---
 from src.execution.mode_stubs import ObserveOrderManager, PaperExchangeAPI
+from src.execution.audit_logger import SimulationAuditLogger
+from src.execution.realistic_simulator import (
+    RealisticSimulationExchangeAPI,
+    RealisticSimulationOrderManager,
+    SimulationStats,
+)
 
 # --- Watcher (async, isolado) ---
 from src.watcher.bridge import WatcherBridge, MarketSnapshot
 from src.watcher.client import PolymarketClient
+
+# --- Market Universe (auto-discovery) ---
+from src.market.universe_manager import MarketUniverseManager
+from src.metrics import set_markets_subscribed, run_sanity_checks
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +215,7 @@ class ReconcilerLoop(threading.Thread):
 
     def run(self) -> None:
         """Loop de reconciliação periódica."""
-        logger.info("[SYSTEM:RECONCILER] Loop iniciado")
+        logger.info("[RECONCILER] [STARTED] Loop iniciado")
 
         while self.running:
             try:
@@ -346,7 +356,12 @@ def create_system(
         safety_state=safety_state,
     )
 
-    # 3. RUN_MODE: effective mode e stubs
+    # 3. Queue + Watcher (precisa antes de REALISTIC_SIMULATION)
+    update_queue: queue.Queue = queue.Queue(maxsize=cfg.queue_maxsize)  # type: ignore[type-arg]
+    bridge = WatcherBridge(update_queue)
+    ws_client = PolymarketClient(bridge)
+
+    # 4. RUN_MODE: effective mode e stubs
     effective_mode = cfg.run_mode
     if cfg.run_mode == "LIVE":
         if not _can_enter_live(cfg, safety_state):
@@ -356,24 +371,32 @@ def create_system(
             )
             effective_mode = "OBSERVE"
 
+    sim_stats = None
     if effective_mode == "OBSERVE":
         order_manager: Any = ObserveOrderManager()
         api: ExchangeAPI = ExchangeAPIStub()
     elif effective_mode == "PAPER":
         order_manager = OrderManager(account_mode="SPOT_ONLY")
         api = PaperExchangeAPI(order_manager)
+    elif effective_mode == "REALISTIC_SIMULATION":
+        audit_log = SimulationAuditLogger()
+        sim_stats = SimulationStats()
+        strict = os.environ.get("STRICT_REALISM", "").strip().upper() in ("1", "TRUE", "YES")
+        book_provider = lambda tid: ws_client.get_book_snapshot(tid)
+        order_manager = RealisticSimulationOrderManager(
+            book_provider=book_provider,
+            audit_logger=audit_log,
+            strict_realism=strict,
+            stats=sim_stats,
+        )
+        api = RealisticSimulationExchangeAPI(order_manager)
     else:
         order_manager = OrderManager(account_mode="SPOT_ONLY")
         api = exchange_api or ExchangeAPIStub()
 
     logger.info(f"[SYSTEM] RUN_MODE efetivo: {effective_mode}")
 
-    # 4. Queue + Watcher
-    update_queue: queue.Queue = queue.Queue(maxsize=cfg.queue_maxsize)  # type: ignore[type-arg]
-    bridge = WatcherBridge(update_queue)
-    ws_client = PolymarketClient(bridge)
-
-    # 5. Pipeline handler + Reconciler loop
+    # 5. Pipeline handler + Reconciler loop (era 5, mantém numeração)
     pipeline_handler = PipelineHandler()
     reconciler_loop = ReconcilerLoop(
         reconciler=reconciler,
@@ -417,6 +440,7 @@ def create_system(
         "market_engine": market_engine,
         "token_ids": token_ids or [],
         "exchange_api": api,
+        "simulation_stats": sim_stats if effective_mode == "REALISTIC_SIMULATION" else None,
     }
 
 
@@ -456,6 +480,12 @@ def run_system(system: Dict[str, Any]) -> None:
     cfg: AppConfig = system.get("config") or load_app_config_from_env()
     health_interval = cfg.health_check_interval_seconds
 
+    if not token_ids:
+        logger.critical("[SYSTEM] Nenhum market ativo — engine não iniciada")
+        return
+
+    set_markets_subscribed(len(token_ids))
+
     # --- Start threads ---
 
     # 1. Watcher (daemon thread com event loop asyncio)
@@ -472,17 +502,17 @@ def run_system(system: Dict[str, Any]) -> None:
         daemon=True,
     )
     watcher_thread.start()
-    logger.info("[SYSTEM] Watcher thread iniciada (daemon)")
+    logger.info("[WATCHER] [STARTED] Thread iniciada (daemon)")
     system["watcher_thread"] = watcher_thread
     system["build_audit_report"] = build_audit_report
 
     # 2. ReconcilerLoop (thread normal)
     reconciler_loop.start()
-    logger.info("[SYSTEM] ReconcilerLoop thread iniciada")
+    logger.info("[RECONCILER] [THREAD_STARTED] ReconcilerLoop")
 
     # 3. MarketDataEngine (thread normal)
     market_engine.start()
-    logger.info("[SYSTEM] MarketDataEngine thread iniciada")
+    logger.info("[ENGINE] [THREAD_STARTED] MarketDataEngine")
 
     # 4. Health checker
     health_checker = HealthChecker(
@@ -494,8 +524,8 @@ def run_system(system: Dict[str, Any]) -> None:
         watcher_thread=watcher_thread,
     )
 
-    # 5. Dashboard (thread separada, se habilitado)
-    if getattr(cfg, "enable_dashboard", False):
+    # 5. Dashboard (thread separada, se habilitado — skip se rodando via server)
+    if getattr(cfg, "enable_dashboard", False) and not os.getenv("TRADING_SERVER"):
         _start_dashboard_thread(system, cfg)
 
     # --- Main loop: 1s sleep + counters ---
@@ -509,6 +539,7 @@ def run_system(system: Dict[str, Any]) -> None:
 
             if counter % health_interval == 0:
                 health_checker.run_health_check()
+                run_sanity_checks(system_start_time=system.get("system_start_time"))
 
             if counter % HEARTBEAT_INTERVAL_SECONDS == 0:
                 _log_heartbeat(system, watcher_thread)
@@ -782,6 +813,23 @@ def ack_reason(
 # Entry point
 # ======================================================================
 
+def _resolve_token_ids() -> List[str]:
+    """Resolve token_ids: POLYMARKET_TOKENS ou auto-discovery."""
+    manual = os.environ.get("POLYMARKET_TOKENS", "").split(",")
+    manual = [t.strip() for t in manual if t.strip()]
+    if manual:
+        logger.info("[UNIVERSE] [MANUAL_OVERRIDE] tokens=%d", len(manual))
+        return manual
+    logger.info("[UNIVERSE] [AUTO_DISCOVERY] POLYMARKET_TOKENS vazio, buscando mercados...")
+    universe = MarketUniverseManager()
+    token_ids = universe.run_once()
+    if not token_ids:
+        logger.critical("[UNIVERSE] [NO_MARKETS] Nenhum mercado ativo encontrado")
+        return []
+    logger.info("[UNIVERSE] [DISCOVERED] markets=%d", len(token_ids))
+    return token_ids
+
+
 def main() -> None:
     """Entry point do sistema de trading."""
     logging.basicConfig(
@@ -790,9 +838,10 @@ def main() -> None:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # Tokens para monitorar (configurável)
-    token_ids = os.environ.get("POLYMARKET_TOKENS", "").split(",")
-    token_ids = [t.strip() for t in token_ids if t.strip()]
+    token_ids = _resolve_token_ids()
+    if not token_ids:
+        logger.critical("[SYSTEM] Abortando: nenhum mercado para monitorar")
+        return
 
     initial_capital = float(
         os.environ.get("INITIAL_CAPITAL", str(DEFAULT_INITIAL_CAPITAL))

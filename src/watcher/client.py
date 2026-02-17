@@ -216,6 +216,19 @@ class PolymarketClient:
         if self._ws is not None and not self._ws.closed:
             await self._send_subscribe(token_id)
 
+    def get_book_snapshot(self, token_id: str) -> Optional[Dict[str, List]]:
+        """
+        Retorna snapshot do book para simulação realista.
+        Formato: {"bids": [(price, size), ...], "asks": [(price, size), ...]}
+        Bids desc por preço, asks asc por preço.
+        """
+        book = self._books.get(token_id)
+        if book is None or (not book.bids and not book.asks):
+            return None
+        bids = sorted(book.bids.items(), key=lambda x: -x[0])  # desc
+        asks = sorted(book.asks.items(), key=lambda x: x[0])   # asc
+        return {"bids": [(p, s) for p, s in bids], "asks": [(p, s) for p, s in asks]}
+
     async def _send_subscribe(self, token_id: str) -> None:
         """Envia payload de subscription para Polymarket."""
         if self._ws is None or self._ws.closed:
@@ -227,7 +240,7 @@ class PolymarketClient:
             "assets_ids": [token_id],
         })
         await self._ws.send_bytes(payload)
-        logger.info(f"[WATCHER:SUBSCRIBE] {token_id}")
+        logger.info("[WATCHER] [SUBSCRIBE] token=%s", token_id)
 
     # ------------------------------------------------------------------
     # Shutdown

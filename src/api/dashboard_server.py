@@ -5,10 +5,11 @@ Dashboard Server — Painel Web para o Sistema de Trading
 FastAPI + Jinja2 + Tailwind + Chart.js + Heroicons.
 
 Apenas leitura + ACK. Sem alteração de config. Sem envio de ordens.
-Roda em 127.0.0.1 (porta configurável).
+Uso standalone:
+    uvicorn src.api.dashboard_server:app --host 0.0.0.0 --port 8765
 
-Uso:
-    uvicorn src.api.dashboard_server:app --host 127.0.0.1 --port 8765
+Render (via src.server):
+    uvicorn src.server:app --host 0.0.0.0 --port $PORT
 """
 
 import os
@@ -42,6 +43,24 @@ __all__ = ["HUMAN_REASON_MAP", "create_dashboard_app"]
 
 CAPITAL_HISTORY_MAX = 100
 EVENTS_MAX = 20
+
+
+def _get_decision_metrics() -> Dict[str, int]:
+    """Métricas de decisão (motivos de descarte)."""
+    try:
+        from src.metrics import get_decision_metrics
+        return get_decision_metrics()
+    except ImportError:
+        return {}
+
+
+def _get_ingestion_metrics() -> Dict[str, Any]:
+    """Métricas de ingestão (snapshots, engine events)."""
+    try:
+        from src.metrics import get_ingestion_metrics
+        return get_ingestion_metrics()
+    except ImportError:
+        return {}
 
 
 def _get_reversion_metrics(system_context: Dict[str, Any]) -> Dict[str, Any]:
@@ -355,6 +374,16 @@ def create_dashboard_app(system_context: Dict[str, Any]) -> FastAPI:
         drawdown_tracker.update(current_cap, event_timeline)
         drawdown = compute_drawdown_from_tracker(drawdown_tracker, current_cap)
 
+        # Simulação realista (apenas RUN_MODE=REALISTIC_SIMULATION)
+        simulation_metrics = None
+        if run_mode == "REALISTIC_SIMULATION":
+            stats = system_context.get("simulation_stats")
+            if stats is not None and hasattr(stats, "get_metrics"):
+                try:
+                    simulation_metrics = stats.get_metrics()
+                except Exception:
+                    simulation_metrics = {}
+
         # Uptime
         start_time = system_context.get("system_start_time")
         uptime_seconds = (
@@ -403,6 +432,9 @@ def create_dashboard_app(system_context: Dict[str, Any]) -> FastAPI:
             "concentration": concentration,
             "drawdown": drawdown,
             "uptime_seconds": uptime_seconds,
+            "simulation_metrics": simulation_metrics,
+            "decision_metrics": _get_decision_metrics(),
+            "ingestion_metrics": _get_ingestion_metrics(),
         }
 
     # -------------------------------------------------------------------------

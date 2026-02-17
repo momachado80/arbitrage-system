@@ -72,7 +72,7 @@ class MarketDataEngine(threading.Thread):
 
     def run(self) -> None:
         """Loop principal: consome queue e despacha eventos."""
-        logger.info("[MARKET_ENGINE] Iniciado")
+        logger.info("[ENGINE] [STARTED] MarketDataEngine")
 
         while self.running:
             try:
@@ -84,19 +84,24 @@ class MarketDataEngine(threading.Thread):
                 self._dispatch(event)
                 self._consecutive_errors = 0
                 self._events_processed += 1
+                try:
+                    from src.metrics import inc_engine_events
+                    inc_engine_events()
+                except ImportError:
+                    pass
             except Exception as e:
                 self._consecutive_errors += 1
                 logger.error(
-                    f"[MARKET_ENGINE:ERROR] {type(e).__name__}: {e}"
+                    "[ENGINE] [ERROR] %s: %s", type(e).__name__, e
                 )
                 if self._consecutive_errors > MAX_CONSECUTIVE_ERRORS:
                     logger.critical(
-                        f"[MARKET_ENGINE:CRITICAL] {self._consecutive_errors} "
-                        f"erros consecutivos — verifique pipeline/reconciler"
+                        "[ENGINE] [CRITICAL] consecutive_errors=%d — verifique pipeline/reconciler",
+                        self._consecutive_errors,
                     )
 
         logger.info(
-            f"[MARKET_ENGINE] Encerrado — {self._events_processed} eventos processados"
+            "[ENGINE] [STOPPED] events_processed=%d", self._events_processed
         )
 
     # ------------------------------------------------------------------
@@ -111,7 +116,7 @@ class MarketDataEngine(threading.Thread):
             self._reconciler.notify_trade_event(event)
         else:
             logger.warning(
-                f"[MARKET_ENGINE] Evento desconhecido: {type(event).__name__}"
+                "[ENGINE] [UNKNOWN_EVENT] type=%s", type(event).__name__
             )
 
     # ------------------------------------------------------------------

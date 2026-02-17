@@ -28,6 +28,14 @@ from src.utils.precision import round_price, round_shares
 logger = logging.getLogger(__name__)
 
 
+def _inc_snapshots_received() -> None:
+    try:
+        from src.metrics import inc_snapshots_received
+        inc_snapshots_received()
+    except ImportError:
+        pass
+
+
 @dataclass(frozen=True)
 class MarketSnapshot:
     """Snapshot imutável do topo do order book."""
@@ -120,10 +128,16 @@ class WatcherBridge:
     def _enqueue_snapshot(self, snap: MarketSnapshot) -> None:
         """Drop-tail: se cheia, remove item mais antigo e insere novo."""
         try:
+            _inc_snapshots_received()
             self._queue.put_nowait(snap)
         except queue.Full:
             try:
                 self._queue.get_nowait()  # Drop oldest
+                try:
+                    from src.metrics import inc_events_discarded
+                    inc_events_discarded()
+                except ImportError:
+                    pass
             except queue.Empty:
                 pass
             try:
@@ -136,7 +150,12 @@ class WatcherBridge:
         try:
             self._queue.put_nowait(trade)
         except queue.Full:
+            try:
+                from src.metrics import inc_events_discarded
+                inc_events_discarded()
+            except ImportError:
+                pass
             logger.warning(
-                f"[WATCHER:TRADE_DROP] token={trade.token_id} "
-                f"price={trade.price} size={trade.size}"
+                "[WATCHER] [TRADE_DROP] token=%s price=%s size=%s",
+                trade.token_id, trade.price, trade.size,
             )

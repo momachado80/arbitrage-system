@@ -65,9 +65,14 @@ def _execute_spot_sell(
     if position_manager is not None:
         oc_str = outcome_side.value if hasattr(outcome_side, "value") else str(outcome_side)
         if not position_manager.can_sell(market_id, oc_str, shares):
+            try:
+                from src.metrics import record_decision_reason
+                record_decision_reason("rejected_by_execution")
+            except ImportError:
+                pass
             logger.warning(
-                f"[PIPELINE:SELL_REJECTED] Posição insuficiente para vender "
-                f"{shares} shares {oc_str} em {market_id}"
+                "[PIPELINE] [SELL_REJECTED] Posição insuficiente para vender %s shares %s em %s",
+                shares, oc_str, market_id,
             )
             return None
     else:
@@ -106,8 +111,8 @@ def _execute_spot_sell(
     )
 
     logger.info(
-        f"[PIPELINE:SELL_EXECUTED] trade={trade_id} "
-        f"{oc_str} {shares}shares@{limit_price}"
+        "[PIPELINE] [SELL_EXECUTED] trade=%s %s %sshares@%s",
+        trade_id, oc_str, shares, limit_price,
     )
     return trade_id
 
@@ -150,7 +155,12 @@ def execute_trade_decision(
         config=config,
     )
     if not gate_ok:
-        logger.warning(f"[PIPELINE:KILL_SWITCH] {gate_reason}")
+        try:
+            from src.metrics import record_decision_reason
+            record_decision_reason("blocked_by_risk")
+        except ImportError:
+            pass
+        logger.warning("[PIPELINE] [KILL_SWITCH] %s", gate_reason)
         trade_ledger.ensure_persistence_warning_logged()
         return None
 
@@ -193,7 +203,12 @@ def execute_trade_decision(
 
     # 4. Abortar se insuficiente
     if final_size <= 0:
-        logger.warning(f"[PIPELINE:ABORTED] final_size={final_size}")
+        try:
+            from src.metrics import record_decision_reason
+            record_decision_reason("no_signal")
+        except ImportError:
+            pass
+        logger.warning("[PIPELINE] [ABORTED] final_size=%s", final_size)
         return None
 
     # Recalcular shares ajustadas (spot)
@@ -212,7 +227,12 @@ def execute_trade_decision(
             capital_manager=capital_manager,
         )
         if not allowed:
-            logger.warning(f"[PIPELINE:RISK_BLOCKED] {reason}")
+            try:
+                from src.metrics import record_decision_reason
+                record_decision_reason("blocked_by_risk")
+            except ImportError:
+                pass
+            logger.warning("[PIPELINE] [RISK_BLOCKED] %s", reason)
             return None
 
     # 6. Slippage check
@@ -220,9 +240,14 @@ def execute_trade_decision(
         side_str = side.value if isinstance(side, OrderSide) else str(side)
         slippage = estimate_fill_cost(order_book, side_str, final_size)
         if not slippage["required_liquidity_ok"]:
+            try:
+                from src.metrics import record_decision_reason
+                record_decision_reason("blocked_by_liquidity")
+            except ImportError:
+                pass
             logger.warning(
-                f"[PIPELINE:LIQUIDITY_ABORT] Liquidez insuficiente "
-                f"para {side_str} {final_size}"
+                "[PIPELINE] [LIQUIDITY_ABORT] Liquidez insuficiente para %s %s",
+                side_str, final_size,
             )
             return None
 
@@ -234,7 +259,12 @@ def execute_trade_decision(
         try:
             capital_manager.reserve_for_order(trade_id, final_size)
         except Exception as e:
-            logger.warning(f"[PIPELINE:CAPITAL_ABORT] {e}")
+            try:
+                from src.metrics import record_decision_reason
+                record_decision_reason("blocked_by_risk")
+            except ImportError:
+                pass
+            logger.warning("[PIPELINE] [CAPITAL_ABORT] %s", e)
             return None
 
     # 8. Ordem limite (com rollback de capital se falhar)
@@ -248,12 +278,24 @@ def execute_trade_decision(
             capital_manager.release_order_reserve(trade_id)
         raise
 
+    if not order_ids and capital_manager is not None:
+        capital_manager.release_order_reserve(trade_id)
+        try:
+            from src.metrics import record_decision_reason
+            record_decision_reason("rejected_by_execution")
+        except ImportError:
+            pass
+        logger.warning(
+            "[PIPELINE] [ABORTED] Ordem rejeitada (sem order_ids) para %s", market_id
+        )
+        return None
+
     # Outcome side para registro
     oc_str = None
     if outcome_side is not None:
         oc_str = outcome_side.value if hasattr(outcome_side, "value") else str(outcome_side)
 
-    # 9. Registrar no ledger
+    # 9. Registrar no ledger (atualiza capital_manager)
     trade_ledger.record_entry(
         trade_id=trade_id,
         market_id=market_id,
@@ -270,10 +312,14 @@ def execute_trade_decision(
         shares=adjusted_shares,
     )
 
+    # 10. Auditoria atômica: capital já atualizado → snapshot → audit
+    if hasattr(order_manager, "finalize_trade_audit"):
+        order_manager.finalize_trade_audit(order_ids, capital_manager)
+
     logger.info(
-        f"[PIPELINE:EXECUTED] trade={trade_id} orders={len(order_ids)} "
-        f"size={final_size} (base={base_size} x k={k})"
-        + (f" shares={adjusted_shares:.4f}" if adjusted_shares else "")
+        "[PIPELINE] [EXECUTED] trade=%s orders=%d size=%s (base=%s x k=%s)%s",
+        trade_id, len(order_ids), final_size, base_size, k,
+        f" shares={adjusted_shares:.4f}" if adjusted_shares else "",
     )
     return trade_id
 

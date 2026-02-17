@@ -72,6 +72,47 @@
             </div>
         </section>
 
+        <!-- Bloco Métricas de Decisão -->
+        <section id="decision-metrics-section" class="mb-10">
+            <h2 class="text-lg font-semibold text-slate-700 mb-4">Métricas de Decisão</h2>
+            <div id="decision-metrics-container" class="bg-white rounded-xl shadow-sm border border-slate-100 p-6 flex flex-wrap gap-4">
+                <p class="text-slate-400">Carregando…</p>
+            </div>
+        </section>
+
+        <!-- Bloco Simulação Realista (apenas RUN_MODE=REALISTIC_SIMULATION) -->
+        <section id="simulation-section" class="mb-10 hidden">
+            <h2 class="text-lg font-semibold text-slate-700 mb-4">Simulação Realista</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
+                    <p class="text-slate-500 text-xs font-medium uppercase mb-2">Total de Trades</p>
+                    <p id="sim-total-trades" class="text-2xl font-bold text-slate-800">—</p>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
+                    <p class="text-slate-500 text-xs font-medium uppercase mb-2">Expectancy</p>
+                    <p id="sim-expectancy" class="text-2xl font-bold text-slate-800">—</p>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
+                    <p class="text-slate-500 text-xs font-medium uppercase mb-2">Sharpe (aprox.)</p>
+                    <p id="sim-sharpe" class="text-2xl font-bold text-slate-800">—</p>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
+                    <p class="text-slate-500 text-xs font-medium uppercase mb-2">Slippage Médio</p>
+                    <p id="sim-slippage" class="text-2xl font-bold text-slate-800">—</p>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
+                    <p class="text-slate-500 text-xs font-medium uppercase mb-2">Taxa de Rejeição</p>
+                    <p id="sim-rejection-rate" class="text-2xl font-bold text-slate-800">—</p>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
+                    <p class="text-slate-500 text-xs font-medium uppercase mb-2">Ordens Rejeitadas</p>
+                    <p id="sim-rejected-orders" class="text-2xl font-bold text-slate-800">—</p>
+                </div>
+            </div>
+        </section>
+
         <!-- Bloco 1 — Capital com gráfico -->
         <section class="mb-10">
             <h2 class="text-lg font-semibold text-slate-700 mb-4">Capital</h2>
@@ -294,6 +335,30 @@
                 const confCard = document.getElementById('confidence-card');
                 const bgClass = conf.color === 'green' ? 'bg-emerald-50 border-emerald-200' : conf.color === 'red' ? 'bg-red-50 border-red-200' : conf.color === 'yellow' ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-100';
                 confCard.className = 'ml-auto rounded-xl shadow-sm border p-5 min-w-[140px] text-center ' + bgClass;
+
+                const sim = d.simulation_metrics || {};
+                const simSection = document.getElementById('simulation-section');
+                if (d.run_mode === 'REALISTIC_SIMULATION' && Object.keys(sim).length > 0) {
+                    simSection.classList.remove('hidden');
+                    document.getElementById('sim-total-trades').textContent = sim.total_trades ?? '—';
+                    document.getElementById('sim-expectancy').textContent = sim.expectancy != null ? fmtNum(sim.expectancy) : '—';
+                    document.getElementById('sim-sharpe').textContent = sim.sharpe != null ? fmtNum(sim.sharpe) : '—';
+                    document.getElementById('sim-slippage').textContent = sim.avg_slippage != null ? (Number(sim.avg_slippage) * 100).toFixed(2) + '%' : '—';
+                    document.getElementById('sim-rejection-rate').textContent = sim.rejection_rate != null ? (Number(sim.rejection_rate) * 100).toFixed(2) + '%' : '—';
+                    document.getElementById('sim-rejected-orders').textContent = sim.rejected_orders ?? '—';
+                } else {
+                    simSection.classList.add('hidden');
+                }
+
+                const dec = d.decision_metrics || {};
+                const decContainer = document.getElementById('decision-metrics-container');
+                if (Object.keys(dec).length > 0) {
+                    decContainer.innerHTML = Object.entries(dec).map(([k, v]) =>
+                        `<span class="text-sm"><span class="text-slate-500 font-medium">${k.replace(/_/g, ' ')}:</span> <span class="font-semibold text-slate-800">${v}</span></span>`
+                    ).join('');
+                } else {
+                    decContainer.innerHTML = '<p class="text-slate-400">Nenhuma métrica de decisão.</p>';
+                }
 
                 const risk = d.financial_risk || {};
                 document.getElementById('risk-level').textContent = risk.level || '—';
