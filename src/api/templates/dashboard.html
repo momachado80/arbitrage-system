@@ -3,225 +3,231 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard 2.2 — Painel do Robô</title>
+    <title>Dashboard 3.0 — Painel do Robo</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>body { font-family: 'Inter', system-ui, sans-serif; }</style>
+    <style>
+        body { font-family: 'Inter', system-ui, sans-serif; }
+        .pulse-green { animation: pulse-g 2s infinite; }
+        @keyframes pulse-g { 0%,100%{box-shadow:0 0 0 0 rgba(16,185,129,0.4)} 50%{box-shadow:0 0 0 8px rgba(16,185,129,0)} }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+        .glass { backdrop-filter: blur(12px); background: rgba(255,255,255,0.85); }
+    </style>
 </head>
-<body class="bg-slate-100 min-h-screen font-sans antialiased">
-    <div class="max-w-6xl mx-auto px-6 py-10">
-        <!-- Header grande -->
-        <header class="mb-12">
-            <div class="flex flex-wrap items-center justify-between gap-6 mb-6">
-                <div>
-                    <h1 class="text-3xl font-bold text-slate-800 tracking-tight">Painel do Robô</h1>
-                    <p class="text-slate-500 mt-1 text-lg">Monitoramento em tempo real</p>
+<body class="bg-gradient-to-br from-slate-50 to-slate-100 min-h-screen font-sans antialiased">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+
+        <!-- Navigation -->
+        <nav class="flex items-center justify-between mb-8">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
                 </div>
-                <div class="flex items-center gap-4">
-                    <span id="run-mode-badge" class="px-4 py-2 rounded-lg text-sm font-semibold bg-slate-200 text-slate-700">OBSERVE</span>
-                    <a href="/technical" class="text-slate-600 hover:text-slate-800 text-sm font-medium flex items-center gap-1">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
-                        Visão técnica
-                    </a>
+                <div>
+                    <h1 class="text-xl font-bold text-slate-800">Trading Robot</h1>
+                    <p class="text-xs text-slate-400">Polymarket Quantitative System</p>
                 </div>
             </div>
-            <div class="flex flex-wrap items-center gap-8 p-6 bg-white rounded-xl shadow-sm border border-slate-100">
+            <div class="flex items-center gap-3">
+                <a href="/strategy" class="px-4 py-2 bg-white rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 border border-slate-200 transition-all flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                    Estrategia
+                </a>
+                <a href="/technical" class="px-4 py-2 bg-white rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 border border-slate-200 transition-all flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+                    Tecnico
+                </a>
+                <span id="run-mode-badge" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 text-white tracking-wider">OBSERVE</span>
+            </div>
+        </nav>
+
+        <!-- Status Hero -->
+        <div class="glass rounded-2xl border border-white/60 shadow-lg p-6 mb-8 fade-in">
+            <div class="flex flex-wrap items-center justify-between gap-6">
                 <div class="flex items-center gap-5">
-                    <div id="status-ring" class="w-16 h-16 rounded-full border-4 flex items-center justify-center transition-colors">
-                        <span id="status-dot" class="w-3 h-3 rounded-full"></span>
+                    <div id="status-ring" class="w-16 h-16 rounded-full border-4 flex items-center justify-center transition-all duration-500">
+                        <span id="status-dot" class="w-4 h-4 rounded-full pulse-green"></span>
                     </div>
                     <div>
-                        <p id="status-label" class="text-xl font-semibold text-slate-800">Saudável</p>
-                        <p id="explanation-text" class="text-slate-500 mt-0.5 max-w-md">O sistema está operando normalmente.</p>
-                        <div class="flex flex-wrap gap-6 mt-3 text-sm text-slate-500">
-                            <span id="uptime-text">Sistema ativo há: —</span>
-                            <span id="last-reconcile-text">Última confirmação: —</span>
+                        <p id="status-label" class="text-2xl font-bold text-slate-800">Saudavel</p>
+                        <p id="explanation-text" class="text-slate-500 mt-1 max-w-lg text-sm">O sistema esta operando normalmente.</p>
+                        <div class="flex flex-wrap gap-6 mt-3 text-xs text-slate-400">
+                            <span id="uptime-text">Ativo ha: --</span>
+                            <span id="last-reconcile-text">Ultima confirmacao: --</span>
                         </div>
                     </div>
                 </div>
-                <div id="confidence-card" class="ml-auto bg-white rounded-xl shadow-sm border border-slate-100 p-5 min-w-[140px] text-center">
-                    <p class="text-slate-500 text-xs font-medium uppercase mb-1">Confiança</p>
-                    <p id="confidence-value" class="text-3xl font-bold text-slate-800">—</p>
-                    <p id="confidence-level" class="text-sm font-medium mt-1">—</p>
+                <div class="flex gap-4">
+                    <div id="confidence-card" class="rounded-xl border border-emerald-200 bg-emerald-50 p-4 min-w-[120px] text-center">
+                        <p class="text-slate-500 text-xs font-medium uppercase mb-1">Confianca</p>
+                        <p id="confidence-value" class="text-3xl font-bold text-emerald-600">--</p>
+                        <p id="confidence-level" class="text-xs font-medium mt-1 text-slate-500">--</p>
+                    </div>
+                    <div id="risk-card-mini" class="rounded-xl border border-slate-200 bg-white p-4 min-w-[120px] text-center">
+                        <p class="text-slate-500 text-xs font-medium uppercase mb-1">Risco</p>
+                        <p id="risk-level-mini" class="text-3xl font-bold text-emerald-600">--</p>
+                        <p id="risk-score-mini" class="text-xs font-medium mt-1 text-slate-500">score --</p>
+                    </div>
                 </div>
             </div>
-        </header>
+        </div>
 
-        <!-- Inteligência de Risco -->
-        <section class="mb-10">
-            <h2 class="text-lg font-semibold text-slate-700 mb-4">Inteligência de Risco</h2>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div id="risk-card" class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
-                    <p class="text-slate-500 text-xs font-medium uppercase mb-2">Risco Atual</p>
-                    <p id="risk-level" class="text-2xl font-bold text-slate-800">—</p>
-                    <p id="risk-score" class="text-slate-400 text-xs mt-0.5">score 0–100</p>
-                    <p id="risk-description" class="text-slate-500 text-sm mt-1">—</p>
+        <!-- KPI Cards Row -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div class="glass rounded-xl border border-white/60 shadow-sm p-5 fade-in">
+                <p class="text-slate-400 text-xs font-medium uppercase tracking-wider">Capital Total</p>
+                <p id="total-capital" class="text-2xl font-bold text-slate-800 mt-2">--</p>
+            </div>
+            <div class="glass rounded-xl border border-white/60 shadow-sm p-5 fade-in">
+                <p class="text-slate-400 text-xs font-medium uppercase tracking-wider">Disponivel</p>
+                <p id="available-capital" class="text-2xl font-bold text-slate-800 mt-2">--</p>
+            </div>
+            <div class="glass rounded-xl border border-white/60 shadow-sm p-5 fade-in">
+                <p class="text-slate-400 text-xs font-medium uppercase tracking-wider">Reservado</p>
+                <p id="locked-capital" class="text-2xl font-bold text-slate-800 mt-2">--</p>
+            </div>
+            <div class="glass rounded-xl border border-white/60 shadow-sm p-5 fade-in">
+                <p class="text-slate-400 text-xs font-medium uppercase tracking-wider">Lucro Realizado</p>
+                <p id="realized-pnl" class="text-2xl font-bold text-emerald-600 mt-2">--</p>
+            </div>
+        </div>
+
+        <!-- Capital Chart + Risk Intelligence -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            <div class="lg:col-span-2 glass rounded-xl border border-white/60 shadow-sm p-6 fade-in">
+                <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Evolucao do Capital</h2>
+                <div class="h-56">
+                    <canvas id="capital-chart"></canvas>
                 </div>
-                <div id="concentration-card" class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
-                    <p class="text-slate-500 text-xs font-medium uppercase mb-2">Concentração</p>
-                    <p id="concentration-text" class="text-slate-700 font-medium">—</p>
-                    <p id="concentration-percent" class="text-sm mt-1">—</p>
+            </div>
+            <div class="space-y-4">
+                <div id="drawdown-card" class="glass rounded-xl border border-white/60 shadow-sm p-5 fade-in">
+                    <p class="text-slate-400 text-xs font-medium uppercase tracking-wider mb-2">Drawdown</p>
+                    <p id="drawdown-pct" class="text-2xl font-bold text-slate-700">--</p>
+                    <p id="drawdown-max" class="text-slate-500 text-xs mt-1">Max: --</p>
+                    <p id="drawdown-current" class="text-slate-500 text-xs">Atual: --</p>
                 </div>
-                <div id="drawdown-card" class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
-                    <p class="text-slate-500 text-xs font-medium uppercase mb-2">Drawdown</p>
-                    <p id="drawdown-max" class="text-slate-700 text-sm">Máx: —</p>
-                    <p id="drawdown-current" class="text-slate-700 text-sm">Atual: —</p>
-                    <p id="drawdown-pct" class="text-lg font-bold mt-2">—</p>
+                <div id="concentration-card" class="glass rounded-xl border border-white/60 shadow-sm p-5 fade-in">
+                    <p class="text-slate-400 text-xs font-medium uppercase tracking-wider mb-2">Concentracao</p>
+                    <p id="concentration-text" class="text-slate-700 font-medium text-sm">--</p>
+                    <p id="concentration-percent" class="text-xs text-slate-500 mt-1">--</p>
+                </div>
+                <div class="glass rounded-xl border border-white/60 shadow-sm p-5 fade-in">
+                    <p class="text-slate-400 text-xs font-medium uppercase tracking-wider mb-2">Estrategia</p>
+                    <p id="strategy-signals" class="text-lg font-bold text-slate-700">-- sinais</p>
+                    <p id="strategy-mode" class="text-xs text-slate-500 mt-1">Modo: --</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Strategy Quick View -->
+        <section id="strategy-quick-section" class="mb-8">
+            <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Mercados Monitorados</h2>
+            <div id="markets-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div class="glass rounded-xl border border-white/60 shadow-sm p-5 text-slate-400 text-sm">Carregando dados de mercado...</div>
+            </div>
+        </section>
+
+        <!-- Simulation Section (only REALISTIC_SIMULATION) -->
+        <section id="simulation-section" class="mb-8 hidden">
+            <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Simulacao Realista</h2>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="glass rounded-xl border border-white/60 shadow-sm p-5">
+                    <p class="text-slate-400 text-xs font-medium uppercase">Total Trades</p>
+                    <p id="sim-total-trades" class="text-2xl font-bold text-slate-800 mt-2">--</p>
+                </div>
+                <div class="glass rounded-xl border border-white/60 shadow-sm p-5">
+                    <p class="text-slate-400 text-xs font-medium uppercase">Expectancy</p>
+                    <p id="sim-expectancy" class="text-2xl font-bold text-slate-800 mt-2">--</p>
+                </div>
+                <div class="glass rounded-xl border border-white/60 shadow-sm p-5">
+                    <p class="text-slate-400 text-xs font-medium uppercase">Sharpe</p>
+                    <p id="sim-sharpe" class="text-2xl font-bold text-slate-800 mt-2">--</p>
+                </div>
+                <div class="glass rounded-xl border border-white/60 shadow-sm p-5">
+                    <p class="text-slate-400 text-xs font-medium uppercase">Slippage</p>
+                    <p id="sim-slippage" class="text-2xl font-bold text-slate-800 mt-2">--</p>
                 </div>
             </div>
         </section>
 
-        <!-- Bloco Métricas de Decisão -->
-        <section id="decision-metrics-section" class="mb-10">
-            <h2 class="text-lg font-semibold text-slate-700 mb-4">Métricas de Decisão</h2>
-            <div id="decision-metrics-container" class="bg-white rounded-xl shadow-sm border border-slate-100 p-6 flex flex-wrap gap-4">
-                <p class="text-slate-400">Carregando…</p>
+        <!-- Exposure -->
+        <section class="mb-8">
+            <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Exposicao por Mercado</h2>
+            <div id="exposure-container" class="glass rounded-xl border border-white/60 shadow-sm p-6 space-y-4">
+                <p class="text-slate-400 text-sm">Nenhuma exposicao.</p>
             </div>
         </section>
 
-        <!-- Bloco Simulação Realista (apenas RUN_MODE=REALISTIC_SIMULATION) -->
-        <section id="simulation-section" class="mb-10 hidden">
-            <h2 class="text-lg font-semibold text-slate-700 mb-4">Simulação Realista</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-                <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
-                    <p class="text-slate-500 text-xs font-medium uppercase mb-2">Total de Trades</p>
-                    <p id="sim-total-trades" class="text-2xl font-bold text-slate-800">—</p>
-                </div>
-                <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
-                    <p class="text-slate-500 text-xs font-medium uppercase mb-2">Expectancy</p>
-                    <p id="sim-expectancy" class="text-2xl font-bold text-slate-800">—</p>
-                </div>
-                <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
-                    <p class="text-slate-500 text-xs font-medium uppercase mb-2">Sharpe (aprox.)</p>
-                    <p id="sim-sharpe" class="text-2xl font-bold text-slate-800">—</p>
-                </div>
-                <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
-                    <p class="text-slate-500 text-xs font-medium uppercase mb-2">Slippage Médio</p>
-                    <p id="sim-slippage" class="text-2xl font-bold text-slate-800">—</p>
-                </div>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
-                    <p class="text-slate-500 text-xs font-medium uppercase mb-2">Taxa de Rejeição</p>
-                    <p id="sim-rejection-rate" class="text-2xl font-bold text-slate-800">—</p>
-                </div>
-                <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
-                    <p class="text-slate-500 text-xs font-medium uppercase mb-2">Ordens Rejeitadas</p>
-                    <p id="sim-rejected-orders" class="text-2xl font-bold text-slate-800">—</p>
-                </div>
-            </div>
-        </section>
-
-        <!-- Bloco 1 — Capital com gráfico -->
-        <section class="mb-10">
-            <h2 class="text-lg font-semibold text-slate-700 mb-4">Capital</h2>
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-100 p-6">
-                    <div class="h-48">
-                        <canvas id="capital-chart"></canvas>
-                    </div>
-                </div>
-                <div class="grid grid-cols-2 gap-4">
-                    <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
-                        <p class="text-slate-500 text-sm font-medium">Capital Total</p>
-                        <p id="total-capital" class="text-2xl font-bold text-slate-800 mt-1">—</p>
-                    </div>
-                    <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
-                        <p class="text-slate-500 text-sm font-medium">Disponível</p>
-                        <p id="available-capital" class="text-2xl font-bold text-slate-800 mt-1">—</p>
-                    </div>
-                    <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
-                        <p class="text-slate-500 text-sm font-medium">Reservado</p>
-                        <p id="locked-capital" class="text-2xl font-bold text-slate-800 mt-1">—</p>
-                    </div>
-                    <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
-                        <p class="text-slate-500 text-sm font-medium">Lucro Realizado</p>
-                        <p id="realized-pnl" class="text-2xl font-bold mt-1">—</p>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Bloco 2 — Exposição -->
-        <section class="mb-10">
-            <h2 class="text-lg font-semibold text-slate-700 mb-4">Exposição por Mercado</h2>
-            <div id="exposure-container" class="bg-white rounded-xl shadow-sm border border-slate-100 p-6 space-y-4">
-                <p class="text-slate-400">Nenhuma exposição.</p>
-            </div>
-        </section>
-
-        <!-- Bloco 3 — Posições -->
-        <section class="mb-10">
-            <h2 class="text-lg font-semibold text-slate-700 mb-4">Posições</h2>
-            <div class="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-100">
+        <!-- Positions -->
+        <section class="mb-8">
+            <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Posicoes</h2>
+            <div class="glass rounded-xl shadow-sm overflow-hidden border border-white/60">
                 <table class="min-w-full">
-                    <thead class="bg-slate-50">
+                    <thead class="bg-slate-50/80">
                         <tr>
-                            <th class="px-6 py-4 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Mercado</th>
-                            <th class="px-6 py-4 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Lado</th>
-                            <th class="px-6 py-4 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Contratos</th>
-                            <th class="px-6 py-4 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Preço Médio</th>
-                            <th class="px-6 py-4 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Valor Est.</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Mercado</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Lado</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Contratos</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Preco Medio</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Valor Est.</th>
                         </tr>
                     </thead>
                     <tbody id="positions-tbody" class="divide-y divide-slate-100">
-                        <tr>
-                            <td colspan="5" class="px-6 py-8 text-center text-slate-400">Carregando…</td>
-                        </tr>
+                        <tr><td colspan="5" class="px-6 py-6 text-center text-slate-400 text-sm">Nenhuma posicao.</td></tr>
                     </tbody>
                 </table>
             </div>
         </section>
 
-        <!-- Bloco 4 — Timeline -->
-        <section class="mb-10">
-            <h2 class="text-lg font-semibold text-slate-700 mb-4">Timeline de Eventos</h2>
-            <div id="timeline-container" class="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
-                <div class="space-y-3">
-                    <p class="text-slate-400">Nenhum evento recente.</p>
+        <!-- Timeline + Alerts side by side -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <section>
+                <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Timeline</h2>
+                <div id="timeline-container" class="glass rounded-xl border border-white/60 shadow-sm p-5 max-h-80 overflow-y-auto">
+                    <p class="text-slate-400 text-sm">Nenhum evento.</p>
                 </div>
+            </section>
+            <section>
+                <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Alertas</h2>
+                <div id="alerts-container" class="space-y-3">
+                    <div class="glass rounded-xl border border-white/60 shadow-sm p-5 text-slate-400 text-sm">Nenhum alerta ativo.</div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Decision Metrics -->
+        <section class="mb-8">
+            <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Metricas de Decisao</h2>
+            <div id="decision-metrics-container" class="glass rounded-xl border border-white/60 shadow-sm p-6 flex flex-wrap gap-4">
+                <p class="text-slate-400 text-sm">Carregando...</p>
             </div>
         </section>
 
-        <!-- Bloco 5 — Alertas -->
-        <section class="mb-8">
-            <h2 class="text-lg font-semibold text-slate-700 mb-4">Alertas</h2>
-            <div id="alerts-container" class="space-y-4">
-                <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5 text-slate-500">
-                    Nenhum alerta ativo.
-                </div>
-            </div>
-        </section>
+        <!-- Footer -->
+        <footer class="text-center py-6 text-xs text-slate-400">
+            Polymarket Quantitative Trading System &middot; Auto-refresh 5s
+        </footer>
     </div>
 
     <script>
-        const fmtNum = (v) => (v == null || v === '' ? '0,00' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-        const fmtShort = (s) => (s == null ? '—' : String(s).length > 20 ? String(s).slice(0, 17) + '…' : s);
-
-        function fmtUptime(sec) {
-            if (sec == null || sec < 0) return '—';
-            const h = Math.floor(sec / 3600);
-            const m = Math.floor((sec % 3600) / 60);
-            return `${h}h ${m}m`;
-        }
-        function fmtReconcile(sec) {
-            if (sec == null || sec < 0) return '—';
-            if (sec < 60) return Math.round(sec) + ' s atrás';
-            const m = Math.floor(sec / 60);
-            return m + ' min atrás';
-        }
+        const fmt = (v) => (v == null || v === '' ? '0,00' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+        const fmtShort = (s) => (s == null ? '--' : String(s).length > 20 ? String(s).slice(0, 17) + '...' : s);
+        const fmtUptime = (sec) => { if (sec == null || sec < 0) return '--'; const h = Math.floor(sec / 3600); const m = Math.floor((sec % 3600) / 60); return `${h}h ${m}m`; };
+        const fmtAge = (sec) => { if (sec == null || sec < 0) return '--'; return sec < 60 ? Math.round(sec) + 's' : Math.floor(sec / 60) + 'min'; };
 
         let chartInstance = null;
 
-        function statusRingColor(color) {
+        function setStatusRing(color) {
             const ring = document.getElementById('status-ring');
             const dot = document.getElementById('status-dot');
-            ring.className = 'w-16 h-16 rounded-full border-4 flex items-center justify-center transition-colors';
-            dot.className = 'w-3 h-3 rounded-full';
+            ring.className = 'w-16 h-16 rounded-full border-4 flex items-center justify-center transition-all duration-500';
+            dot.className = 'w-4 h-4 rounded-full';
             if (color === 'green') {
                 ring.classList.add('border-emerald-200', 'bg-emerald-50');
-                dot.classList.add('bg-emerald-500');
+                dot.classList.add('bg-emerald-500', 'pulse-green');
             } else if (color === 'yellow') {
                 ring.classList.add('border-amber-200', 'bg-amber-50');
                 dot.classList.add('bg-amber-500');
@@ -231,87 +237,81 @@
             }
         }
 
-        function statusLabel(status) {
-            const labels = { 'OK': 'Saudável', 'Atenção': 'Atenção', 'Modo Seguro': 'Modo Seguro' };
-            return labels[status] || status;
-        }
-
         function updateChart(history) {
             const ctx = document.getElementById('capital-chart').getContext('2d');
             if (chartInstance) chartInstance.destroy();
-            if (!history || history.length === 0) {
-                chartInstance = new Chart(ctx, {
-                    type: 'line',
-                    data: { labels: [], datasets: [] },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: { display: false },
-                            tooltip: { callbacks: { label: l => l.label + ': R$ ' + Number(l.raw).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) } }
-                        },
-                        scales: {
-                            x: { display: false },
-                            y: { beginAtZero: false, grid: { color: '#f1f5f9' }, ticks: { callback: v => 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) } }
-                        }
-                    }
-                });
-                return;
-            }
-            const labels = history.map((_, i) => '');
+            if (!history || !history.length) { chartInstance = new Chart(ctx, { type: 'line', data: { labels: [], datasets: [] }, options: { responsive: true, maintainAspectRatio: false } }); return; }
             const capData = history.map(h => h.total_capital);
             const pnlData = history.map(h => h.realized_pnl);
-            const allVals = capData.concat(pnlData).filter(v => v != null && !isNaN(v));
-            const minVal = allVals.length ? Math.min(...allVals, 0) : 0;
-            const maxVal = allVals.length ? Math.max(...allVals, 1) : 1;
-            const padding = Math.max((maxVal - minVal) * 0.1, 1);
             chartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels,
+                    labels: history.map(() => ''),
                     datasets: [
-                        {
-                            label: 'Capital Total',
-                            data: capData,
-                            borderColor: '#0f172a',
-                            backgroundColor: 'rgba(15, 23, 42, 0.05)',
-                            fill: true,
-                            tension: 0.4
-                        },
-                        {
-                            label: 'Lucro Realizado',
-                            data: pnlData,
-                            borderColor: '#10b981',
-                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                            fill: true,
-                            tension: 0.4
-                        }
+                        { label: 'Capital Total', data: capData, borderColor: '#0f172a', backgroundColor: 'rgba(15,23,42,0.05)', fill: true, tension: 0.4, borderWidth: 2, pointRadius: 0 },
+                        { label: 'Lucro', data: pnlData, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.08)', fill: true, tension: 0.4, borderWidth: 2, pointRadius: 0 }
                     ]
                 },
                 options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { position: 'bottom' },
-                        tooltip: {
-                            callbacks: {
-                                label: function(l) {
-                                    return l.label + ': R$ ' + Number(l.raw).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        x: { display: false },
-                        y: {
-                            suggestedMin: Math.max(0, minVal - padding),
-                            suggestedMax: maxVal + padding,
-                            grid: { color: '#f1f5f9' },
-                            ticks: { callback: v => 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }
-                        }
-                    }
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 16 } } },
+                    scales: { x: { display: false }, y: { grid: { color: '#f1f5f9' }, ticks: { callback: v => '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 0 }) } } }
                 }
             });
+        }
+
+        async function refreshMarkets() {
+            try {
+                const res = await fetch('/api/strategy');
+                const d = await res.json();
+                const markets = d.markets || [];
+                const summary = d.strategy_summary || {};
+                const pipeSummary = d.pipeline_summary || {};
+
+                document.getElementById('strategy-signals').textContent = (summary.signals_last_24h || 0) + ' sinais (24h)';
+                document.getElementById('strategy-mode').textContent = 'Modo: ' + (pipeSummary.run_mode || 'OBSERVE') + ' | ' + (summary.markets_monitored || 0) + ' mercados';
+
+                const container = document.getElementById('markets-container');
+                if (markets.length === 0) {
+                    container.innerHTML = '<div class="glass rounded-xl border border-white/60 shadow-sm p-5 text-slate-400 text-sm col-span-full">Aguardando dados de mercado...</div>';
+                    return;
+                }
+                container.innerHTML = markets.map(m => {
+                    const z = m.z_score;
+                    const zColor = z == null ? 'text-slate-400' : (Math.abs(z) > 2 ? 'text-red-500' : Math.abs(z) > 1 ? 'text-amber-500' : 'text-emerald-500');
+                    const zBg = z == null ? 'bg-slate-50' : (Math.abs(z) > 2 ? 'bg-red-50 border-red-200' : Math.abs(z) > 1 ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200');
+                    return `
+                        <div class="glass rounded-xl border border-white/60 shadow-sm p-5 hover:shadow-md transition-shadow">
+                            <div class="flex items-center justify-between mb-3">
+                                <span class="text-xs font-mono text-slate-500 truncate max-w-[140px]">${m.token_id.slice(0, 16)}...</span>
+                                <span class="px-2 py-0.5 rounded text-xs font-bold ${zBg} ${zColor}">Z: ${z != null ? z.toFixed(2) : '--'}</span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3 text-sm">
+                                <div>
+                                    <p class="text-slate-400 text-xs">Mid</p>
+                                    <p class="font-semibold text-slate-700">${m.midpoint != null ? m.midpoint.toFixed(4) : '--'}</p>
+                                </div>
+                                <div>
+                                    <p class="text-slate-400 text-xs">Spread</p>
+                                    <p class="font-semibold text-slate-700">${m.spread != null ? m.spread.toFixed(4) : '--'}</p>
+                                </div>
+                                <div>
+                                    <p class="text-slate-400 text-xs">Bid</p>
+                                    <p class="font-semibold text-emerald-600">${m.best_bid != null ? m.best_bid.toFixed(4) : '--'}</p>
+                                </div>
+                                <div>
+                                    <p class="text-slate-400 text-xs">Ask</p>
+                                    <p class="font-semibold text-red-500">${m.best_ask != null ? m.best_ask.toFixed(4) : '--'}</p>
+                                </div>
+                            </div>
+                            <div class="mt-3 flex justify-between text-xs text-slate-400">
+                                <span>${m.snapshot_count || 0} snapshots</span>
+                                <span>EWMA: ${m.ewma_mean != null ? m.ewma_mean.toFixed(4) : '--'}</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (e) { /* silent */ }
         }
 
         async function refresh() {
@@ -320,154 +320,155 @@
                 const d = await res.json();
 
                 document.getElementById('run-mode-badge').textContent = d.run_mode || 'OBSERVE';
-                statusRingColor(d.status_color || 'green');
-                document.getElementById('status-label').textContent = statusLabel(d.human_status);
-                document.getElementById('explanation-text').textContent = d.explanation_text || 'O sistema está operando normalmente.';
+                const modeColors = { 'OBSERVE': 'bg-slate-700', 'PAPER': 'bg-blue-600', 'LIVE': 'bg-emerald-600', 'REALISTIC_SIMULATION': 'bg-purple-600' };
+                document.getElementById('run-mode-badge').className = 'px-3 py-1.5 rounded-lg text-xs font-bold text-white tracking-wider ' + (modeColors[d.run_mode] || 'bg-slate-700');
 
-                document.getElementById('uptime-text').textContent = 'Sistema ativo há: ' + fmtUptime(d.uptime_seconds);
-                document.getElementById('last-reconcile-text').textContent = 'Última confirmação da corretora: ' + (d.last_reconcile_age_seconds != null ? fmtReconcile(d.last_reconcile_age_seconds) : 'nunca');
+                setStatusRing(d.status_color || 'green');
+                const statusMap = { 'OK': 'Saudavel', 'Atencao': 'Atencao', 'Modo Seguro': 'Modo Seguro' };
+                document.getElementById('status-label').textContent = statusMap[d.human_status] || d.human_status || 'Saudavel';
+                document.getElementById('explanation-text').textContent = d.explanation_text || 'O sistema esta operando normalmente.';
+                document.getElementById('uptime-text').textContent = 'Ativo ha: ' + fmtUptime(d.uptime_seconds);
+                document.getElementById('last-reconcile-text').textContent = 'Confirmacao: ' + (d.last_reconcile_age_seconds != null ? fmtAge(d.last_reconcile_age_seconds) + ' atras' : 'nunca');
 
+                // Confidence
                 const conf = d.confidence_score || {};
-                const confEl = document.getElementById('confidence-value');
-                confEl.textContent = (conf.score != null ? conf.score + '%' : '—');
-                confEl.className = 'text-3xl font-bold mt-1 ' + (conf.color === 'green' ? 'text-emerald-600' : conf.color === 'red' ? 'text-red-600' : 'text-amber-600');
-                document.getElementById('confidence-level').textContent = conf.level || '—';
+                document.getElementById('confidence-value').textContent = conf.score != null ? conf.score + '%' : '--';
+                document.getElementById('confidence-level').textContent = conf.level || '--';
                 const confCard = document.getElementById('confidence-card');
-                const bgClass = conf.color === 'green' ? 'bg-emerald-50 border-emerald-200' : conf.color === 'red' ? 'bg-red-50 border-red-200' : conf.color === 'yellow' ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-100';
-                confCard.className = 'ml-auto rounded-xl shadow-sm border p-5 min-w-[140px] text-center ' + bgClass;
+                confCard.className = 'rounded-xl border p-4 min-w-[120px] text-center ' + (conf.color === 'green' ? 'border-emerald-200 bg-emerald-50' : conf.color === 'red' ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50');
+                document.getElementById('confidence-value').className = 'text-3xl font-bold ' + (conf.color === 'green' ? 'text-emerald-600' : conf.color === 'red' ? 'text-red-600' : 'text-amber-600');
 
-                const sim = d.simulation_metrics || {};
-                const simSection = document.getElementById('simulation-section');
-                if (d.run_mode === 'REALISTIC_SIMULATION' && Object.keys(sim).length > 0) {
-                    simSection.classList.remove('hidden');
-                    document.getElementById('sim-total-trades').textContent = sim.total_trades ?? '—';
-                    document.getElementById('sim-expectancy').textContent = sim.expectancy != null ? fmtNum(sim.expectancy) : '—';
-                    document.getElementById('sim-sharpe').textContent = sim.sharpe != null ? fmtNum(sim.sharpe) : '—';
-                    document.getElementById('sim-slippage').textContent = sim.avg_slippage != null ? (Number(sim.avg_slippage) * 100).toFixed(2) + '%' : '—';
-                    document.getElementById('sim-rejection-rate').textContent = sim.rejection_rate != null ? (Number(sim.rejection_rate) * 100).toFixed(2) + '%' : '—';
-                    document.getElementById('sim-rejected-orders').textContent = sim.rejected_orders ?? '—';
-                } else {
-                    simSection.classList.add('hidden');
-                }
-
-                const dec = d.decision_metrics || {};
-                const decContainer = document.getElementById('decision-metrics-container');
-                if (Object.keys(dec).length > 0) {
-                    decContainer.innerHTML = Object.entries(dec).map(([k, v]) =>
-                        `<span class="text-sm"><span class="text-slate-500 font-medium">${k.replace(/_/g, ' ')}:</span> <span class="font-semibold text-slate-800">${v}</span></span>`
-                    ).join('');
-                } else {
-                    decContainer.innerHTML = '<p class="text-slate-400">Nenhuma métrica de decisão.</p>';
-                }
-
+                // Risk mini
                 const risk = d.financial_risk || {};
-                document.getElementById('risk-level').textContent = risk.level || '—';
-                document.getElementById('risk-level').className = 'text-2xl font-bold ' + (risk.color === 'red' ? 'text-red-600' : risk.color === 'yellow' ? 'text-amber-600' : 'text-emerald-600');
-                document.getElementById('risk-score').textContent = risk.score != null ? 'score ' + risk.score + ' / 100' : '';
-                document.getElementById('risk-description').textContent = risk.description || '—';
-                const riskCard = document.getElementById('risk-card');
-                riskCard.className = 'rounded-xl shadow-sm border p-5 ' + (risk.color === 'red' ? 'bg-red-50 border-red-200' : risk.color === 'yellow' ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-100');
+                document.getElementById('risk-level-mini').textContent = risk.level || '--';
+                document.getElementById('risk-level-mini').className = 'text-3xl font-bold ' + (risk.color === 'red' ? 'text-red-600' : risk.color === 'yellow' ? 'text-amber-600' : 'text-emerald-600');
+                document.getElementById('risk-score-mini').textContent = risk.score != null ? 'score ' + risk.score : '--';
+                const riskMini = document.getElementById('risk-card-mini');
+                riskMini.className = 'rounded-xl border p-4 min-w-[120px] text-center ' + (risk.color === 'red' ? 'border-red-200 bg-red-50' : risk.color === 'yellow' ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white');
 
-                const conc = d.concentration || {};
-                document.getElementById('concentration-text').textContent = conc.text || 'Nenhuma exposição.';
-                document.getElementById('concentration-percent').textContent = conc.elevated ? '⚠️ Concentração elevada (>40%)' : '';
-                const concCard = document.getElementById('concentration-card');
-                concCard.className = 'rounded-xl shadow-sm border p-5 ' + (conc.elevated ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-100');
-
-                const dd = d.drawdown || {};
-                document.getElementById('drawdown-max').textContent = 'Máx: ' + fmtNum(dd.capital_max);
-                document.getElementById('drawdown-current').textContent = 'Atual: ' + fmtNum(dd.capital_current);
-                const ddEl = document.getElementById('drawdown-pct');
-                ddEl.textContent = dd.drawdown_percent != null ? (dd.drawdown_percent + '%') : '—';
-                ddEl.className = 'text-lg font-bold mt-2 ' + (dd.drawdown_percent > 10 ? 'text-red-600' : dd.drawdown_percent > 0 ? 'text-amber-600' : 'text-slate-700');
-
+                // Capital
                 const cap = d.capital || {};
-                document.getElementById('total-capital').textContent = fmtNum(cap.total_capital);
-                document.getElementById('available-capital').textContent = fmtNum(cap.available_capital);
-                const locked = (cap.locked_in_open_orders || 0) + (cap.locked_in_unresolved_markets || 0);
-                document.getElementById('locked-capital').textContent = fmtNum(locked);
+                document.getElementById('total-capital').textContent = '$' + fmt(cap.total_capital);
+                document.getElementById('available-capital').textContent = '$' + fmt(cap.available_capital);
+                document.getElementById('locked-capital').textContent = '$' + fmt((cap.locked_in_open_orders || 0) + (cap.locked_in_unresolved_markets || 0));
                 const pnl = cap.realized_pnl;
                 const pnlEl = document.getElementById('realized-pnl');
-                pnlEl.textContent = fmtNum(pnl);
-                pnlEl.className = 'text-2xl font-bold mt-1 ' + (pnl >= 0 ? 'text-emerald-600' : 'text-red-600');
+                pnlEl.textContent = (pnl >= 0 ? '+' : '') + '$' + fmt(pnl);
+                pnlEl.className = 'text-2xl font-bold mt-2 ' + (pnl >= 0 ? 'text-emerald-600' : 'text-red-600');
 
                 updateChart(d.capital_history || []);
 
+                // Drawdown
+                const dd = d.drawdown || {};
+                document.getElementById('drawdown-pct').textContent = dd.drawdown_percent != null ? dd.drawdown_percent + '%' : '0%';
+                document.getElementById('drawdown-pct').className = 'text-2xl font-bold ' + (dd.drawdown_percent > 10 ? 'text-red-600' : dd.drawdown_percent > 0 ? 'text-amber-600' : 'text-slate-700');
+                document.getElementById('drawdown-max').textContent = 'Max: $' + fmt(dd.capital_max);
+                document.getElementById('drawdown-current').textContent = 'Atual: $' + fmt(dd.capital_current);
+
+                // Concentration
+                const conc = d.concentration || {};
+                document.getElementById('concentration-text').textContent = conc.text || 'Diversificado';
+                document.getElementById('concentration-percent').textContent = conc.elevated ? 'Concentracao elevada (>40%)' : '';
+
+                // Simulation
+                const sim = d.simulation_metrics || {};
+                const simSection = document.getElementById('simulation-section');
+                if (d.run_mode === 'REALISTIC_SIMULATION' && Object.keys(sim).length) {
+                    simSection.classList.remove('hidden');
+                    document.getElementById('sim-total-trades').textContent = sim.total_trades ?? '--';
+                    document.getElementById('sim-expectancy').textContent = sim.expectancy != null ? fmt(sim.expectancy) : '--';
+                    document.getElementById('sim-sharpe').textContent = sim.sharpe != null ? fmt(sim.sharpe) : '--';
+                    document.getElementById('sim-slippage').textContent = sim.avg_slippage != null ? (sim.avg_slippage * 100).toFixed(2) + '%' : '--';
+                } else { simSection.classList.add('hidden'); }
+
+                // Exposure
                 const exp = d.exposure_summary || [];
-                const expContainer = document.getElementById('exposure-container');
-                if (exp.length === 0) {
-                    expContainer.innerHTML = '<p class="text-slate-400">Nenhuma exposição.</p>';
+                const expC = document.getElementById('exposure-container');
+                if (!exp.length) {
+                    expC.innerHTML = '<p class="text-slate-400 text-sm">Nenhuma exposicao.</p>';
                 } else {
-                    expContainer.innerHTML = exp.map(e => {
-                        const pct = Math.min(100, e.percent || 0);
-                        return `
-                            <div>
-                                <div class="flex justify-between text-sm mb-1">
-                                    <span class="text-slate-700 font-medium">${fmtShort(e.market)}</span>
-                                    <span class="text-slate-600">${fmtNum(e.exposure)} (${pct}%)</span>
-                                </div>
-                                <div class="h-2 bg-slate-100 rounded-full overflow-hidden">
-                                    <div class="h-full rounded-full bg-gradient-to-r from-slate-300 to-slate-500 transition-all" style="width:${pct}%"></div>
-                                </div>
+                    expC.innerHTML = exp.map(e => `
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span class="text-slate-700 font-medium">${fmtShort(e.market)}</span>
+                                <span class="text-slate-500">$${fmt(e.exposure)} (${Math.min(100, e.percent || 0)}%)</span>
                             </div>
-                        `;
-                    }).join('');
+                            <div class="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                <div class="h-full rounded-full bg-gradient-to-r from-emerald-400 to-teal-500 transition-all" style="width:${Math.min(100, e.percent || 0)}%"></div>
+                            </div>
+                        </div>
+                    `).join('');
                 }
 
+                // Positions
                 const pos = d.positions || [];
                 const tbody = document.getElementById('positions-tbody');
-                if (pos.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="5" class="px-6 py-8 text-center text-slate-400">Nenhuma posição.</td></tr>';
+                if (!pos.length) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="px-6 py-6 text-center text-slate-400 text-sm">Nenhuma posicao.</td></tr>';
                 } else {
                     tbody.innerHTML = pos.map(p => `
-                        <tr class="hover:bg-slate-50">
-                            <td class="px-6 py-4 text-sm text-slate-700">${fmtShort(p.market)}</td>
-                            <td class="px-6 py-4 text-sm font-medium">${p.side || '—'}</td>
-                            <td class="px-6 py-4 text-sm text-right">${fmtNum(p.shares)}</td>
-                            <td class="px-6 py-4 text-sm text-right">${fmtNum(p.avg_entry_price)}</td>
-                            <td class="px-6 py-4 text-sm text-right">${p.estimated_value != null ? fmtNum(p.estimated_value) : '—'}</td>
+                        <tr class="hover:bg-slate-50/80 transition-colors">
+                            <td class="px-6 py-3 text-sm text-slate-700 font-medium">${fmtShort(p.market)}</td>
+                            <td class="px-6 py-3 text-sm"><span class="px-2 py-0.5 rounded text-xs font-bold ${p.side === 'YES' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${p.side || '--'}</span></td>
+                            <td class="px-6 py-3 text-sm text-right font-mono">${fmt(p.shares)}</td>
+                            <td class="px-6 py-3 text-sm text-right font-mono">${fmt(p.avg_entry_price)}</td>
+                            <td class="px-6 py-3 text-sm text-right font-mono">${p.estimated_value != null ? '$' + fmt(p.estimated_value) : '--'}</td>
                         </tr>
                     `).join('');
                 }
 
-                const eventsV2 = d.recent_events_v2 || [];
-                const eventsLegacy = (d.recent_events || []).slice().reverse();
-                const events = eventsV2.length ? eventsV2 : eventsLegacy.map(ev => ({ timestamp: new Date(ev.ts * 1000).toLocaleTimeString('pt-BR'), text: ev.message }));
-                const tlContainer = document.getElementById('timeline-container');
-                if (events.length === 0) {
-                    tlContainer.innerHTML = '<div class="space-y-2"><p class="text-slate-400 text-sm">Nenhum evento recente.</p></div>';
+                // Timeline
+                const ev2 = d.recent_events_v2 || [];
+                const evLeg = (d.recent_events || []).slice().reverse();
+                const events = ev2.length ? ev2 : evLeg.map(e => ({ timestamp: new Date(e.ts * 1000).toLocaleTimeString('pt-BR'), text: e.message }));
+                const tlC = document.getElementById('timeline-container');
+                if (!events.length) {
+                    tlC.innerHTML = '<p class="text-slate-400 text-sm">Nenhum evento.</p>';
                 } else {
-                    tlContainer.innerHTML = '<div class="space-y-2">' + events.map(ev => `
-                        <div class="flex items-start gap-3 text-sm py-1.5 border-b border-slate-50 last:border-0">
-                            <span class="text-slate-400 shrink-0 w-16 font-mono">${ev.timestamp || '—'}</span>
-                            <span class="text-slate-700">${ev.text || ev.message || ''}</span>
+                    tlC.innerHTML = '<div class="space-y-2">' + events.slice(0, 15).map(e => `
+                        <div class="flex items-start gap-3 text-sm py-1.5 border-b border-slate-100 last:border-0">
+                            <span class="text-slate-400 shrink-0 w-16 font-mono text-xs">${e.timestamp || '--'}</span>
+                            <span class="text-slate-600">${e.text || ''}</span>
                         </div>
                     `).join('') + '</div>';
                 }
 
+                // Alerts
                 const reasons = d.reasons || [];
                 const humanReasons = d.human_reasons || [];
-                const onlySafeMode = reasons.length === 1 && reasons[0] === 'SAFE_MODE';
-                const alertsContainer = document.getElementById('alerts-container');
-                if (reasons.length === 0) {
-                    alertsContainer.innerHTML = '<div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5 text-slate-500">Nenhum alerta ativo.</div>';
+                const onlySafe = reasons.length === 1 && reasons[0] === 'SAFE_MODE';
+                const alertsC = document.getElementById('alerts-container');
+                if (!reasons.length) {
+                    alertsC.innerHTML = '<div class="glass rounded-xl border border-white/60 shadow-sm p-5 text-slate-400 text-sm">Nenhum alerta ativo.</div>';
                 } else {
-                    alertsContainer.innerHTML = humanReasons.map((hr, i) => {
-                        const reason = reasons[i];
-                        const canAck = reason && (reason !== 'SAFE_MODE' || onlySafeMode);
+                    alertsC.innerHTML = humanReasons.map((hr, i) => {
+                        const r = reasons[i];
+                        const canAck = r && (r !== 'SAFE_MODE' || onlySafe);
                         return `
-                            <div class="bg-white rounded-xl shadow-sm border border-amber-100 p-5 flex items-center justify-between gap-4">
-                                <p class="text-amber-900 flex-1">${hr}</p>
-                                ${canAck ? `<button class="btn-ack shrink-0 px-4 py-2 text-sm font-medium bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors" data-reason="${reason}">Confirmar e Liberar</button>` : ''}
+                            <div class="rounded-xl border border-amber-200 bg-amber-50 p-4 flex items-center justify-between gap-4">
+                                <p class="text-amber-900 text-sm flex-1">${hr}</p>
+                                ${canAck ? `<button class="btn-ack shrink-0 px-3 py-1.5 text-xs font-bold bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors" data-reason="${r}">Confirmar</button>` : ''}
                             </div>
                         `;
                     }).join('');
-                    alertsContainer.querySelectorAll('.btn-ack').forEach(btn => {
-                        btn.onclick = () => ackReason(btn.dataset.reason);
-                    });
+                    alertsC.querySelectorAll('.btn-ack').forEach(b => { b.onclick = () => ackReason(b.dataset.reason); });
+                }
+
+                // Decision metrics
+                const dec = d.decision_metrics || {};
+                const decC = document.getElementById('decision-metrics-container');
+                if (Object.keys(dec).length) {
+                    decC.innerHTML = Object.entries(dec).map(([k, v]) =>
+                        `<div class="px-3 py-2 rounded-lg bg-slate-50 border border-slate-100">
+                            <p class="text-xs text-slate-400">${k.replace(/_/g, ' ')}</p>
+                            <p class="text-lg font-bold text-slate-700">${v}</p>
+                        </div>`
+                    ).join('');
+                } else {
+                    decC.innerHTML = '<p class="text-slate-400 text-sm">Nenhuma metrica.</p>';
                 }
             } catch (e) {
-                document.getElementById('explanation-text').textContent = 'Erro ao carregar: ' + e.message;
+                document.getElementById('explanation-text').textContent = 'Erro: ' + e.message;
             }
         }
 
@@ -475,22 +476,17 @@
             if (!reason) return;
             const note = prompt('Nota (opcional):') || '';
             try {
-                const res = await fetch('/api/ack', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ reason, note })
-                });
-                const data = await res.json().catch(() => ({}));
-                if (res.ok && data.ok) refresh();
-                else {
-                    const d = data.detail;
-                    alert(typeof d === 'string' ? d : (Array.isArray(d) && d[0]?.msg ? d[0].msg : 'ACK falhou.'));
-                }
+                const r = await fetch('/api/ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason, note }) });
+                const d = await r.json().catch(() => ({}));
+                if (r.ok && d.ok) refresh();
+                else alert(typeof d.detail === 'string' ? d.detail : 'ACK falhou.');
             } catch (e) { alert('Erro: ' + e.message); }
         }
 
         refresh();
+        refreshMarkets();
         setInterval(refresh, 5000);
+        setInterval(refreshMarkets, 5000);
     </script>
 </body>
 </html>

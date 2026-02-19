@@ -553,6 +553,65 @@ def create_dashboard_app(system_context: Dict[str, Any]) -> FastAPI:
         }
 
     # -------------------------------------------------------------------------
+    # GET /api/strategy
+    # -------------------------------------------------------------------------
+    @app.get("/api/strategy")
+    async def api_strategy():
+        """Dados da estratégia: sinais, mercados, performance."""
+        strategy_engine = system_context.get("strategy_engine")
+        decision_pipeline = system_context.get("decision_pipeline")
+
+        result: Dict[str, Any] = {
+            "markets": [],
+            "signals": [],
+            "decisions": [],
+            "strategy_summary": {},
+            "pipeline_summary": {},
+        }
+
+        if strategy_engine is not None:
+            try:
+                result["markets"] = strategy_engine.get_market_data()
+                result["signals"] = strategy_engine.get_signal_history(50)
+                result["strategy_summary"] = strategy_engine.get_strategy_summary()
+            except Exception as e:
+                result["error_strategy"] = str(e)
+
+        if decision_pipeline is not None:
+            try:
+                result["decisions"] = decision_pipeline.get_decision_history(50)
+                result["pipeline_summary"] = decision_pipeline.get_pipeline_summary()
+            except Exception as e:
+                result["error_pipeline"] = str(e)
+
+        return result
+
+    # -------------------------------------------------------------------------
+    # GET /api/market/{token_id}/history
+    # -------------------------------------------------------------------------
+    @app.get("/api/market/{token_id}/history")
+    async def api_market_history(token_id: str):
+        """Histórico de midpoints e z-scores para um token."""
+        strategy_engine = system_context.get("strategy_engine")
+        if strategy_engine is None:
+            return {"mid_history": [], "z_history": []}
+        return {
+            "mid_history": strategy_engine.get_mid_history(token_id, 200),
+            "z_history": strategy_engine.get_z_history(token_id, 200),
+        }
+
+    # -------------------------------------------------------------------------
+    # GET /strategy (pagina frontend)
+    # -------------------------------------------------------------------------
+    @app.get("/strategy", response_class=HTMLResponse)
+    async def strategy_page(request: Request):
+        return templates.TemplateResponse(
+            request=request,
+            name="strategy.html",
+            context={},
+        )
+
+    # -------------------------------------------------------------------------
     # POST /api/ack
     # -------------------------------------------------------------------------
     class AckBody(BaseModel):
@@ -641,6 +700,8 @@ def _create_mock_system() -> Dict[str, Any]:
         "exchange_api": None,
         "build_audit_report": build_audit_report,
         "watcher_thread": None,
+        "strategy_engine": None,
+        "decision_pipeline": None,
     }
 
 

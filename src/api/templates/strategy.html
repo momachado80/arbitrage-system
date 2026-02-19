@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Estrategia — Trading Robot</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', system-ui, sans-serif; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        .glass { backdrop-filter: blur(12px); background: rgba(255,255,255,0.85); }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 to-slate-100 min-h-screen antialiased">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+
+        <!-- Nav -->
+        <nav class="flex items-center justify-between mb-8">
+            <div class="flex items-center gap-3">
+                <a href="/" class="text-slate-400 hover:text-slate-600 transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+                </a>
+                <div class="w-10 h-10 bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl flex items-center justify-center">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold text-slate-800">Estrategia Quantitativa</h1>
+                    <p class="text-xs text-slate-400">Mean Reversion (EWMA Z-Score)</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <a href="/" class="px-4 py-2 bg-white rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 border border-slate-200 transition-all">Dashboard</a>
+                <a href="/technical" class="px-4 py-2 bg-white rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 border border-slate-200 transition-all">Tecnico</a>
+            </div>
+        </nav>
+
+        <!-- Strategy Summary KPIs -->
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+            <div class="glass rounded-xl border border-white/60 shadow-sm p-5 fade-in">
+                <p class="text-slate-400 text-xs font-medium uppercase tracking-wider">Mercados</p>
+                <p id="kpi-markets" class="text-2xl font-bold text-slate-800 mt-2">0</p>
+            </div>
+            <div class="glass rounded-xl border border-white/60 shadow-sm p-5 fade-in">
+                <p class="text-slate-400 text-xs font-medium uppercase tracking-wider">Sinais 24h</p>
+                <p id="kpi-signals" class="text-2xl font-bold text-violet-600 mt-2">0</p>
+            </div>
+            <div class="glass rounded-xl border border-white/60 shadow-sm p-5 fade-in">
+                <p class="text-slate-400 text-xs font-medium uppercase tracking-wider">Executados</p>
+                <p id="kpi-executed" class="text-2xl font-bold text-emerald-600 mt-2">0</p>
+            </div>
+            <div class="glass rounded-xl border border-white/60 shadow-sm p-5 fade-in">
+                <p class="text-slate-400 text-xs font-medium uppercase tracking-wider">Rejeitados</p>
+                <p id="kpi-rejected" class="text-2xl font-bold text-amber-600 mt-2">0</p>
+            </div>
+            <div class="glass rounded-xl border border-white/60 shadow-sm p-5 fade-in">
+                <p class="text-slate-400 text-xs font-medium uppercase tracking-wider">Taxa Exec.</p>
+                <p id="kpi-exec-rate" class="text-2xl font-bold text-slate-800 mt-2">0%</p>
+            </div>
+        </div>
+
+        <!-- Strategy Config -->
+        <section class="mb-8">
+            <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Configuracao da Estrategia</h2>
+            <div id="config-container" class="glass rounded-xl border border-white/60 shadow-sm p-6 fade-in">
+                <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4" id="config-grid">
+                    <p class="text-slate-400 text-sm col-span-full">Carregando...</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Z-Score Chart -->
+        <section class="mb-8">
+            <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Z-Score em Tempo Real</h2>
+            <div class="glass rounded-xl border border-white/60 shadow-sm p-6 fade-in">
+                <div class="h-64">
+                    <canvas id="zscore-chart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Reversion Metrics -->
+        <section class="mb-8">
+            <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Metricas de Reversao</h2>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="glass rounded-xl border border-white/60 shadow-sm p-5 fade-in">
+                    <p class="text-slate-400 text-xs font-medium uppercase">Z Atual</p>
+                    <p id="rev-current-z" class="text-2xl font-bold text-slate-800 mt-2 mono">--</p>
+                </div>
+                <div class="glass rounded-xl border border-white/60 shadow-sm p-5 fade-in">
+                    <p class="text-slate-400 text-xs font-medium uppercase">Z Media</p>
+                    <p id="rev-z-mean" class="text-2xl font-bold text-slate-800 mt-2 mono">--</p>
+                </div>
+                <div class="glass rounded-xl border border-white/60 shadow-sm p-5 fade-in">
+                    <p class="text-slate-400 text-xs font-medium uppercase">Z Std</p>
+                    <p id="rev-z-std" class="text-2xl font-bold text-slate-800 mt-2 mono">--</p>
+                </div>
+                <div class="glass rounded-xl border border-white/60 shadow-sm p-5 fade-in">
+                    <p class="text-slate-400 text-xs font-medium uppercase">Sinais 24h</p>
+                    <p id="rev-signal-count" class="text-2xl font-bold text-violet-600 mt-2">0</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Signal History -->
+        <section class="mb-8">
+            <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Historico de Sinais</h2>
+            <div class="glass rounded-xl shadow-sm overflow-hidden border border-white/60 fade-in">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full">
+                        <thead class="bg-slate-50/80">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Hora</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Token</th>
+                                <th class="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase">Lado</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Z-Score</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Mid</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Spread</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Edge</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Conf.</th>
+                            </tr>
+                        </thead>
+                        <tbody id="signals-tbody" class="divide-y divide-slate-100">
+                            <tr><td colspan="8" class="px-4 py-6 text-center text-slate-400 text-sm">Nenhum sinal gerado.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Decision History -->
+        <section class="mb-8">
+            <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Historico de Decisoes</h2>
+            <div class="glass rounded-xl shadow-sm overflow-hidden border border-white/60 fade-in">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full">
+                        <thead class="bg-slate-50/80">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">ID</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Token</th>
+                                <th class="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase">Lado</th>
+                                <th class="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase">Acao</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Tamanho</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Preco</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Z</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Motivo</th>
+                            </tr>
+                        </thead>
+                        <tbody id="decisions-tbody" class="divide-y divide-slate-100">
+                            <tr><td colspan="8" class="px-4 py-6 text-center text-slate-400 text-sm">Nenhuma decisao.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Reject Reasons Breakdown -->
+        <section class="mb-8">
+            <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Motivos de Rejeicao</h2>
+            <div id="reject-reasons" class="glass rounded-xl border border-white/60 shadow-sm p-6 flex flex-wrap gap-3 fade-in">
+                <p class="text-slate-400 text-sm">Nenhuma rejeicao.</p>
+            </div>
+        </section>
+
+        <footer class="text-center py-6 text-xs text-slate-400">
+            Mean Reversion Strategy Engine &middot; Auto-refresh 5s
+        </footer>
+    </div>
+
+    <script>
+        let zChartInstance = null;
+
+        function fmtTime(ts) {
+            if (!ts) return '--';
+            const d = new Date(ts * 1000);
+            return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+
+        function updateZChart(markets) {
+            const ctx = document.getElementById('zscore-chart').getContext('2d');
+            if (zChartInstance) zChartInstance.destroy();
+
+            if (!markets || !markets.length) {
+                zChartInstance = new Chart(ctx, { type: 'line', data: { labels: [], datasets: [] }, options: { responsive: true, maintainAspectRatio: false } });
+                return;
+            }
+
+            // Show z-score for each market as a bar
+            const labels = markets.map(m => m.token_id ? m.token_id.slice(0, 10) + '...' : '?');
+            const zValues = markets.map(m => m.z_score || 0);
+            const colors = zValues.map(z => Math.abs(z) > 2.3 ? '#ef4444' : Math.abs(z) > 1.5 ? '#f59e0b' : '#10b981');
+
+            zChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Z-Score',
+                        data: zValues,
+                        backgroundColor: colors.map(c => c + '33'),
+                        borderColor: colors,
+                        borderWidth: 2,
+                        borderRadius: 6,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { callbacks: { label: l => 'Z: ' + Number(l.raw).toFixed(4) } }
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { font: { family: 'JetBrains Mono', size: 10 } } },
+                        y: {
+                            grid: { color: '#f1f5f9' },
+                            suggestedMin: -3, suggestedMax: 3,
+                            ticks: { callback: v => v.toFixed(1) }
+                        }
+                    }
+                }
+            });
+
+            // Add threshold lines
+            const thresholdPlugin = {
+                id: 'thresholdLines',
+                afterDraw: (chart) => {
+                    const { ctx, scales: { y } } = chart;
+                    [2.3, -2.3].forEach(val => {
+                        const yPos = y.getPixelForValue(val);
+                        ctx.save();
+                        ctx.strokeStyle = '#ef444466';
+                        ctx.lineWidth = 1;
+                        ctx.setLineDash([5, 5]);
+                        ctx.beginPath();
+                        ctx.moveTo(chart.chartArea.left, yPos);
+                        ctx.lineTo(chart.chartArea.right, yPos);
+                        ctx.stroke();
+                        ctx.restore();
+                    });
+                }
+            };
+            Chart.register(thresholdPlugin);
+        }
+
+        async function refresh() {
+            try {
+                const res = await fetch('/api/strategy');
+                const d = await res.json();
+
+                const summary = d.strategy_summary || {};
+                const pipeline = d.pipeline_summary || {};
+                const markets = d.markets || [];
+                const signals = d.signals || [];
+                const decisions = d.decisions || [];
+                const rev = summary.reversion_metrics || {};
+                const config = summary.config || {};
+
+                // KPIs
+                document.getElementById('kpi-markets').textContent = summary.markets_monitored || 0;
+                document.getElementById('kpi-signals').textContent = summary.signals_last_24h || 0;
+                document.getElementById('kpi-executed').textContent = pipeline.total_executed || 0;
+                document.getElementById('kpi-rejected').textContent = pipeline.total_rejected || 0;
+                const rate = pipeline.execution_rate || 0;
+                document.getElementById('kpi-exec-rate').textContent = (rate * 100).toFixed(1) + '%';
+
+                // Config
+                const configGrid = document.getElementById('config-grid');
+                if (Object.keys(config).length) {
+                    configGrid.innerHTML = Object.entries(config).map(([k, v]) => `
+                        <div class="text-center">
+                            <p class="text-xs text-slate-400 uppercase">${k.replace(/_/g, ' ')}</p>
+                            <p class="text-lg font-bold text-slate-700 mono mt-1">${typeof v === 'number' ? v.toFixed(v < 1 ? 3 : 1) : v}</p>
+                        </div>
+                    `).join('');
+                }
+
+                // Z-Score chart
+                updateZChart(markets);
+
+                // Reversion metrics
+                document.getElementById('rev-current-z').textContent = rev.current_z != null ? rev.current_z.toFixed(4) : '--';
+                document.getElementById('rev-z-mean').textContent = rev.rolling_z_mean != null ? rev.rolling_z_mean.toFixed(4) : '--';
+                document.getElementById('rev-z-std').textContent = rev.rolling_z_std != null ? rev.rolling_z_std.toFixed(4) : '--';
+                document.getElementById('rev-signal-count').textContent = rev.signal_count_last_24h || 0;
+
+                // Signal history
+                const sTbody = document.getElementById('signals-tbody');
+                if (!signals.length) {
+                    sTbody.innerHTML = '<tr><td colspan="8" class="px-4 py-6 text-center text-slate-400 text-sm">Nenhum sinal gerado.</td></tr>';
+                } else {
+                    sTbody.innerHTML = signals.slice().reverse().slice(0, 30).map(s => {
+                        const sideColor = s.side === 'BUY' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700';
+                        return `
+                            <tr class="hover:bg-slate-50/80 transition-colors">
+                                <td class="px-4 py-2 text-xs mono text-slate-500">${fmtTime(s.ts)}</td>
+                                <td class="px-4 py-2 text-xs mono text-slate-600">${(s.token_id || '').slice(0, 12)}...</td>
+                                <td class="px-4 py-2 text-center"><span class="px-2 py-0.5 rounded text-xs font-bold ${sideColor}">${s.side}</span></td>
+                                <td class="px-4 py-2 text-right mono text-sm font-semibold">${s.z != null ? s.z.toFixed(3) : '--'}</td>
+                                <td class="px-4 py-2 text-right mono text-sm">${s.mid != null ? s.mid.toFixed(4) : '--'}</td>
+                                <td class="px-4 py-2 text-right mono text-sm">${s.spread != null ? s.spread.toFixed(4) : '--'}</td>
+                                <td class="px-4 py-2 text-right mono text-sm">${s.edge != null ? s.edge.toFixed(4) : '--'}</td>
+                                <td class="px-4 py-2 text-right mono text-sm">${s.confidence != null ? (s.confidence * 100).toFixed(0) + '%' : '--'}</td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+
+                // Decision history
+                const dTbody = document.getElementById('decisions-tbody');
+                if (!decisions.length) {
+                    dTbody.innerHTML = '<tr><td colspan="8" class="px-4 py-6 text-center text-slate-400 text-sm">Nenhuma decisao.</td></tr>';
+                } else {
+                    dTbody.innerHTML = decisions.slice().reverse().slice(0, 30).map(d => {
+                        const actionColor = d.action === 'EXECUTED' ? 'bg-emerald-100 text-emerald-700' : d.action === 'OBSERVED' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700';
+                        const sideColor = d.side === 'BUY' ? 'text-emerald-600' : 'text-red-500';
+                        return `
+                            <tr class="hover:bg-slate-50/80 transition-colors">
+                                <td class="px-4 py-2 text-xs mono text-slate-500">${d.id || '--'}</td>
+                                <td class="px-4 py-2 text-xs mono text-slate-600">${(d.token_id || '').slice(0, 12)}...</td>
+                                <td class="px-4 py-2 text-center font-bold text-sm ${sideColor}">${d.side}</td>
+                                <td class="px-4 py-2 text-center"><span class="px-2 py-0.5 rounded text-xs font-bold ${actionColor}">${d.action}</span></td>
+                                <td class="px-4 py-2 text-right mono text-sm">${d.size > 0 ? '$' + d.size.toFixed(2) : '--'}</td>
+                                <td class="px-4 py-2 text-right mono text-sm">${d.price > 0 ? d.price.toFixed(4) : '--'}</td>
+                                <td class="px-4 py-2 text-right mono text-sm font-semibold">${d.z != null ? d.z.toFixed(3) : '--'}</td>
+                                <td class="px-4 py-2 text-xs text-slate-500 max-w-[200px] truncate">${d.reject_reason || '--'}</td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+
+                // Reject reasons
+                const rejectReasons = pipeline.reject_reasons || {};
+                const rrContainer = document.getElementById('reject-reasons');
+                if (Object.keys(rejectReasons).length) {
+                    rrContainer.innerHTML = Object.entries(rejectReasons).sort((a, b) => b[1] - a[1]).map(([k, v]) => `
+                        <div class="px-4 py-2 rounded-lg bg-slate-50 border border-slate-100">
+                            <p class="text-xs text-slate-400">${k.replace(/_/g, ' ')}</p>
+                            <p class="text-lg font-bold text-slate-700">${v}</p>
+                        </div>
+                    `).join('');
+                } else {
+                    rrContainer.innerHTML = '<p class="text-slate-400 text-sm">Nenhuma rejeicao.</p>';
+                }
+
+            } catch (e) {
+                console.error('Strategy refresh error:', e);
+            }
+        }
+
+        refresh();
+        setInterval(refresh, 5000);
+    </script>
+</body>
+</html>

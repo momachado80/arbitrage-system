@@ -248,7 +248,7 @@ def test_get_root_returns_html():
     r = client.get("/")
     assert r.status_code == 200
     assert "text/html" in r.headers.get("content-type", "")
-    assert "Painel do Robô" in r.text
+    assert "Trading Robot" in r.text or "Painel do Robo" in r.text
 
 
 def test_api_dashboard_payload_structure():
