@@ -92,9 +92,14 @@ from src.oracle.probability_oracle import (
     OraclePerformanceTracker,
     EdgeDecayTracker,
 )
+from src.oracle.heuristic_oracle import HeuristicMicroOracle
+from src.oracle.metrics import OracleMetricsStore
 
 # --- Universe ---
 from src.universe.universe_builder import UniverseBuilder
+
+# --- Research ---
+from src.research.edge_validation import EdgeValidator
 
 # --- Market Universe (auto-discovery) ---
 from src.market.universe_manager import MarketUniverseManager
@@ -107,9 +112,11 @@ logger = logging.getLogger(__name__)
 # ======================================================================
 
 DEFAULT_INITIAL_CAPITAL: float = 1000.0
-DEFAULT_STATE_DIR: str = os.path.join(
-    os.path.expanduser("~"), ".polymarket_bot"
+DEFAULT_STATE_DIR: str = os.environ.get(
+    "STATE_DIR",
+    os.path.join(os.path.expanduser("~"), ".polymarket_bot"),
 )
+DEFAULT_DATA_DIR: str = os.environ.get("DATA_DIR", "data")
 HEARTBEAT_INTERVAL_SECONDS: int = 60
 # Fallback quando config não disponível
 RECONCILER_INTERVAL_SECONDS: int = 30
@@ -431,7 +438,9 @@ def create_system(
     logger.info(f"[SYSTEM] RUN_MODE efetivo: {effective_mode}")
 
     # 5. Oracle + Strategy Engine + Decision Pipeline
-    oracle_provider = MockOracleProvider()  # Extensível: substituir por provider real
+    heuristic_oracle = HeuristicMicroOracle()
+    oracle_provider = heuristic_oracle  # V1: microstructure-based
+
     probability_oracle = ProbabilityOracle(
         provider=oracle_provider,
         performance_tracker=OraclePerformanceTracker(),
@@ -440,6 +449,16 @@ def create_system(
     universe_builder = UniverseBuilder(
         manual_tokens=token_ids or [],
         oracle_provider=oracle_provider,
+    )
+
+    # Metrics + Validation (persistência leve)
+    data_dir = DEFAULT_DATA_DIR
+    os.makedirs(data_dir, exist_ok=True)
+    oracle_metrics_store = OracleMetricsStore(
+        metrics_path=os.path.join(data_dir, "oracle_metrics.jsonl"),
+    )
+    edge_validator = EdgeValidator(
+        log_path=os.path.join(data_dir, "edge_validation.jsonl"),
     )
 
     strategy_engine = StrategyEngine(
@@ -511,6 +530,9 @@ def create_system(
         "probability_oracle": probability_oracle,
         "universe_builder": universe_builder,
         "oracle_provider": oracle_provider,
+        "heuristic_oracle": heuristic_oracle,
+        "oracle_metrics_store": oracle_metrics_store,
+        "edge_validator": edge_validator,
     }
 
 

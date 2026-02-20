@@ -6,23 +6,28 @@ Tese quantitativa: Mispricing baseado em Probability Oracle.
 Detecta divergências entre P_oracle (probabilidade estimada
 externamente) e P_market (probabilidade implícita do mercado).
 
-FÓRMULA NET EDGE:
-    net_edge = P_oracle - P_market - fee_est - slippage_est - spread_impact
+FÓRMULA NET EDGE (matematicamente correta):
+    BUY:  net_edge = P_oracle - P_ask - fees - slippage
+    SELL: net_edge = P_bid - P_oracle - fees - slippage
+
+Spread NÃO é subtraído separadamente — já embutido no preço
+de execução (ask para compra, bid para venda).
+
+PROPRIEDADE: EV > 0 ↔ net_edge > 0
 
 REGRAS:
-- BUY se net_edge >= threshold_buy (mercado subprecifica)
-- SELL se net_edge <= -threshold_sell (mercado sobreprecifica)
+- BUY se net_edge >= threshold (mercado subprecifica)
+- SELL se net_edge >= threshold (mercado sobreprecifica)
 - Confidence do oracle multiplica sizing
 - Brier score adaptativo ajusta tamanho automaticamente
 - Safety block se Oracle performance degradar
 
 PIPELINE:
 1. Recebe MarketSnapshot do PipelineHandler
-2. Calcula P_market = midpoint = (bid + ask) / 2
-3. Consulta ProbabilityOracle para P_oracle
-4. Calcula net_edge com fees e slippage
-5. Se edge acionável → gera StrategySignal
-6. Registra para edge decay tracking
+2. Consulta ProbabilityOracle para P_oracle
+3. Calcula net_edge via EdgeModel (preço de execução real)
+4. Se edge acionável → gera StrategySignal
+5. Registra para edge decay tracking
 
 MÉTRICAS:
 - Histórico de edge por token
@@ -40,26 +45,26 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Deque, Dict, List, Optional, Tuple
 
+from src.strategy.edge_model import EdgeConfig, EdgeModel, EdgeResult
+
 logger = logging.getLogger(__name__)
 
 # Defaults
 DEFAULT_HISTORY_MAXLEN: int = 5000
 DEFAULT_SIGNAL_HISTORY_MAXLEN: int = 500
-DEFAULT_EDGE_BUY_THRESHOLD: float = 0.03       # 3% edge mínimo para BUY
-DEFAULT_EDGE_SELL_THRESHOLD: float = 0.03       # 3% edge mínimo para SELL
+DEFAULT_EDGE_THRESHOLD: float = 0.03            # 3% edge mínimo para sinal
 DEFAULT_FEE_ESTIMATE: float = 0.02              # 2% fee estimada
 DEFAULT_SLIPPAGE_ESTIMATE: float = 0.005        # 0.5% slippage estimado
-DEFAULT_SPREAD_IMPACT_FACTOR: float = 0.5       # 50% do spread como impact
 
 
 @dataclass
 class StrategyConfig:
     """Configuração da estratégia de edge probabilístico."""
-    edge_buy_threshold: float = DEFAULT_EDGE_BUY_THRESHOLD
-    edge_sell_threshold: float = DEFAULT_EDGE_SELL_THRESHOLD
+    edge_buy_threshold: float = DEFAULT_EDGE_THRESHOLD
+    edge_sell_threshold: float = DEFAULT_EDGE_THRESHOLD
     fee_estimate: float = DEFAULT_FEE_ESTIMATE
     slippage_estimate: float = DEFAULT_SLIPPAGE_ESTIMATE
-    spread_impact_factor: float = DEFAULT_SPREAD_IMPACT_FACTOR
+    spread_impact_factor: float = 0.0  # DEPRECATED: spread is in execution price
     min_oracle_confidence: float = 0.2
     min_spread: float = 0.001
     max_spread: float = 0.15
@@ -131,6 +136,16 @@ class StrategyEngine:
         self._min_liquidity = min_liquidity
         self._lock = threading.RLock()
 
+        # EdgeModel — fórmula correta de edge
+        self._edge_model = EdgeModel(EdgeConfig(
+            fee_rate=self._config.fee_estimate,
+            slippage_rate=self._config.slippage_estimate,
+            min_edge_threshold=min(
+                self._config.edge_buy_threshold,
+                self._config.edge_sell_threshold,
+            ),
+        ))
+
         # Estado por token
         self._markets: Dict[str, MarketState] = {}
 
@@ -152,6 +167,10 @@ class StrategyEngine:
     def process_snapshot(self, snapshot: Any) -> Optional[StrategySignal]:
         """
         Processa MarketSnapshot e retorna StrategySignal se acionável.
+
+        Usa EdgeModel para cálculo correto:
+        - BUY:  net_edge = P_oracle - P_ask - fees - slippage
+        - SELL: net_edge = P_bid - P_oracle - fees - slippage
 
         Returns None se:
         - Dados inválidos (bid/ask)
@@ -187,7 +206,7 @@ class StrategyEngine:
                 self._mid_history[token_id] = deque(maxlen=DEFAULT_HISTORY_MAXLEN)
             self._mid_history[token_id].append((now, mid))
 
-        # P_market = midpoint (probabilidade implícita)
+        # P_market = midpoint (referência)
         p_market = mid
 
         # Consultar Oracle (fora do lock principal)
@@ -222,29 +241,14 @@ class StrategyEngine:
         if hasattr(self._oracle, 'update_decay_tracking'):
             self._oracle.update_decay_tracking(token_id, p_market)
 
-        # Calcular net_edge
-        raw_edge = p_oracle - p_market
-        spread_impact = spread * self._config.spread_impact_factor
-
-        # net_edge = raw_edge - costs
-        if raw_edge > 0:
-            # BUY: pagamos ask, custos reduzem edge
-            net_edge = (
-                raw_edge
-                - self._config.fee_estimate
-                - self._config.slippage_estimate
-                - spread_impact
-            )
-        elif raw_edge < 0:
-            # SELL: vendemos bid, custos reduzem edge (em valor absoluto)
-            net_edge = (
-                raw_edge
-                + self._config.fee_estimate
-                + self._config.slippage_estimate
-                + spread_impact
-            )
-        else:
-            net_edge = 0.0
+        # Calcular net_edge via EdgeModel (fórmula correta)
+        edge_result: EdgeResult = self._edge_model.compute_net_edge(
+            p_oracle=p_oracle,
+            best_bid=bid,
+            best_ask=ask,
+        )
+        raw_edge = edge_result.raw_edge
+        net_edge = edge_result.net_edge
 
         with self._lock:
             # Atualizar estado
@@ -276,29 +280,34 @@ class StrategyEngine:
             # Combinação de confidence: oracle * adaptive
             combined_confidence = oracle_confidence * oracle_sizing_k
 
-            # Determinar sinal
+            # Determinar sinal via EdgeModel side + thresholds
             side: Optional[str] = None
             rationale: List[str] = []
 
-            if net_edge >= self._config.edge_buy_threshold:
+            if edge_result.side == "BUY" and net_edge >= self._config.edge_buy_threshold:
                 if safe_to_buy:
                     side = "BUY"
                     rationale = [
                         f"p_oracle={p_oracle:.3f}",
-                        f"p_market={p_market:.3f}",
+                        f"exec_price={edge_result.execution_price:.3f}",
                         f"raw_edge={raw_edge:.4f}",
                         f"net_edge={net_edge:.4f}",
+                        f"EV={edge_result.expected_value:.4f}",
                         f"oracle_conf={oracle_confidence:.2f}",
                     ]
-            elif net_edge <= -self._config.edge_sell_threshold:
+            elif edge_result.side == "SELL" and net_edge >= self._config.edge_sell_threshold:
                 side = "SELL"
                 rationale = [
                     f"p_oracle={p_oracle:.3f}",
-                    f"p_market={p_market:.3f}",
+                    f"exec_price={edge_result.execution_price:.3f}",
                     f"raw_edge={raw_edge:.4f}",
                     f"net_edge={net_edge:.4f}",
+                    f"EV={edge_result.expected_value:.4f}",
                     f"oracle_conf={oracle_confidence:.2f}",
                 ]
+
+            # net_edge for signal: positive for both BUY and SELL
+            signal_net_edge = net_edge if side == "BUY" else -net_edge if side == "SELL" else net_edge
 
             # Registrar bucket de edge (para métricas)
             self._record_edge_bucket(token_id, net_edge, side is not None)
@@ -316,10 +325,10 @@ class StrategyEngine:
                     timestamp=now,
                     token_id=token_id,
                     side=side,
-                    z_score=net_edge,  # COMPAT: z_score field contém net_edge
+                    z_score=signal_net_edge,  # COMPAT: z_score field contém net_edge
                     midpoint=mid,
                     spread=spread,
-                    edge_estimate=net_edge,
+                    edge_estimate=signal_net_edge,
                     confidence=combined_confidence,
                     p_est=p_oracle,
                     best_bid=bid,
@@ -330,19 +339,24 @@ class StrategyEngine:
                     "ts": now,
                     "token_id": token_id,
                     "side": side,
-                    "z": round(net_edge, 4),
+                    "z": round(signal_net_edge, 4),
                     "mid": round(mid, 4),
                     "spread": round(spread, 4),
-                    "edge": round(net_edge, 4),
+                    "edge": round(signal_net_edge, 4),
                     "confidence": round(combined_confidence, 3),
                     "p_oracle": round(p_oracle, 4),
                     "p_market": round(p_market, 4),
                     "raw_edge": round(raw_edge, 4),
+                    "exec_price": round(edge_result.execution_price, 4),
+                    "ev": round(edge_result.expected_value, 4),
                 })
                 logger.info(
-                    "[STRATEGY] Signal: %s %s net_edge=%.4f p_o=%.3f p_m=%.3f conf=%.2f",
+                    "[STRATEGY] Signal: %s %s net_edge=%.4f EV=%.4f "
+                    "p_o=%.3f exec=%.3f conf=%.2f",
                     side, token_id[:12], net_edge,
-                    p_oracle, p_market, combined_confidence,
+                    edge_result.expected_value,
+                    p_oracle, edge_result.execution_price,
+                    combined_confidence,
                 )
                 return signal
 

@@ -671,6 +671,171 @@ def create_dashboard_app(system_context: Dict[str, Any]) -> FastAPI:
             return {"error": str(e)}
 
     # -------------------------------------------------------------------------
+    # GET /performance (executive dashboard page)
+    # -------------------------------------------------------------------------
+    @app.get("/performance", response_class=HTMLResponse)
+    async def performance_page(request: Request):
+        return templates.TemplateResponse(
+            request=request,
+            name="performance.html",
+            context={},
+        )
+
+    # -------------------------------------------------------------------------
+    # GET /api/performance (data for executive dashboard)
+    # -------------------------------------------------------------------------
+    @app.get("/api/performance")
+    async def api_performance():
+        """Dados para a página de performance executiva."""
+        oracle = system_context.get("probability_oracle")
+        edge_validator = system_context.get("edge_validator")
+        oracle_metrics_store = system_context.get("oracle_metrics_store")
+
+        # 1. Oracle quality
+        oracle_quality = {"label": "Sem dados", "level": "unknown", "brier": None}
+        brier = None
+        if oracle is not None:
+            try:
+                brier = oracle.get_brier_score()
+            except Exception:
+                pass
+        if oracle_metrics_store is not None:
+            try:
+                brier = brier or oracle_metrics_store.rolling_brier_score()
+            except Exception:
+                pass
+        if brier is not None:
+            # Baseline: random oracle = 0.25
+            if brier < 0.15:
+                oracle_quality = {"label": "Excelente", "level": "excellent", "brier": round(brier, 4)}
+            elif brier < 0.25:
+                oracle_quality = {"label": "Boa", "level": "good", "brier": round(brier, 4)}
+            else:
+                oracle_quality = {"label": "Fraca", "level": "poor", "brier": round(brier, 4)}
+
+        # 2. Finding edge?
+        edge_count_24h = 0
+        if edge_validator is not None:
+            try:
+                report = edge_validator.generate_report()
+                edge_count_24h = report.get("total_opportunities", 0)
+            except Exception:
+                pass
+        elif oracle_metrics_store is not None:
+            try:
+                signals = oracle_metrics_store.get_signals_last_24h()
+                edge_count_24h = len(signals)
+            except Exception:
+                pass
+
+        # 3. Capturing edge?
+        profit_per_edge = None
+        if oracle_metrics_store is not None:
+            try:
+                profit_per_edge = oracle_metrics_store.profit_per_unit_edge()
+            except Exception:
+                pass
+
+        # 4. Market reaction speed
+        avg_decay = None
+        if oracle is not None:
+            try:
+                decay_metrics = oracle.edge_decay_tracker.get_metrics()
+                avg_decay = decay_metrics.get("avg_half_life_seconds")
+            except Exception:
+                pass
+
+        # 5. System status
+        oracle_blocked = False
+        if oracle is not None:
+            try:
+                oracle_blocked = oracle.should_block_oracle()
+            except Exception:
+                pass
+
+        if oracle_blocked:
+            system_status = {"label": "Oracle instavel", "level": "danger"}
+        elif edge_count_24h == 0:
+            system_status = {"label": "Sem edge detectavel", "level": "warning"}
+        else:
+            system_status = {"label": "Operando", "level": "ok"}
+
+        # Validation report
+        validation_report = {}
+        if edge_validator is not None:
+            try:
+                validation_report = edge_validator.generate_report()
+            except Exception:
+                pass
+
+        # Oracle full metrics
+        oracle_full = {}
+        if oracle_metrics_store is not None:
+            try:
+                oracle_full = oracle_metrics_store.get_full_report()
+            except Exception:
+                pass
+
+        return {
+            "oracle_quality": oracle_quality,
+            "edge_finding": {
+                "count_24h": edge_count_24h,
+                "avg_per_day": edge_count_24h,
+            },
+            "edge_capturing": {
+                "profit_per_unit_edge": round(profit_per_edge, 4) if profit_per_edge is not None else None,
+            },
+            "market_reaction": {
+                "avg_decay_seconds": round(avg_decay, 1) if avg_decay is not None else None,
+            },
+            "system_status": system_status,
+            "validation_report": validation_report,
+            "oracle_metrics": oracle_full,
+        }
+
+    # -------------------------------------------------------------------------
+    # GET /api/metrics_summary (remote monitoring endpoint)
+    # -------------------------------------------------------------------------
+    @app.get("/api/metrics_summary")
+    async def api_metrics_summary():
+        """Endpoint para verificação remota de métricas."""
+        oracle = system_context.get("probability_oracle")
+        oracle_metrics_store = system_context.get("oracle_metrics_store")
+        edge_validator = system_context.get("edge_validator")
+
+        result: Dict[str, Any] = {
+            "timestamp": time.time(),
+            "oracle_blocked": False,
+            "brier_score": None,
+            "edge_signals_24h": 0,
+            "system_ok": True,
+        }
+
+        if oracle is not None:
+            try:
+                result["oracle_blocked"] = oracle.should_block_oracle()
+                result["brier_score"] = oracle.get_brier_score()
+            except Exception:
+                pass
+
+        if oracle_metrics_store is not None:
+            try:
+                signals = oracle_metrics_store.get_signals_last_24h()
+                result["edge_signals_24h"] = len(signals)
+            except Exception:
+                pass
+
+        if edge_validator is not None:
+            try:
+                report = edge_validator.generate_report()
+                result["validation"] = report
+            except Exception:
+                pass
+
+        result["system_ok"] = not result.get("oracle_blocked", False)
+        return result
+
+    # -------------------------------------------------------------------------
     # POST /api/ack
     # -------------------------------------------------------------------------
     class AckBody(BaseModel):
@@ -763,6 +928,8 @@ def _create_mock_system() -> Dict[str, Any]:
         "decision_pipeline": None,
         "probability_oracle": None,
         "universe_builder": None,
+        "oracle_metrics_store": None,
+        "edge_validator": None,
     }
 
 
