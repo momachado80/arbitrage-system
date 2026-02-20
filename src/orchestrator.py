@@ -357,6 +357,9 @@ def create_system(
     cfg = config or load_app_config_from_env()
     logger.info(f"[SYSTEM] Inicializando componentes... RUN_MODE={cfg.run_mode}")
 
+    # Ensure state dir exists
+    os.makedirs(state_dir, exist_ok=True)
+
     # 1. Core managers
     capital_manager = CapitalManager(initial_capital=initial_capital)
     calibrator = ProbabilityCalibrator(

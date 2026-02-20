@@ -83,7 +83,7 @@ class MarketUniverseManager:
         self._current_tokens: Set[str] = set()
         self._running = False
         self._thread: Optional[threading.Thread] = None
-        self._timeout = 30.0
+        self._timeout = float(os.environ.get("UNIVERSE_HTTP_TIMEOUT", "10.0"))
 
     def get_snapshot(self) -> UniverseSnapshot:
         with self._lock:
