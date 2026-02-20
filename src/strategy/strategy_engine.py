@@ -1,83 +1,108 @@
 """
-Strategy Engine — Quantitative Trading Strategy
-==================================================
+Strategy Engine — Probability Edge Trading Strategy
+========================================================
 
-Integra o ReversionEngine com o pipeline de dados de mercado.
+Tese quantitativa: Mispricing baseado em Probability Oracle.
+Detecta divergências entre P_oracle (probabilidade estimada
+externamente) e P_market (probabilidade implícita do mercado).
 
-TESE QUANTITATIVA:
-- Detecta overreação estatística em preços de mercados preditivos
-- Usa EWMA para calcular z-score do midpoint
-- Gera sinais BUY quando z <= -threshold (preço caiu demais)
-- Gera sinais SELL quando z >= +threshold (preço subiu demais)
-- Position sizing via ProbabilityCalibrator (Brier score)
+FÓRMULA NET EDGE:
+    net_edge = P_oracle - P_market - fee_est - slippage_est - spread_impact
+
+REGRAS:
+- BUY se net_edge >= threshold_buy (mercado subprecifica)
+- SELL se net_edge <= -threshold_sell (mercado sobreprecifica)
+- Confidence do oracle multiplica sizing
+- Brier score adaptativo ajusta tamanho automaticamente
+- Safety block se Oracle performance degradar
 
 PIPELINE:
 1. Recebe MarketSnapshot do PipelineHandler
-2. Calcula midpoint = (best_bid + best_ask) / 2
-3. Atualiza EWMA state
-4. Gera ReversionSignal
-5. Se sinal acionável → DecisionPipeline
+2. Calcula P_market = midpoint = (bid + ask) / 2
+3. Consulta ProbabilityOracle para P_oracle
+4. Calcula net_edge com fees e slippage
+5. Se edge acionável → gera StrategySignal
+6. Registra para edge decay tracking
 
 MÉTRICAS:
-- Histórico de z-scores por token
-- Contagem de sinais gerados
-- Performance simulada (hit rate, edge médio)
+- Histórico de edge por token
+- Edge médio, P_oracle vs P_market divergência
+- Performance por bucket de edge
+- Compatibilidade total com endpoints existentes
 
 Thread-safe via RLock.
 """
 
 import logging
-import math
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
-
-from src.strategy.reversion_engine import (
-    ReversionConfig,
-    ReversionEngine,
-    ReversionMetricsCollector,
-    ReversionSignal,
-    ReversionState,
-    create_default_config,
-)
-from src.watcher.bridge import MarketSnapshot
+from dataclasses import dataclass, field
+from typing import Any, Deque, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 # Defaults
 DEFAULT_HISTORY_MAXLEN: int = 5000
 DEFAULT_SIGNAL_HISTORY_MAXLEN: int = 500
-MIN_SNAPSHOTS_BEFORE_SIGNAL: int = 10
-WARMUP_SNAPSHOTS: int = 30
+DEFAULT_EDGE_BUY_THRESHOLD: float = 0.03       # 3% edge mínimo para BUY
+DEFAULT_EDGE_SELL_THRESHOLD: float = 0.03       # 3% edge mínimo para SELL
+DEFAULT_FEE_ESTIMATE: float = 0.02              # 2% fee estimada
+DEFAULT_SLIPPAGE_ESTIMATE: float = 0.005        # 0.5% slippage estimado
+DEFAULT_SPREAD_IMPACT_FACTOR: float = 0.5       # 50% do spread como impact
+
+
+@dataclass
+class StrategyConfig:
+    """Configuração da estratégia de edge probabilístico."""
+    edge_buy_threshold: float = DEFAULT_EDGE_BUY_THRESHOLD
+    edge_sell_threshold: float = DEFAULT_EDGE_SELL_THRESHOLD
+    fee_estimate: float = DEFAULT_FEE_ESTIMATE
+    slippage_estimate: float = DEFAULT_SLIPPAGE_ESTIMATE
+    spread_impact_factor: float = DEFAULT_SPREAD_IMPACT_FACTOR
+    min_oracle_confidence: float = 0.2
+    min_spread: float = 0.001
+    max_spread: float = 0.15
+
+
+def create_default_strategy_config() -> StrategyConfig:
+    """Cria configuração padrão."""
+    return StrategyConfig()
 
 
 @dataclass
 class MarketState:
     """Estado interno para cada token monitorado."""
     token_id: str
-    reversion_state: ReversionState
     snapshot_count: int = 0
     last_mid: float = 0.0
     last_spread: float = 0.0
     last_best_bid: Optional[float] = None
     last_best_ask: Optional[float] = None
     last_update_ts: float = 0.0
+    last_p_oracle: Optional[float] = None
+    last_p_market: Optional[float] = None
+    last_edge: Optional[float] = None
+    last_net_edge: Optional[float] = None
+    last_oracle_confidence: Optional[float] = None
 
 
 @dataclass
 class StrategySignal:
-    """Sinal estruturado para o DecisionPipeline."""
+    """Sinal estruturado para o DecisionPipeline.
+
+    NOTA: Mantém campo z_score para compatibilidade com DecisionPipeline,
+    mas agora contém o net_edge (não é z-score de preço).
+    """
     timestamp: float
     token_id: str
     side: str           # "BUY" ou "SELL"
-    z_score: float
+    z_score: float      # COMPAT: contém net_edge (não é z-score real)
     midpoint: float
     spread: float
     edge_estimate: float
     confidence: float
-    p_est: float
+    p_est: float        # P_oracle estimada
     best_bid: Optional[float]
     best_ask: Optional[float]
     rationale: Tuple[str, ...]
@@ -85,46 +110,54 @@ class StrategySignal:
 
 class StrategyEngine:
     """
-    Motor de estratégia quantitativa.
+    Motor de estratégia quantitativa baseado em edge probabilístico.
 
-    Recebe snapshots, mantém estado EWMA por token,
+    Recebe snapshots, consulta Oracle, calcula net_edge,
     gera sinais acionáveis para o DecisionPipeline.
+
+    Interface pública 100% compatível com versão anterior.
     """
 
     def __init__(
         self,
-        config: Optional[ReversionConfig] = None,
+        config: Optional[StrategyConfig] = None,
         safety_state: Optional[Any] = None,
+        oracle: Optional[Any] = None,
         min_liquidity: float = 50.0,
     ) -> None:
-        self._config = config or create_default_config()
-        self._engine = ReversionEngine(self._config)
+        self._config = config or create_default_strategy_config()
         self._safety_state = safety_state
+        self._oracle = oracle  # ProbabilityOracle instance
         self._min_liquidity = min_liquidity
         self._lock = threading.RLock()
 
         # Estado por token
         self._markets: Dict[str, MarketState] = {}
 
-        # Históricos
-        self._z_history: Dict[str, deque] = {}
-        self._mid_history: Dict[str, deque] = {}
-        self._signal_history: deque = deque(maxlen=DEFAULT_SIGNAL_HISTORY_MAXLEN)
+        # Históricos (mantidos para compatibilidade com dashboard)
+        self._edge_history: Dict[str, Deque] = {}
+        self._mid_history: Dict[str, Deque] = {}
+        self._signal_history: Deque = deque(maxlen=DEFAULT_SIGNAL_HISTORY_MAXLEN)
 
-        # Métricas
-        self._metrics_collector = ReversionMetricsCollector()
+        # Métricas de edge
+        self._edge_buckets: Dict[str, List[Dict[str, Any]]] = {}
         self._total_signals: int = 0
         self._total_updates: int = 0
 
-    def process_snapshot(self, snapshot: MarketSnapshot) -> Optional[StrategySignal]:
+    def set_oracle(self, oracle: Any) -> None:
+        """Define o ProbabilityOracle (chamado pelo orchestrator após init)."""
+        with self._lock:
+            self._oracle = oracle
+
+    def process_snapshot(self, snapshot: Any) -> Optional[StrategySignal]:
         """
         Processa MarketSnapshot e retorna StrategySignal se acionável.
 
         Returns None se:
-        - Dados insuficientes (warmup)
-        - Sem spread válido
-        - Z-score abaixo do threshold
-        - Safety bloqueando BUY
+        - Dados inválidos (bid/ask)
+        - Oracle não disponível ou não suporta token
+        - Net edge abaixo do threshold
+        - Oracle bloqueado (Brier > 0.4)
         """
         bid = snapshot.best_bid_price
         ask = snapshot.best_ask_price
@@ -141,7 +174,7 @@ class StrategyEngine:
 
         with self._lock:
             self._total_updates += 1
-            state = self._get_or_create_market(token_id, mid, now)
+            state = self._get_or_create_market(token_id, now)
             state.snapshot_count += 1
             state.last_mid = mid
             state.last_spread = spread
@@ -154,130 +187,210 @@ class StrategyEngine:
                 self._mid_history[token_id] = deque(maxlen=DEFAULT_HISTORY_MAXLEN)
             self._mid_history[token_id].append((now, mid))
 
-            # Atualizar EWMA
-            new_reversion_state = self._engine.update_state(
-                state.reversion_state, mid, now
-            )
-            state.reversion_state = new_reversion_state
+        # P_market = midpoint (probabilidade implícita)
+        p_market = mid
 
-            # Warmup: precisa de snapshots suficientes
-            if state.snapshot_count < MIN_SNAPSHOTS_BEFORE_SIGNAL:
-                return None
+        # Consultar Oracle (fora do lock principal)
+        if self._oracle is None:
+            return None
+
+        # Check if Oracle should be blocked
+        if hasattr(self._oracle, 'should_block_oracle') and self._oracle.should_block_oracle():
+            return None
+
+        estimate = self._oracle.get_estimate(
+            token_id=token_id,
+            market_data={
+                "best_bid": bid,
+                "best_ask": ask,
+                "mid": mid,
+                "spread": spread,
+            },
+            p_market=p_market,
+        )
+
+        if estimate is None:
+            return None
+
+        p_oracle = estimate.probability
+        oracle_confidence = estimate.confidence
+
+        if oracle_confidence < self._config.min_oracle_confidence:
+            return None
+
+        # Edge decay tracking — atualizar preço para sinais ativos
+        if hasattr(self._oracle, 'update_decay_tracking'):
+            self._oracle.update_decay_tracking(token_id, p_market)
+
+        # Calcular net_edge
+        raw_edge = p_oracle - p_market
+        spread_impact = spread * self._config.spread_impact_factor
+
+        # net_edge = raw_edge - costs
+        if raw_edge > 0:
+            # BUY: pagamos ask, custos reduzem edge
+            net_edge = (
+                raw_edge
+                - self._config.fee_estimate
+                - self._config.slippage_estimate
+                - spread_impact
+            )
+        elif raw_edge < 0:
+            # SELL: vendemos bid, custos reduzem edge (em valor absoluto)
+            net_edge = (
+                raw_edge
+                + self._config.fee_estimate
+                + self._config.slippage_estimate
+                + spread_impact
+            )
+        else:
+            net_edge = 0.0
+
+        with self._lock:
+            # Atualizar estado
+            state.last_p_oracle = p_oracle
+            state.last_p_market = p_market
+            state.last_edge = raw_edge
+            state.last_net_edge = net_edge
+            state.last_oracle_confidence = oracle_confidence
+
+            # Histórico de edges
+            if token_id not in self._edge_history:
+                self._edge_history[token_id] = deque(maxlen=DEFAULT_HISTORY_MAXLEN)
+            self._edge_history[token_id].append((now, net_edge))
 
             # Verificar safety
             safe_to_buy = True
             if self._safety_state is not None:
                 safe_to_buy = not self._safety_state.buy_blocked
 
-            # Estimar liquidez do book
-            bid_size = snapshot.best_bid_size or 0.0
-            ask_size = snapshot.best_ask_size or 0.0
-            liquidity = (bid_size + ask_size) * mid
+            # Spread limits
+            if spread < self._config.min_spread or spread > self._config.max_spread:
+                return None
 
-            # Confidence operacional
-            op_confidence = self._compute_operational_confidence(state)
+            # Adaptive sizing multiplier do Oracle
+            oracle_sizing_k = 1.0
+            if hasattr(self._oracle, 'get_adaptive_sizing_multiplier'):
+                oracle_sizing_k = self._oracle.get_adaptive_sizing_multiplier()
 
-            # Gerar sinal
-            signal = self._engine.generate_signal(
-                state=new_reversion_state,
-                mid=mid,
-                spread=spread,
-                liquidity=liquidity,
-                operational_confidence=op_confidence,
-                safe_to_buy=safe_to_buy,
-                market_id=token_id,
-            )
+            # Combinação de confidence: oracle * adaptive
+            combined_confidence = oracle_confidence * oracle_sizing_k
 
-            # Histórico de z-scores
-            if token_id not in self._z_history:
-                self._z_history[token_id] = deque(maxlen=DEFAULT_HISTORY_MAXLEN)
-            z = signal.z_score if math.isfinite(signal.z_score) else 0.0
-            self._z_history[token_id].append((now, z))
+            # Determinar sinal
+            side: Optional[str] = None
+            rationale: List[str] = []
 
-            # Registrar no metrics collector
-            self._metrics_collector.record_signal(
-                z_score=z,
-                side=signal.side,
-                p_est=signal.p_est,
-                mid=mid,
-                timestamp=now,
-            )
+            if net_edge >= self._config.edge_buy_threshold:
+                if safe_to_buy:
+                    side = "BUY"
+                    rationale = [
+                        f"p_oracle={p_oracle:.3f}",
+                        f"p_market={p_market:.3f}",
+                        f"raw_edge={raw_edge:.4f}",
+                        f"net_edge={net_edge:.4f}",
+                        f"oracle_conf={oracle_confidence:.2f}",
+                    ]
+            elif net_edge <= -self._config.edge_sell_threshold:
+                side = "SELL"
+                rationale = [
+                    f"p_oracle={p_oracle:.3f}",
+                    f"p_market={p_market:.3f}",
+                    f"raw_edge={raw_edge:.4f}",
+                    f"net_edge={net_edge:.4f}",
+                    f"oracle_conf={oracle_confidence:.2f}",
+                ]
 
-            # Se sinal acionável, retornar
-            if signal.side is not None:
+            # Registrar bucket de edge (para métricas)
+            self._record_edge_bucket(token_id, net_edge, side is not None)
+
+            if side is not None:
                 self._total_signals += 1
-                strat_signal = StrategySignal(
+
+                # Registrar edge decay
+                if hasattr(self._oracle, 'register_edge_signal'):
+                    self._oracle.register_edge_signal(
+                        token_id, net_edge, p_market, p_oracle,
+                    )
+
+                signal = StrategySignal(
                     timestamp=now,
                     token_id=token_id,
-                    side=signal.side,
-                    z_score=signal.z_score,
+                    side=side,
+                    z_score=net_edge,  # COMPAT: z_score field contém net_edge
                     midpoint=mid,
                     spread=spread,
-                    edge_estimate=signal.edge_estimate,
-                    confidence=signal.confidence,
-                    p_est=signal.p_est,
+                    edge_estimate=net_edge,
+                    confidence=combined_confidence,
+                    p_est=p_oracle,
                     best_bid=bid,
                     best_ask=ask,
-                    rationale=signal.rationale,
+                    rationale=tuple(rationale),
                 )
                 self._signal_history.append({
                     "ts": now,
                     "token_id": token_id,
-                    "side": signal.side,
-                    "z": round(signal.z_score, 4),
+                    "side": side,
+                    "z": round(net_edge, 4),
                     "mid": round(mid, 4),
                     "spread": round(spread, 4),
-                    "edge": round(signal.edge_estimate, 4),
-                    "confidence": round(signal.confidence, 3),
+                    "edge": round(net_edge, 4),
+                    "confidence": round(combined_confidence, 3),
+                    "p_oracle": round(p_oracle, 4),
+                    "p_market": round(p_market, 4),
+                    "raw_edge": round(raw_edge, 4),
                 })
                 logger.info(
-                    "[STRATEGY] Signal: %s %s z=%.3f mid=%.4f spread=%.4f edge=%.4f conf=%.2f",
-                    signal.side, token_id[:12], signal.z_score,
-                    mid, spread, signal.edge_estimate, signal.confidence,
+                    "[STRATEGY] Signal: %s %s net_edge=%.4f p_o=%.3f p_m=%.3f conf=%.2f",
+                    side, token_id[:12], net_edge,
+                    p_oracle, p_market, combined_confidence,
                 )
-                return strat_signal
+                return signal
 
             return None
 
-    def _get_or_create_market(
-        self, token_id: str, initial_mid: float, ts: float
-    ) -> MarketState:
+    def _get_or_create_market(self, token_id: str, ts: float) -> MarketState:
         """Obtém ou cria MarketState para um token."""
         if token_id not in self._markets:
             self._markets[token_id] = MarketState(
                 token_id=token_id,
-                reversion_state=ReversionState(
-                    ewma_mean=initial_mid,
-                    ewma_var=1e-6,
-                    last_mid=initial_mid,
-                    last_timestamp=ts,
-                ),
+                last_update_ts=ts,
             )
         return self._markets[token_id]
 
-    def _compute_operational_confidence(self, state: MarketState) -> float:
-        """
-        Confiança operacional baseada em:
-        - Número de snapshots (warmup)
-        - Recência do último update
-        """
-        # Ramp up durante warmup
-        if state.snapshot_count < WARMUP_SNAPSHOTS:
-            base = state.snapshot_count / WARMUP_SNAPSHOTS
-        else:
-            base = 1.0
+    def _record_edge_bucket(
+        self, token_id: str, net_edge: float, signal_generated: bool,
+    ) -> None:
+        """Registra edge no bucket para métricas de performance."""
+        bucket_key = self._edge_to_bucket(net_edge)
+        if bucket_key not in self._edge_buckets:
+            self._edge_buckets[bucket_key] = []
+        self._edge_buckets[bucket_key].append({
+            "ts": time.time(),
+            "token_id": token_id,
+            "net_edge": net_edge,
+            "signal": signal_generated,
+        })
+        # Limitar tamanho
+        if len(self._edge_buckets[bucket_key]) > 500:
+            self._edge_buckets[bucket_key] = self._edge_buckets[bucket_key][-200:]
 
-        # Penalizar se dados antigos
-        age = time.time() - state.last_update_ts
-        if age > 60:
-            staleness_penalty = max(0.5, 1.0 - (age - 60) / 300)
+    @staticmethod
+    def _edge_to_bucket(edge: float) -> str:
+        """Converte edge em bucket label."""
+        abs_edge = abs(edge)
+        if abs_edge < 0.01:
+            return "<1%"
+        elif abs_edge < 0.03:
+            return "1-3%"
+        elif abs_edge < 0.05:
+            return "3-5%"
+        elif abs_edge < 0.10:
+            return "5-10%"
         else:
-            staleness_penalty = 1.0
-
-        return min(1.0, base * staleness_penalty)
+            return ">10%"
 
     # ------------------------------------------------------------------
-    # Leitura de métricas
+    # Leitura de métricas (interface pública — compatível com dashboard)
     # ------------------------------------------------------------------
 
     def get_market_data(self) -> List[Dict[str, Any]]:
@@ -285,28 +398,36 @@ class StrategyEngine:
         with self._lock:
             result = []
             for token_id, state in self._markets.items():
-                z_hist = self._z_history.get(token_id, deque())
-                current_z = z_hist[-1][1] if z_hist else None
+                edge_hist = self._edge_history.get(token_id, deque())
+                current_edge = edge_hist[-1][1] if edge_hist else None
                 result.append({
                     "token_id": token_id,
                     "midpoint": round(state.last_mid, 4) if state.last_mid else None,
                     "spread": round(state.last_spread, 4) if state.last_spread else None,
                     "best_bid": state.last_best_bid,
                     "best_ask": state.last_best_ask,
-                    "z_score": round(current_z, 4) if current_z is not None else None,
+                    # COMPAT: z_score field → net_edge
+                    "z_score": round(current_edge, 4) if current_edge is not None else None,
                     "snapshot_count": state.snapshot_count,
                     "last_update": state.last_update_ts,
-                    "ewma_mean": round(state.reversion_state.ewma_mean, 4),
-                    "ewma_var": round(state.reversion_state.ewma_var, 6),
+                    # Novos campos para oracle
+                    "p_oracle": round(state.last_p_oracle, 4) if state.last_p_oracle is not None else None,
+                    "p_market": round(state.last_p_market, 4) if state.last_p_market is not None else None,
+                    "net_edge": round(state.last_net_edge, 4) if state.last_net_edge is not None else None,
+                    "raw_edge": round(state.last_edge, 4) if state.last_edge is not None else None,
+                    "oracle_confidence": round(state.last_oracle_confidence, 3) if state.last_oracle_confidence is not None else None,
+                    # COMPAT: manter ewma_mean/var para dashboard existente
+                    "ewma_mean": round(state.last_mid, 4) if state.last_mid else 0.0,
+                    "ewma_var": 0.0,
                 })
             return result
 
     def get_z_history(self, token_id: str, limit: int = 100) -> List[Dict[str, Any]]:
-        """Retorna histórico de z-scores para um token."""
+        """Retorna histórico de edge (campo z para compat) para um token."""
         with self._lock:
-            hist = self._z_history.get(token_id, deque())
+            hist = self._edge_history.get(token_id, deque())
             entries = list(hist)[-limit:]
-            return [{"ts": ts, "z": round(z, 4)} for ts, z in entries]
+            return [{"ts": ts, "z": round(e, 4)} for ts, e in entries]
 
     def get_mid_history(self, token_id: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Retorna histórico de midpoints para um token."""
@@ -341,11 +462,36 @@ class StrategyEngine:
                 if s["side"] == "SELL" and s["ts"] > time.time() - 86400
             )
 
-            # Reversion metrics
-            rev_metrics = self._metrics_collector.get_metrics()
+            # Edge métricas
+            all_edges = []
+            for hist in self._edge_history.values():
+                all_edges.extend(e for _, e in hist)
+
+            avg_edge = (
+                sum(all_edges) / len(all_edges) if all_edges else None
+            )
+
+            # Oracle métricas
+            oracle_metrics = {}
+            if self._oracle is not None and hasattr(self._oracle, 'get_full_metrics'):
+                try:
+                    oracle_metrics = self._oracle.get_full_metrics()
+                except Exception:
+                    pass
+
+            # Edge bucket distribution
+            edge_distribution = {}
+            for bucket_key, entries in self._edge_buckets.items():
+                count = len(entries)
+                signals = sum(1 for e in entries if e.get("signal"))
+                edge_distribution[bucket_key] = {
+                    "count": count,
+                    "signals": signals,
+                    "signal_rate": round(signals / count, 3) if count > 0 else 0,
+                }
 
             return {
-                "strategy": "Mean Reversion (EWMA Z-Score)",
+                "strategy": "Probability Edge (Oracle-based)",
                 "markets_monitored": markets_count,
                 "total_snapshots_processed": total_snapshots,
                 "total_signals_generated": self._total_signals,
@@ -353,18 +499,56 @@ class StrategyEngine:
                 "buy_signals_24h": buy_signals,
                 "sell_signals_24h": sell_signals,
                 "config": {
-                    "alpha": self._config.alpha,
-                    "z_entry_threshold": self._config.z_entry_threshold,
-                    "z_exit_threshold": self._config.z_exit_threshold,
-                    "k_revert": self._config.k_revert,
+                    "edge_buy_threshold": self._config.edge_buy_threshold,
+                    "edge_sell_threshold": self._config.edge_sell_threshold,
+                    "fee_estimate": self._config.fee_estimate,
+                    "slippage_estimate": self._config.slippage_estimate,
+                    "spread_impact_factor": self._config.spread_impact_factor,
+                    "min_oracle_confidence": self._config.min_oracle_confidence,
                     "min_spread": self._config.min_spread,
                     "max_spread": self._config.max_spread,
-                    "min_liquidity": self._config.min_liquidity,
                 },
-                "reversion_metrics": rev_metrics,
+                "edge_metrics": {
+                    "avg_net_edge": round(avg_edge, 4) if avg_edge is not None else None,
+                    "edge_distribution": edge_distribution,
+                },
+                "oracle_metrics": oracle_metrics,
             }
 
     @property
-    def metrics_collector(self) -> ReversionMetricsCollector:
-        """Acesso ao coletor de métricas para dashboard."""
-        return self._metrics_collector
+    def metrics_collector(self) -> Any:
+        """COMPAT: Retorna self como proxy para métricas.
+
+        O dashboard existente chama system['reversion_metrics_collector'].
+        Retornamos um objeto com get_metrics() compatível.
+        """
+        return _CompatMetricsProxy(self)
+
+
+class _CompatMetricsProxy:
+    """Proxy de métricas para compatibilidade com dashboard técnico."""
+
+    def __init__(self, engine: StrategyEngine) -> None:
+        self._engine = engine
+
+    def get_metrics(self) -> Dict[str, Any]:
+        """Retorna métricas no formato esperado pelo dashboard técnico."""
+        summary = self._engine.get_strategy_summary()
+        edge_m = summary.get("edge_metrics", {})
+        oracle_m = summary.get("oracle_metrics", {})
+        perf = oracle_m.get("performance", {})
+
+        return {
+            "current_z": edge_m.get("avg_net_edge"),
+            "rolling_z_mean": edge_m.get("avg_net_edge"),
+            "rolling_z_std": None,
+            "signal_count_last_24h": summary.get("signals_last_24h", 0),
+            "hit_rate_simulated": None,
+            "average_reversion_magnitude": None,
+            "average_time_to_reversion": None,
+            # Novos campos do oracle
+            "brier_score": perf.get("brier_score"),
+            "oracle_blocked": oracle_m.get("oracle_blocked", False),
+            "adaptive_sizing_k": oracle_m.get("adaptive_sizing_multiplier"),
+            "edge_decay": oracle_m.get("edge_decay", {}),
+        }

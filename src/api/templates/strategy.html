@@ -29,7 +29,7 @@
                 </div>
                 <div>
                     <h1 class="text-xl font-bold text-slate-800">Estrategia Quantitativa</h1>
-                    <p class="text-xs text-slate-400">Mean Reversion (EWMA Z-Score)</p>
+                    <p class="text-xs text-slate-400">Probability Edge (Oracle-based)</p>
                 </div>
             </div>
             <div class="flex items-center gap-3">
@@ -72,9 +72,9 @@
             </div>
         </section>
 
-        <!-- Z-Score Chart -->
+        <!-- Edge Chart -->
         <section class="mb-8">
-            <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Z-Score em Tempo Real</h2>
+            <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Net Edge em Tempo Real</h2>
             <div class="glass rounded-xl border border-white/60 shadow-sm p-6 fade-in">
                 <div class="h-64">
                     <canvas id="zscore-chart"></canvas>
@@ -82,25 +82,29 @@
             </div>
         </section>
 
-        <!-- Reversion Metrics -->
+        <!-- Oracle Performance -->
         <section class="mb-8">
-            <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Metricas de Reversao</h2>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Oracle Performance</h2>
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <div class="glass rounded-xl border border-white/60 shadow-sm p-5 fade-in">
-                    <p class="text-slate-400 text-xs font-medium uppercase">Z Atual</p>
+                    <p class="text-slate-400 text-xs font-medium uppercase">Edge Medio</p>
                     <p id="rev-current-z" class="text-2xl font-bold text-slate-800 mt-2 mono">--</p>
                 </div>
                 <div class="glass rounded-xl border border-white/60 shadow-sm p-5 fade-in">
-                    <p class="text-slate-400 text-xs font-medium uppercase">Z Media</p>
+                    <p class="text-slate-400 text-xs font-medium uppercase">Brier Score</p>
                     <p id="rev-z-mean" class="text-2xl font-bold text-slate-800 mt-2 mono">--</p>
                 </div>
                 <div class="glass rounded-xl border border-white/60 shadow-sm p-5 fade-in">
-                    <p class="text-slate-400 text-xs font-medium uppercase">Z Std</p>
+                    <p class="text-slate-400 text-xs font-medium uppercase">Sizing K</p>
                     <p id="rev-z-std" class="text-2xl font-bold text-slate-800 mt-2 mono">--</p>
                 </div>
                 <div class="glass rounded-xl border border-white/60 shadow-sm p-5 fade-in">
                     <p class="text-slate-400 text-xs font-medium uppercase">Sinais 24h</p>
                     <p id="rev-signal-count" class="text-2xl font-bold text-violet-600 mt-2">0</p>
+                </div>
+                <div class="glass rounded-xl border border-white/60 shadow-sm p-5 fade-in">
+                    <p class="text-slate-400 text-xs font-medium uppercase">Half-Life</p>
+                    <p id="rev-half-life" class="text-2xl font-bold text-slate-800 mt-2 mono">--</p>
                 </div>
             </div>
         </section>
@@ -166,7 +170,7 @@
         </section>
 
         <footer class="text-center py-6 text-xs text-slate-400">
-            Mean Reversion Strategy Engine &middot; Auto-refresh 5s
+            Probability Edge Strategy Engine &middot; Auto-refresh 5s
         </footer>
     </div>
 
@@ -198,7 +202,7 @@
                 data: {
                     labels: labels,
                     datasets: [{
-                        label: 'Z-Score',
+                        label: 'Net Edge',
                         data: zValues,
                         backgroundColor: colors.map(c => c + '33'),
                         borderColor: colors,
@@ -281,11 +285,16 @@
                 // Z-Score chart
                 updateZChart(markets);
 
-                // Reversion metrics
-                document.getElementById('rev-current-z').textContent = rev.current_z != null ? rev.current_z.toFixed(4) : '--';
-                document.getElementById('rev-z-mean').textContent = rev.rolling_z_mean != null ? rev.rolling_z_mean.toFixed(4) : '--';
-                document.getElementById('rev-z-std').textContent = rev.rolling_z_std != null ? rev.rolling_z_std.toFixed(4) : '--';
-                document.getElementById('rev-signal-count').textContent = rev.signal_count_last_24h || 0;
+                // Oracle metrics
+                const oracleM = summary.oracle_metrics || {};
+                const edgeM = summary.edge_metrics || {};
+                const perf = oracleM.performance || {};
+                const decay = oracleM.edge_decay || {};
+                document.getElementById('rev-current-z').textContent = edgeM.avg_net_edge != null ? edgeM.avg_net_edge.toFixed(4) : '--';
+                document.getElementById('rev-z-mean').textContent = perf.brier_score != null ? perf.brier_score.toFixed(4) : '--';
+                document.getElementById('rev-z-std').textContent = oracleM.adaptive_sizing_multiplier != null ? oracleM.adaptive_sizing_multiplier.toFixed(2) : '--';
+                document.getElementById('rev-signal-count').textContent = summary.signals_last_24h || 0;
+                document.getElementById('rev-half-life').textContent = decay.avg_half_life_seconds != null ? decay.avg_half_life_seconds.toFixed(0) + 's' : '--';
 
                 // Signal history
                 const sTbody = document.getElementById('signals-tbody');

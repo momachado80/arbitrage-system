@@ -85,6 +85,17 @@ from src.watcher.client import PolymarketClient
 from src.strategy.strategy_engine import StrategyEngine
 from src.strategy.decision_pipeline import DecisionPipeline
 
+# --- Oracle ---
+from src.oracle.probability_oracle import (
+    ProbabilityOracle,
+    MockOracleProvider,
+    OraclePerformanceTracker,
+    EdgeDecayTracker,
+)
+
+# --- Universe ---
+from src.universe.universe_builder import UniverseBuilder
+
 # --- Market Universe (auto-discovery) ---
 from src.market.universe_manager import MarketUniverseManager
 from src.metrics import set_markets_subscribed, run_sanity_checks
@@ -419,9 +430,21 @@ def create_system(
 
     logger.info(f"[SYSTEM] RUN_MODE efetivo: {effective_mode}")
 
-    # 5. Strategy Engine + Decision Pipeline
+    # 5. Oracle + Strategy Engine + Decision Pipeline
+    oracle_provider = MockOracleProvider()  # Extensível: substituir por provider real
+    probability_oracle = ProbabilityOracle(
+        provider=oracle_provider,
+        performance_tracker=OraclePerformanceTracker(),
+        edge_decay_tracker=EdgeDecayTracker(),
+    )
+    universe_builder = UniverseBuilder(
+        manual_tokens=token_ids or [],
+        oracle_provider=oracle_provider,
+    )
+
     strategy_engine = StrategyEngine(
         safety_state=safety_state,
+        oracle=probability_oracle,
     )
     decision_pipeline = DecisionPipeline(
         run_mode=effective_mode,
@@ -485,6 +508,9 @@ def create_system(
         "strategy_engine": strategy_engine,
         "decision_pipeline": decision_pipeline,
         "reversion_metrics_collector": strategy_engine.metrics_collector,
+        "probability_oracle": probability_oracle,
+        "universe_builder": universe_builder,
+        "oracle_provider": oracle_provider,
     }
 
 

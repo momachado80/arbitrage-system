@@ -612,6 +612,65 @@ def create_dashboard_app(system_context: Dict[str, Any]) -> FastAPI:
         )
 
     # -------------------------------------------------------------------------
+    # GET /api/oracle
+    # -------------------------------------------------------------------------
+    @app.get("/api/oracle")
+    async def api_oracle():
+        """Métricas completas do ProbabilityOracle."""
+        oracle = system_context.get("probability_oracle")
+        if oracle is None:
+            return {"error": "Oracle not available", "metrics": {}}
+        try:
+            return {"metrics": oracle.get_full_metrics()}
+        except Exception as e:
+            return {"error": str(e), "metrics": {}}
+
+    # -------------------------------------------------------------------------
+    # GET /api/backtest
+    # -------------------------------------------------------------------------
+    @app.get("/api/backtest")
+    async def api_backtest():
+        """Executa backtest rápido com cenários de exemplo."""
+        try:
+            from src.backtest.simple_backtest import SimpleBacktest, BacktestScenario
+            bt = SimpleBacktest()
+            # Cenários demonstrativos
+            scenarios = [
+                BacktestScenario(token_id="demo_1", p_market=0.40, p_oracle=0.55, outcome=1.0, spread=0.02),
+                BacktestScenario(token_id="demo_2", p_market=0.60, p_oracle=0.45, outcome=0.0, spread=0.02),
+                BacktestScenario(token_id="demo_3", p_market=0.50, p_oracle=0.52, outcome=1.0, spread=0.02),
+                BacktestScenario(token_id="demo_4", p_market=0.70, p_oracle=0.80, outcome=1.0, spread=0.03),
+                BacktestScenario(token_id="demo_5", p_market=0.30, p_oracle=0.15, outcome=0.0, spread=0.02),
+            ]
+            result = bt.run_scenarios(scenarios)
+            return {
+                "total_trades": result.total_trades,
+                "total_pnl": result.total_pnl,
+                "win_rate": result.win_rate,
+                "sharpe_ratio": result.sharpe_ratio,
+                "max_drawdown": result.max_drawdown,
+                "brier_score": result.brier_score,
+                "equity_curve": result.equity_curve,
+                "trades": result.trades,
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    # -------------------------------------------------------------------------
+    # GET /api/universe
+    # -------------------------------------------------------------------------
+    @app.get("/api/universe")
+    async def api_universe():
+        """Estado do UniverseBuilder."""
+        ub = system_context.get("universe_builder")
+        if ub is None:
+            return {"error": "Universe builder not available"}
+        try:
+            return ub.get_summary()
+        except Exception as e:
+            return {"error": str(e)}
+
+    # -------------------------------------------------------------------------
     # POST /api/ack
     # -------------------------------------------------------------------------
     class AckBody(BaseModel):
@@ -702,6 +761,8 @@ def _create_mock_system() -> Dict[str, Any]:
         "watcher_thread": None,
         "strategy_engine": None,
         "decision_pipeline": None,
+        "probability_oracle": None,
+        "universe_builder": None,
     }
 
 
