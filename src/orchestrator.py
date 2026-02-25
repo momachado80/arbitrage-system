@@ -81,6 +81,26 @@ from src.execution.realistic_simulator import (
 from src.watcher.bridge import WatcherBridge, MarketSnapshot
 from src.watcher.client import PolymarketClient
 
+# --- Strategy ---
+from src.strategy.strategy_engine import StrategyEngine
+from src.strategy.decision_pipeline import DecisionPipeline
+
+# --- Oracle ---
+from src.oracle.probability_oracle import (
+    ProbabilityOracle,
+    MockOracleProvider,
+    OraclePerformanceTracker,
+    EdgeDecayTracker,
+)
+from src.oracle.heuristic_oracle import HeuristicMicroOracle
+from src.oracle.metrics import OracleMetricsStore
+
+# --- Universe ---
+from src.universe.universe_builder import UniverseBuilder
+
+# --- Research ---
+from src.research.edge_validation import EdgeValidator
+
 # --- Market Universe (auto-discovery) ---
 from src.market.universe_manager import MarketUniverseManager
 from src.metrics import set_markets_subscribed, run_sanity_checks
@@ -92,9 +112,11 @@ logger = logging.getLogger(__name__)
 # ======================================================================
 
 DEFAULT_INITIAL_CAPITAL: float = 1000.0
-DEFAULT_STATE_DIR: str = os.path.join(
-    os.path.expanduser("~"), ".polymarket_bot"
+DEFAULT_STATE_DIR: str = os.environ.get(
+    "STATE_DIR",
+    os.path.join(os.path.expanduser("~"), ".polymarket_bot"),
 )
+DEFAULT_DATA_DIR: str = os.environ.get("DATA_DIR", "data")
 HEARTBEAT_INTERVAL_SECONDS: int = 60
 # Fallback quando config não disponível
 RECONCILER_INTERVAL_SECONDS: int = 30
@@ -131,23 +153,42 @@ class PipelineHandler:
     Handler que recebe MarketSnapshot do MarketDataEngine.
 
     Armazena o último snapshot por token_id (thread-safe).
-    Pronto para integração com strategy/execution futura.
+    Integra com StrategyEngine e DecisionPipeline para gerar trades.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        strategy_engine: Optional[StrategyEngine] = None,
+        decision_pipeline: Optional[DecisionPipeline] = None,
+    ) -> None:
         self._latest: Dict[str, MarketSnapshot] = {}
         self._lock = threading.Lock()
         self._update_count: int = 0
+        self._strategy_engine = strategy_engine
+        self._decision_pipeline = decision_pipeline
 
     def process_market_update(self, event: MarketSnapshot) -> None:
         """Processa snapshot de mercado. Thread-safe."""
         with self._lock:
             self._latest[event.token_id] = event
             self._update_count += 1
+
         logger.debug(
             f"[MARKET_ENGINE] Snapshot token={event.token_id} "
             f"bid={event.best_bid_price} ask={event.best_ask_price}"
         )
+
+        # Alimentar strategy engine
+        if self._strategy_engine is not None:
+            try:
+                signal = self._strategy_engine.process_snapshot(event)
+                if signal is not None and self._decision_pipeline is not None:
+                    self._decision_pipeline.process_signal(signal)
+            except Exception as e:
+                logger.error(
+                    "[MARKET_ENGINE] Strategy error: %s: %s",
+                    type(e).__name__, e,
+                )
 
     def get_latest(self, token_id: str) -> Optional[MarketSnapshot]:
         """Retorna último snapshot para um token."""
@@ -316,6 +357,9 @@ def create_system(
     cfg = config or load_app_config_from_env()
     logger.info(f"[SYSTEM] Inicializando componentes... RUN_MODE={cfg.run_mode}")
 
+    # Ensure state dir exists
+    os.makedirs(state_dir, exist_ok=True)
+
     # 1. Core managers
     capital_manager = CapitalManager(initial_capital=initial_capital)
     calibrator = ProbabilityCalibrator(
@@ -396,8 +440,50 @@ def create_system(
 
     logger.info(f"[SYSTEM] RUN_MODE efetivo: {effective_mode}")
 
-    # 5. Pipeline handler + Reconciler loop (era 5, mantém numeração)
-    pipeline_handler = PipelineHandler()
+    # 5. Oracle + Strategy Engine + Decision Pipeline
+    heuristic_oracle = HeuristicMicroOracle()
+    oracle_provider = heuristic_oracle  # V1: microstructure-based
+
+    probability_oracle = ProbabilityOracle(
+        provider=oracle_provider,
+        performance_tracker=OraclePerformanceTracker(),
+        edge_decay_tracker=EdgeDecayTracker(),
+    )
+    universe_builder = UniverseBuilder(
+        manual_tokens=token_ids or [],
+        oracle_provider=oracle_provider,
+    )
+
+    # Metrics + Validation (persistência leve)
+    data_dir = DEFAULT_DATA_DIR
+    os.makedirs(data_dir, exist_ok=True)
+    oracle_metrics_store = OracleMetricsStore(
+        metrics_path=os.path.join(data_dir, "oracle_metrics.jsonl"),
+    )
+    edge_validator = EdgeValidator(
+        log_path=os.path.join(data_dir, "edge_validation.jsonl"),
+    )
+
+    strategy_engine = StrategyEngine(
+        safety_state=safety_state,
+        oracle=probability_oracle,
+    )
+    decision_pipeline = DecisionPipeline(
+        run_mode=effective_mode,
+        safety_state=safety_state,
+        risk_manager=risk_manager,
+        calibrator=calibrator,
+        capital_manager=capital_manager,
+        position_manager=position_manager,
+        order_manager=order_manager,
+        trade_ledger=trade_ledger,
+    )
+
+    # 6. Pipeline handler + Reconciler loop
+    pipeline_handler = PipelineHandler(
+        strategy_engine=strategy_engine,
+        decision_pipeline=decision_pipeline,
+    )
     reconciler_loop = ReconcilerLoop(
         reconciler=reconciler,
         order_manager=order_manager,
@@ -441,6 +527,15 @@ def create_system(
         "token_ids": token_ids or [],
         "exchange_api": api,
         "simulation_stats": sim_stats if effective_mode == "REALISTIC_SIMULATION" else None,
+        "strategy_engine": strategy_engine,
+        "decision_pipeline": decision_pipeline,
+        "reversion_metrics_collector": strategy_engine.metrics_collector,
+        "probability_oracle": probability_oracle,
+        "universe_builder": universe_builder,
+        "oracle_provider": oracle_provider,
+        "heuristic_oracle": heuristic_oracle,
+        "oracle_metrics_store": oracle_metrics_store,
+        "edge_validator": edge_validator,
     }
 
 
