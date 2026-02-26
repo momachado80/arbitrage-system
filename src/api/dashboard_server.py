@@ -177,6 +177,45 @@ def _derive_events(
     return events
 
 
+def _build_universe_info(universe_manager: Any) -> Dict[str, Any]:
+    """Build universe info for /api/performance."""
+    try:
+        from src.metrics import get_ingestion_metrics, get_universe_metrics
+        metrics = get_ingestion_metrics()
+        universe = get_universe_metrics()
+
+        last_ts = metrics.get("last_event_timestamp")
+        now = time.time()
+        last_age = round(now - last_ts, 1) if last_ts else None
+
+        # Compute snapshots per minute
+        snapshots = metrics.get("snapshots_received", 0)
+        start_ts = universe.get("universe_last_refresh_timestamp")
+        if start_ts and snapshots > 0:
+            elapsed = now - start_ts
+            spm = round(snapshots / max(elapsed / 60.0, 0.1), 1) if elapsed > 0 else 0
+        else:
+            spm = 0
+
+        info: Dict[str, Any] = {
+            "source": universe.get("universe_source", "none"),
+            "markets_subscribed": metrics.get("markets_subscribed", 0),
+            "snapshots_received": snapshots,
+            "snapshots_per_minute": spm,
+            "last_snapshot_age_seconds": last_age,
+            "last_refresh_timestamp": universe.get("universe_last_refresh_timestamp"),
+            "universe_error": universe.get("universe_error"),
+            "ws_disconnects_total": universe.get("ws_disconnects_total", 0),
+        }
+
+        if universe_manager is not None and hasattr(universe_manager, "get_market_infos"):
+            info["top_markets"] = universe_manager.get_market_infos()
+
+        return info
+    except Exception:
+        return {"source": "unknown", "markets_subscribed": 0}
+
+
 def create_dashboard_app(system_context: Dict[str, Any]) -> FastAPI:
     """
     Cria app FastAPI do dashboard.
@@ -690,6 +729,7 @@ def create_dashboard_app(system_context: Dict[str, Any]) -> FastAPI:
         oracle = system_context.get("probability_oracle")
         edge_validator = system_context.get("edge_validator")
         oracle_metrics_store = system_context.get("oracle_metrics_store")
+        universe_manager = system_context.get("universe_manager")
 
         # 1. Oracle quality
         oracle_quality = {"label": "Sem dados", "level": "unknown", "brier": None}
@@ -776,6 +816,9 @@ def create_dashboard_app(system_context: Dict[str, Any]) -> FastAPI:
             except Exception:
                 pass
 
+        # Universe info
+        universe_info = _build_universe_info(universe_manager)
+
         return {
             "oracle_quality": oracle_quality,
             "edge_finding": {
@@ -791,6 +834,7 @@ def create_dashboard_app(system_context: Dict[str, Any]) -> FastAPI:
             "system_status": system_status,
             "validation_report": validation_report,
             "oracle_metrics": oracle_full,
+            "universe": universe_info,
         }
 
     # -------------------------------------------------------------------------
@@ -930,6 +974,7 @@ def _create_mock_system() -> Dict[str, Any]:
         "universe_builder": None,
         "oracle_metrics_store": None,
         "edge_validator": None,
+        "universe_manager": None,
     }
 
 

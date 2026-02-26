@@ -7,13 +7,15 @@ Responsabilidades:
 - Filtrar por liquidez, volume, spread
 - Ordenar por liquidez
 - Selecionar top N (configurável, default 50)
-- Atualizar a cada 5 minutos
+- Atualizar periodicamente (configurável, default 15 min)
 - Assinar/desassinar automaticamente no WebSocket
+- Logs estruturados a cada refresh
 
 Se POLYMARKET_TOKENS vazio → auto-discovery.
 Se preenchido → manual override.
 """
 
+import json as _json
 import logging
 import os
 import threading
@@ -43,6 +45,7 @@ class MarketInfo:
     liquidity: float
     spread_pct: float
     side: str  # "yes" or "no"
+    question: str = ""
 
 
 @dataclass
@@ -53,6 +56,7 @@ class UniverseSnapshot:
     total_markets_subscribed: int = 0
     last_update_timestamp: Optional[float] = None
     token_ids: List[str] = field(default_factory=list)
+    error: Optional[str] = None
 
 
 class MarketUniverseManager:
@@ -71,8 +75,10 @@ class MarketUniverseManager:
         subscribe_cb: Optional[Callable[[str], Any]] = None,
         unsubscribe_cb: Optional[Callable[[str], Any]] = None,
     ) -> None:
-        self._top_n = int(os.environ.get("UNIVERSE_TOP_N", top_n))
-        self._interval = int(os.environ.get("UNIVERSE_UPDATE_INTERVAL", update_interval_sec))
+        self._top_n = int(os.environ.get("MAX_MARKETS",
+                          os.environ.get("UNIVERSE_TOP_N", top_n)))
+        self._interval = int(os.environ.get("UNIVERSE_REFRESH_SECONDS",
+                             os.environ.get("UNIVERSE_UPDATE_INTERVAL", update_interval_sec)))
         self._min_volume = float(os.environ.get("UNIVERSE_MIN_VOLUME", min_volume_usd))
         self._min_liquidity = float(os.environ.get("UNIVERSE_MIN_LIQUIDITY", min_liquidity_usd))
         self._max_spread = float(os.environ.get("UNIVERSE_MAX_SPREAD", max_spread_pct))
@@ -84,6 +90,8 @@ class MarketUniverseManager:
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._timeout = float(os.environ.get("UNIVERSE_HTTP_TIMEOUT", "10.0"))
+        self._market_infos: List[MarketInfo] = []
+        self._last_error: Optional[str] = None
 
     def get_snapshot(self) -> UniverseSnapshot:
         with self._lock:
@@ -93,7 +101,22 @@ class MarketUniverseManager:
                 total_markets_subscribed=self._snapshot.total_markets_subscribed,
                 last_update_timestamp=self._snapshot.last_update_timestamp,
                 token_ids=list(self._snapshot.token_ids),
+                error=self._snapshot.error,
             )
+
+    def get_market_infos(self) -> List[Dict[str, Any]]:
+        """Returns summary of currently tracked markets for observability."""
+        with self._lock:
+            return [
+                {
+                    "token_id": m.token_id[:12] + "...",
+                    "question": m.question[:80] if m.question else "",
+                    "volume_24h": m.volume_24h,
+                    "liquidity": m.liquidity,
+                    "side": m.side,
+                }
+                for m in self._market_infos[:20]
+            ]
 
     def _fetch_markets_sync(self) -> List[Dict[str, Any]]:
         """Busca mercados da Gamma API (sync)."""
@@ -113,6 +136,7 @@ class MarketUniverseManager:
                 data = r.json()
         except Exception as e:
             logger.error("[UNIVERSE] [FETCH_FAILED] %s", str(e))
+            self._last_error = str(e)
             return []
         raw = data if isinstance(data, list) else data.get("markets", data.get("data", []))
         return raw if isinstance(raw, list) else []
@@ -132,8 +156,7 @@ class MarketUniverseManager:
             clob = m.get("clobTokenIds")
             if isinstance(clob, str):
                 try:
-                    import json
-                    clob = json.loads(clob)
+                    clob = _json.loads(clob)
                 except Exception:
                     clob = None
             if isinstance(clob, list):
@@ -146,7 +169,7 @@ class MarketUniverseManager:
     def _get_spread_for_token(self, token_id: str) -> float:
         """Obtém spread percentual do book (sync). Retorna 999 se falhar."""
         try:
-            with httpx.Client(timeout=10.0) as client:
+            with httpx.Client(timeout=self._timeout) as client:
                 r = client.get(f"{CLOB_URL}/book", params={"token_id": token_id})
                 r.raise_for_status()
                 data = r.json()
@@ -165,15 +188,22 @@ class MarketUniverseManager:
             return 999.0
 
     def _estimate_liquidity(self, m: Dict) -> float:
-        """Estima liquidez a partir de volume (proxy)."""
+        """Estima liquidez a partir de volume (proxy) ou campo direto."""
+        liq = m.get("liquidity")
+        if liq is not None:
+            try:
+                val = float(liq)
+                if val > 0:
+                    return val
+            except (ValueError, TypeError):
+                pass
         vol = float(m.get("volume24hr") or m.get("volume24h") or m.get("volume") or 0)
         return vol * 0.1  # 10% do volume como proxy de liquidez
 
     def _discover_from_raw(self, raw: List[Dict[str, Any]]) -> List[MarketInfo]:
         """Filtra raw markets e retorna lista ordenada por liquidez."""
-        found = len(raw)
         candidates: List[MarketInfo] = []
-        skip_spread = os.environ.get("UNIVERSE_SKIP_SPREAD_CHECK", "").upper() in ("1", "TRUE", "YES")
+        skip_spread = os.environ.get("UNIVERSE_SKIP_SPREAD_CHECK", "1").upper() in ("1", "TRUE", "YES")
         for m in raw:
             vol = float(m.get("volume24hr") or m.get("volume24h") or m.get("volume") or 0)
             if vol < self._min_volume:
@@ -188,6 +218,7 @@ class MarketUniverseManager:
             if not skip_spread and spread > self._max_spread:
                 continue
             cond = m.get("conditionId") or m.get("condition_id") or ""
+            question = m.get("question") or m.get("title") or ""
             candidates.append(MarketInfo(
                 token_id=yes_id,
                 condition_id=cond,
@@ -195,6 +226,7 @@ class MarketUniverseManager:
                 liquidity=liq,
                 spread_pct=spread,
                 side="yes",
+                question=question,
             ))
             if no_id:
                 candidates.append(MarketInfo(
@@ -204,6 +236,7 @@ class MarketUniverseManager:
                     liquidity=liq,
                     spread_pct=spread,
                     side="no",
+                    question=question,
                 ))
         candidates.sort(key=lambda x: (x.liquidity, x.volume_24h), reverse=True)
         top = candidates[: self._top_n * 2]
@@ -224,24 +257,36 @@ class MarketUniverseManager:
         return self._discover_from_raw(raw)
 
     def _run_update(self) -> None:
-        """Executa uma rodada de atualização."""
+        """Executa uma rodada de atualização com logs estruturados."""
         try:
             raw = self._fetch_markets_sync()
+            if not raw:
+                with self._lock:
+                    self._snapshot.error = self._last_error or "No markets returned"
+                self._update_metrics_error(self._last_error or "No markets returned")
+                return
+
             infos = self._discover_from_raw(raw)
             filtered = len(infos)
             new_tokens = {m.token_id for m in infos}
+            now = time.time()
+
             with self._lock:
                 old_tokens = set(self._current_tokens)
                 to_unsub = old_tokens - new_tokens
                 to_sub = new_tokens - old_tokens
                 self._current_tokens = new_tokens
+                self._market_infos = infos[:20]
                 self._snapshot = UniverseSnapshot(
                     total_markets_found=len(raw),
                     total_markets_filtered=filtered,
                     total_markets_subscribed=len(new_tokens),
-                    last_update_timestamp=time.time(),
+                    last_update_timestamp=now,
                     token_ids=list(new_tokens),
+                    error=None,
                 )
+                self._last_error = None
+
             for tid in to_unsub:
                 if self._unsubscribe_cb:
                     try:
@@ -254,14 +299,52 @@ class MarketUniverseManager:
                         self._subscribe_cb(tid)
                     except Exception as e:
                         logger.warning("[UNIVERSE] [SUBSCRIBE_FAIL] token=%s err=%s", tid, e)
+
+            # Structured log: refresh summary
+            top_markets = [
+                {"q": m.question[:60], "vol": round(m.volume_24h), "side": m.side}
+                for m in infos[:5]
+            ]
             logger.info(
-                "[UNIVERSE] [UPDATED] subscribed=%d found=%d filtered=%d",
-                len(new_tokens),
-                self._snapshot.total_markets_found,
-                filtered,
+                "[UNIVERSE] [REFRESH] candidates=%d passed=%d subscribed=%d "
+                "added=%d removed=%d top=%s",
+                len(raw), filtered, len(new_tokens),
+                len(to_sub), len(to_unsub),
+                _json.dumps(top_markets, ensure_ascii=False),
             )
+
+            # Update global metrics
+            self._update_metrics_ok(now, len(new_tokens))
+
         except Exception as e:
-            logger.error("[UNIVERSE] [UPDATE_ERROR] %s", str(e), exc_info=True)
+            err_msg = f"{type(e).__name__}: {e}"
+            logger.error("[UNIVERSE] [UPDATE_ERROR] %s", err_msg, exc_info=True)
+            with self._lock:
+                self._snapshot.error = err_msg
+                self._last_error = err_msg
+            self._update_metrics_error(err_msg)
+
+    def _update_metrics_ok(self, ts: float, market_count: int) -> None:
+        """Update global metrics on successful refresh."""
+        try:
+            from src.metrics import (
+                set_markets_subscribed,
+                set_universe_last_refresh,
+                set_universe_error,
+            )
+            set_markets_subscribed(market_count)
+            set_universe_last_refresh(ts, market_count)
+            set_universe_error(None)
+        except Exception:
+            pass
+
+    def _update_metrics_error(self, error: str) -> None:
+        """Update global metrics on refresh error."""
+        try:
+            from src.metrics import set_universe_error
+            set_universe_error(error)
+        except Exception:
+            pass
 
     def _loop(self) -> None:
         while self._running:
@@ -295,13 +378,15 @@ class MarketUniverseManager:
         raw = self._fetch_markets_sync()
         infos = self._discover_from_raw(raw)
         token_ids = list({m.token_id for m in infos})
+        now = time.time()
         with self._lock:
             self._current_tokens = set(token_ids)
+            self._market_infos = infos[:20]
             self._snapshot = UniverseSnapshot(
                 total_markets_found=len(raw),
                 total_markets_filtered=len(infos),
                 total_markets_subscribed=len(token_ids),
-                last_update_timestamp=time.time(),
+                last_update_timestamp=now,
                 token_ids=token_ids,
             )
         logger.info(
@@ -310,4 +395,5 @@ class MarketUniverseManager:
             self._snapshot.total_markets_found,
             len(infos),
         )
+        self._update_metrics_ok(now, len(token_ids))
         return token_ids

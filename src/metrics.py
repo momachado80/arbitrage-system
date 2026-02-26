@@ -22,6 +22,17 @@ INGESTION_METRICS: Dict[str, Any] = {
 }
 _INGESTION_LOCK = threading.Lock()
 
+# Universe & WebSocket tracking
+UNIVERSE_METRICS: Dict[str, Any] = {
+    "ws_disconnects_total": 0,
+    "gaps_total": 0,
+    "universe_last_refresh_timestamp": None,
+    "universe_source": "none",
+    "universe_error": None,
+    "universe_market_count": 0,
+}
+_UNIVERSE_LOCK = threading.Lock()
+
 # Decisão (motivos de descarte)
 DECISION_REASONS = (
     "blocked_by_risk",
@@ -83,6 +94,37 @@ def get_ingestion_metrics() -> Dict[str, Any]:
 def get_decision_metrics() -> Dict[str, int]:
     with _DECISION_LOCK:
         return dict(DECISION_COUNTERS)
+
+
+def inc_ws_disconnects() -> None:
+    with _UNIVERSE_LOCK:
+        UNIVERSE_METRICS["ws_disconnects_total"] += 1
+
+
+def inc_gaps() -> None:
+    with _UNIVERSE_LOCK:
+        UNIVERSE_METRICS["gaps_total"] += 1
+
+
+def set_universe_source(source: str) -> None:
+    with _UNIVERSE_LOCK:
+        UNIVERSE_METRICS["universe_source"] = source
+
+
+def set_universe_last_refresh(ts: float, market_count: int = 0) -> None:
+    with _UNIVERSE_LOCK:
+        UNIVERSE_METRICS["universe_last_refresh_timestamp"] = ts
+        UNIVERSE_METRICS["universe_market_count"] = market_count
+
+
+def set_universe_error(error: Optional[str]) -> None:
+    with _UNIVERSE_LOCK:
+        UNIVERSE_METRICS["universe_error"] = error
+
+
+def get_universe_metrics() -> Dict[str, Any]:
+    with _UNIVERSE_LOCK:
+        return dict(UNIVERSE_METRICS)
 
 
 def run_sanity_checks(system_start_time: Optional[float] = None) -> None:

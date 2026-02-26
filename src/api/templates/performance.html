@@ -35,6 +35,34 @@
             </div>
         </div>
 
+        <!-- Universe Status Bar -->
+        <div class="card p-4 mb-4 flex flex-wrap items-center gap-4 text-sm">
+            <div class="flex items-center gap-2">
+                <span class="text-slate-400">Universo:</span>
+                <span id="uni-source" class="font-bold text-white">---</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-slate-400">Mercados:</span>
+                <span id="uni-markets" class="font-bold text-white">0</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-slate-400">Snapshots/min:</span>
+                <span id="uni-spm" class="font-bold text-white">0</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-slate-400">Ultimo snapshot:</span>
+                <span id="uni-age" class="font-bold text-white">---</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-slate-400">WS reconexoes:</span>
+                <span id="uni-disconnects" class="font-bold text-white">0</span>
+            </div>
+            <div id="uni-error-wrap" class="hidden flex items-center gap-2">
+                <span class="text-red-400">Erro:</span>
+                <span id="uni-error" class="text-red-300 text-xs"></span>
+            </div>
+        </div>
+
         <!-- Big Status Indicator -->
         <div id="big-status" class="card p-8 mb-6 text-center">
             <p class="text-sm text-slate-400 uppercase tracking-wider mb-2">Sistema com Vantagem?</p>
@@ -148,6 +176,22 @@
     }
 
     function updateDashboard(data) {
+        // 0. Universe info
+        const uni = data.universe || {};
+        document.getElementById('uni-source').textContent = (uni.source || 'none').toUpperCase();
+        document.getElementById('uni-markets').textContent = uni.markets_subscribed || 0;
+        document.getElementById('uni-spm').textContent = uni.snapshots_per_minute || 0;
+        const age = uni.last_snapshot_age_seconds;
+        document.getElementById('uni-age').textContent = age !== null && age !== undefined ? age.toFixed(0) + 's' : '---';
+        document.getElementById('uni-disconnects').textContent = uni.ws_disconnects_total || 0;
+        const errWrap = document.getElementById('uni-error-wrap');
+        if (uni.universe_error) {
+            errWrap.classList.remove('hidden');
+            document.getElementById('uni-error').textContent = uni.universe_error;
+        } else {
+            errWrap.classList.add('hidden');
+        }
+
         // 1. Oracle Quality
         const oq = data.oracle_quality || {};
         document.getElementById('oracle-label').textContent = oq.label || '---';
