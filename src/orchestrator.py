@@ -560,26 +560,78 @@ def _start_dashboard_thread(system: Dict[str, Any], config: AppConfig) -> None:
     logger.info(f"[SYSTEM] Dashboard iniciado em http://127.0.0.1:{port}")
 
 
+def _start_auto_universe(
+    system: Dict[str, Any],
+    ws_client: PolymarketClient,
+    watcher_loop: asyncio.AbstractEventLoop,
+) -> MarketUniverseManager:
+    """
+    Start auto-universe discovery in background.
+    Creates MarketUniverseManager wired to ws_client for dynamic subscription.
+    """
+    from src.metrics import set_universe_source
+
+    max_markets = int(os.environ.get("MAX_MARKETS", "30"))
+    refresh_seconds = int(os.environ.get("UNIVERSE_REFRESH_SECONDS", "900"))
+
+    def _subscribe_sync(token_id: str) -> None:
+        """Subscribe a token via ws_client (async → sync bridge)."""
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                ws_client.subscribe_market(token_id),
+                watcher_loop,
+            )
+            future.result(timeout=10)
+        except Exception as e:
+            logger.warning("[AUTO_UNIVERSE] Subscribe failed: token=%s err=%s", token_id, e)
+
+    def _unsubscribe_sync(token_id: str) -> None:
+        """Remove token from subscribed set."""
+        ws_client._subscribed_tokens.discard(token_id)
+
+    universe_manager = MarketUniverseManager(
+        top_n=max_markets,
+        update_interval_sec=refresh_seconds,
+        subscribe_cb=_subscribe_sync,
+        unsubscribe_cb=_unsubscribe_sync,
+    )
+
+    set_universe_source("auto")
+    logger.info(
+        "[AUTO_UNIVERSE] Starting auto-discovery: max_markets=%d refresh=%ds",
+        max_markets, refresh_seconds,
+    )
+
+    # Give watcher loop time to start before subscribing
+    time.sleep(1)
+    universe_manager.start()
+
+    return universe_manager
+
+
 def run_system(system: Dict[str, Any]) -> None:
     """
     Inicia todas as threads e entra no main loop.
 
     Shutdown via KeyboardInterrupt (Ctrl+C).
     Health check a cada health_check_interval_seconds.
+    Supports auto_universe mode: starts with 0 tokens and discovers dynamically.
     """
     system["system_start_time"] = time.time()
     ws_client: PolymarketClient = system["ws_client"]
     market_engine: MarketDataEngine = system["market_engine"]
     reconciler_loop: ReconcilerLoop = system["reconciler_loop"]
     token_ids: List[str] = system["token_ids"]
+    auto_universe: bool = system.get("auto_universe", False)
     cfg: AppConfig = system.get("config") or load_app_config_from_env()
     health_interval = cfg.health_check_interval_seconds
 
-    if not token_ids:
+    if not token_ids and not auto_universe:
         logger.critical("[SYSTEM] Nenhum market ativo — engine não iniciada")
         return
 
-    set_markets_subscribed(len(token_ids))
+    if token_ids:
+        set_markets_subscribed(len(token_ids))
 
     # --- Start threads ---
 
@@ -599,7 +651,13 @@ def run_system(system: Dict[str, Any]) -> None:
     watcher_thread.start()
     logger.info("[WATCHER] [STARTED] Thread iniciada (daemon)")
     system["watcher_thread"] = watcher_thread
+    system["watcher_loop"] = watcher_loop
     system["build_audit_report"] = build_audit_report
+
+    # 1b. Auto-universe (if enabled and no manual tokens)
+    if auto_universe and not token_ids:
+        universe_manager = _start_auto_universe(system, ws_client, watcher_loop)
+        system["universe_manager"] = universe_manager
 
     # 2. ReconcilerLoop (thread normal)
     reconciler_loop.start()
