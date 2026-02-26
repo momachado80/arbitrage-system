@@ -84,6 +84,10 @@ from src.watcher.client import PolymarketClient
 # --- Market Universe (auto-discovery) ---
 from src.market.universe_manager import MarketUniverseManager
 from src.metrics import set_markets_subscribed, run_sanity_checks
+from src.monitoring.ingestion_audit import (
+    IngestionAuditAggregator,
+    start_ingestion_audit,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -92,10 +96,54 @@ logger = logging.getLogger(__name__)
 # ======================================================================
 
 DEFAULT_INITIAL_CAPITAL: float = 1000.0
-DEFAULT_STATE_DIR: str = os.path.join(
-    os.path.expanduser("~"), ".polymarket_bot"
-)
+# Render-safe: /tmp sempre gravável; /var/data não é no free tier
+DEFAULT_STATE_DIR: str = "/tmp/polymarket_state"
+DEFAULT_DATA_DIR: str = "/tmp/polymarket_data"
 HEARTBEAT_INTERVAL_SECONDS: int = 60
+
+
+def _safe_makedirs(path: str, fallback: str) -> str:
+    """
+    Tenta criar diretório. Se PermissionError, retorna fallback.
+    Garante que retorno seja sempre um path gravável.
+    """
+    try:
+        os.makedirs(path, exist_ok=True)
+        test_file = os.path.join(path, ".write_test")
+        with open(test_file, "w") as f:
+            f.write("")
+        try:
+            os.remove(test_file)
+        except OSError:
+            pass
+        return path
+    except (PermissionError, OSError) as e:
+        logger.warning(
+            "[SYSTEM] Fallback storage: %s não gravável (%s) -> usando %s",
+            path, e, fallback,
+        )
+        try:
+            os.makedirs(fallback, exist_ok=True)
+        except OSError:
+            pass
+        return fallback
+
+
+def resolve_storage_paths(state_dir_override: Optional[str] = None) -> tuple[str, str]:
+    """
+    Resolve STATE_DIR e DATA_DIR com fallback para /tmp se não graváveis.
+    Lê de env; defaults Render-safe. state_dir_override usa o path dado se fornecido.
+    """
+    state_dir = (
+        state_dir_override
+        if state_dir_override
+        else (os.environ.get("STATE_DIR", DEFAULT_STATE_DIR) or DEFAULT_STATE_DIR)
+    )
+    state_dir = str(state_dir).strip() or DEFAULT_STATE_DIR
+    data_dir = str(os.environ.get("DATA_DIR", DEFAULT_DATA_DIR) or DEFAULT_DATA_DIR).strip() or DEFAULT_DATA_DIR
+    resolved_state = _safe_makedirs(state_dir, DEFAULT_STATE_DIR)
+    resolved_data = _safe_makedirs(data_dir, DEFAULT_DATA_DIR)
+    return resolved_state, resolved_data
 # Fallback quando config não disponível
 RECONCILER_INTERVAL_SECONDS: int = 30
 
@@ -302,7 +350,7 @@ def _can_enter_live(config: AppConfig, safety_state: SafetyState) -> bool:
 
 def create_system(
     initial_capital: float = DEFAULT_INITIAL_CAPITAL,
-    state_dir: str = DEFAULT_STATE_DIR,
+    state_dir: Optional[str] = None,
     exchange_api: Optional[ExchangeAPI] = None,
     token_ids: Optional[List[str]] = None,
     config: Optional[AppConfig] = None,
@@ -312,23 +360,51 @@ def create_system(
 
     Se config=None, carrega de ENV via load_app_config_from_env().
     RUN_MODE=LIVE só efetivo se pré-condições atendidas; senão downgrade para OBSERVE.
+    Paths de storage sempre resolvidos via resolve_storage_paths(); nunca falha por filesystem.
     """
     cfg = config or load_app_config_from_env()
+    boot_error: Optional[str] = None
+
+    resolved_state_dir, resolved_data_dir = resolve_storage_paths(state_dir_override=state_dir)
+    logger.info(
+        "[BOOT] resolved STATE_DIR=%s, DATA_DIR=%s",
+        resolved_state_dir, resolved_data_dir,
+    )
     logger.info(f"[SYSTEM] Inicializando componentes... RUN_MODE={cfg.run_mode}")
 
-    # 1. Core managers
-    capital_manager = CapitalManager(initial_capital=initial_capital)
-    calibrator = ProbabilityCalibrator(
-        state_path=os.path.join(state_dir, "calibrator_state.json"),
-    )
-    position_manager = PositionManager(
-        state_path=os.path.join(state_dir, "position_state.json"),
-    )
-    trade_ledger = TradeLedger(
-        state_path=os.path.join(state_dir, "trade_ledger.json"),
-        calibrator=calibrator,
-        capital_manager=capital_manager,
-    )
+    use_dir = resolved_state_dir
+
+    def _create_components() -> tuple:
+        capital_manager = CapitalManager(initial_capital=initial_capital)
+        calibrator = ProbabilityCalibrator(
+            state_path=os.path.join(use_dir, "calibrator_state.json"),
+        )
+        position_manager = PositionManager(
+            state_path=os.path.join(use_dir, "position_state.json"),
+        )
+        trade_ledger = TradeLedger(
+            state_path=os.path.join(use_dir, "trade_ledger.json"),
+            calibrator=calibrator,
+            capital_manager=capital_manager,
+        )
+        return capital_manager, calibrator, position_manager, trade_ledger
+
+    try:
+        capital_manager, calibrator, position_manager, trade_ledger = _create_components()
+    except (PermissionError, OSError) as e:
+        boot_error = str(e)
+        logger.warning(
+            "[SYSTEM] Fallback: persistência em %s falhou (%s) -> usando /tmp",
+            use_dir, e,
+        )
+        use_dir = DEFAULT_STATE_DIR
+        try:
+            os.makedirs(use_dir, exist_ok=True)
+        except OSError:
+            pass
+        capital_manager, calibrator, position_manager, trade_ledger = _create_components()
+
+    # 1. Core managers (já criados acima)
     risk_manager = RiskManager(config={
         "max_exposure_total": initial_capital,
         "max_exposure_per_category": initial_capital * 0.5,
@@ -341,12 +417,28 @@ def create_system(
 
     # 2. Safety layer (antes de config snapshot)
     safety_state = SafetyState()
-    ack_store = SafetyAckStore(
-        state_path=os.path.join(state_dir, "safety_ack.json"),
-    )
-    config_snapshot = ConfigSnapshotManager(
-        state_path=os.path.join(state_dir, "config_snapshot.json"),
-    )
+    try:
+        ack_store = SafetyAckStore(
+            state_path=os.path.join(use_dir, "safety_ack.json"),
+        )
+        config_snapshot = ConfigSnapshotManager(
+            state_path=os.path.join(use_dir, "config_snapshot.json"),
+        )
+    except (PermissionError, OSError) as e:
+        if boot_error is None:
+            boot_error = str(e)
+        logger.warning("[SYSTEM] Fallback safety paths para /tmp: %s", e)
+        use_dir = DEFAULT_STATE_DIR
+        try:
+            os.makedirs(use_dir, exist_ok=True)
+        except OSError:
+            pass
+        ack_store = SafetyAckStore(
+            state_path=os.path.join(use_dir, "safety_ack.json"),
+        )
+        config_snapshot = ConfigSnapshotManager(
+            state_path=os.path.join(use_dir, "config_snapshot.json"),
+        )
     config_snapshot.initialize_or_validate(cfg, safety_state)
 
     invariants_engine = RuntimeInvariantsEngine(
@@ -441,6 +533,10 @@ def create_system(
         "token_ids": token_ids or [],
         "exchange_api": api,
         "simulation_stats": sim_stats if effective_mode == "REALISTIC_SIMULATION" else None,
+        "resolved_state_dir": use_dir,
+        "resolved_data_dir": resolved_data_dir,
+        "state_dir": use_dir,
+        "boot_error": boot_error,
     }
 
 
@@ -513,6 +609,11 @@ def run_system(system: Dict[str, Any]) -> None:
     # 3. MarketDataEngine (thread normal)
     market_engine.start()
     logger.info("[ENGINE] [THREAD_STARTED] MarketDataEngine")
+
+    # 3b. Ingestion audit (thread daemon — logs JSON a cada 10s)
+    ingestion_audit = IngestionAuditAggregator()
+    start_ingestion_audit(ingestion_audit)
+    logger.info("[SYSTEM] Ingestion audit iniciado (log a cada 10s)")
 
     # 4. Health checker
     health_checker = HealthChecker(

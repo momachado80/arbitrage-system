@@ -15,8 +15,35 @@ Render:
 
 import logging
 import os
+import sys
 import threading
 from typing import Any, Dict
+
+# -----------------------------------------------------------------------------
+# Fail fast: verificar versão Python antes de qualquer import pesado
+# -----------------------------------------------------------------------------
+
+_REQUIRED_PYTHON = (3, 11)
+_REQUIRED_MAX = (3, 12)  # Rejeitar 3.12+ para garantia 3.11.x
+
+
+def _check_python_version() -> None:
+    """Garante Python 3.11.x exclusivamente. Rejeita 3.12+."""
+    v = sys.version_info
+    if (v.major, v.minor) < _REQUIRED_PYTHON or (v.major, v.minor) >= _REQUIRED_MAX:
+        raise RuntimeError(
+            "Unsupported Python version. Required: 3.11.x. "
+            f"Current: {v.major}.{v.minor}.{v.micro}"
+        )
+
+
+_check_python_version()
+
+
+from src.seed import set_global_seed
+
+_seed = int(os.environ.get("RANDOM_SEED", "42"))
+set_global_seed(_seed)
 
 from fastapi import FastAPI
 
@@ -35,13 +62,22 @@ def _health_handler():
     """GET /health para Render."""
     cfg = load_app_config_from_env()
     metrics = get_ingestion_metrics()
-    return {
+    out = {
         "status": "ok",
         "markets_subscribed": metrics.get("markets_subscribed", 0),
         "snapshots_received": metrics.get("snapshots_received", 0),
         "engine_events": metrics.get("engine_events", 0),
         "run_mode": cfg.run_mode,
     }
+    if _system:
+        out["resolved_state_dir"] = _system.get("resolved_state_dir")
+        out["resolved_data_dir"] = _system.get("resolved_data_dir")
+        out["boot_error"] = _system.get("boot_error")
+    else:
+        out["resolved_state_dir"] = None
+        out["resolved_data_dir"] = None
+        out["boot_error"] = None
+    return out
 
 
 # Criar app (com system se tokens disponíveis)
@@ -69,13 +105,50 @@ def health():
         return {"status": "ok"}
 
 
+def _log_git_commit() -> None:
+    """Log do hash do commit para auditoria."""
+    import subprocess
+    try:
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+        logger.info("GIT_COMMIT: %s", commit)
+    except Exception:
+        logger.warning("Could not retrieve git commit hash")
+
+
+def _log_boot_info() -> None:
+    """Log de versão Python, seed e variáveis críticas no boot."""
+    v = sys.version_info
+    logger.info(
+        "PYTHON_VERSION: %s.%s.%s",
+        v.major, v.minor, v.micro,
+    )
+    logger.info("GLOBAL_SEED_SET: %s", _seed)
+    env_mode = os.environ.get("ENV", os.environ.get("ENVIRONMENT", "development"))
+    logger.info("ENV: %s", env_mode)
+    for k in ("RUN_MODE", "PORT", "TRADING_SERVER"):
+        val = os.environ.get(k, "<unset>")
+        logger.info("[BOOT] [ENV] %s=%s", k, val)
+    tokens = os.environ.get("POLYMARKET_TOKENS", "")
+    n = len([t for t in tokens.split(",") if t.strip()]) if tokens else 0
+    logger.info("[BOOT] [ENV] POLYMARKET_TOKENS=<%d tokens>", n)
+    _log_git_commit()
+
+
 @app.on_event("startup")
 async def startup() -> None:
     """Inicia orchestrator em background (run_system com loop)."""
+    _log_boot_info()
     os.environ["TRADING_SERVER"] = "1"
-    if not _system or not _system.get("token_ids"):
-        logger.warning("[SERVER] Sem tokens — orchestrator não iniciado")
-        return
+    token_ids = _system.get("token_ids", []) if _system else []
+    n_tokens = len(token_ids) if token_ids else 0
+    logger.info(
+        "[SERVER] Iniciando orchestrator (token_ids=%d, auto-discovery habilitado)",
+        n_tokens,
+    )
 
     def _run() -> None:
         run_system(_system)

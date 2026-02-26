@@ -641,6 +641,10 @@ def _create_mock_system() -> Dict[str, Any]:
         "exchange_api": None,
         "build_audit_report": build_audit_report,
         "watcher_thread": None,
+        "resolved_state_dir": tmpdir,
+        "resolved_data_dir": tmpdir,
+        "state_dir": tmpdir,
+        "boot_error": None,
     }
 
 
