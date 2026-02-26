@@ -979,7 +979,19 @@ def _create_mock_system() -> Dict[str, Any]:
         "oracle_metrics_store": None,
         "edge_validator": None,
         "universe_manager": None,
+        "degraded_components": [],
     }
 
 
-app = create_dashboard_app(_create_mock_system())
+# Lazy app para standalone: evita mkdtemp/ I/O no import.
+_standalone_app_cache: Optional[FastAPI] = None
+
+
+def __getattr__(name: str) -> Any:
+    """Lazy app: só cria com I/O quando acessado (ex: uvicorn ...:app)."""
+    if name == "app":
+        global _standalone_app_cache
+        if _standalone_app_cache is None:
+            _standalone_app_cache = create_dashboard_app(_create_mock_system())
+        return _standalone_app_cache
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -122,10 +122,10 @@ DEFAULT_DATA_DIR: str = "/tmp/polymarket_data"
 HEARTBEAT_INTERVAL_SECONDS: int = 60
 
 
-def _safe_makedirs(path: str, fallback: str) -> str:
+def _safe_makedirs_silent(path: str) -> bool:
     """
-    Tenta criar diretório. Se PermissionError, retorna fallback.
-    Garante que retorno seja sempre um path gravável.
+    Tenta criar diretório. Nunca levanta exceção.
+    Retorna True se sucesso, False caso contrário.
     """
     try:
         os.makedirs(path, exist_ok=True)
@@ -136,34 +136,52 @@ def _safe_makedirs(path: str, fallback: str) -> str:
             os.remove(test_file)
         except OSError:
             pass
-        return path
-    except (PermissionError, OSError) as e:
+        return True
+    except Exception:
+        return False
+
+
+def _safe_makedirs(path: str, fallback: str) -> str:
+    """
+    Tenta criar diretório. Se falhar, tenta fallback. Nunca levanta.
+    Retorna path ou fallback (sempre string gravável quando possível).
+    """
+    try:
+        if _safe_makedirs_silent(path):
+            return path
         logger.warning(
-            "[SYSTEM] Fallback storage: %s não gravável (%s) -> usando %s",
-            path, e, fallback,
+            "[SYSTEM] Fallback storage: %s não gravável -> usando %s",
+            path, fallback,
         )
-        try:
-            os.makedirs(fallback, exist_ok=True)
-        except OSError:
-            pass
+        _safe_makedirs_silent(fallback)
+        return fallback
+    except Exception as e:
+        logger.warning("[SYSTEM] _safe_makedirs falhou: %s -> fallback %s", e, fallback)
         return fallback
 
 
 def resolve_storage_paths(state_dir_override: Optional[str] = None) -> tuple[str, str]:
     """
-    Resolve STATE_DIR e DATA_DIR com fallback para /tmp se não graváveis.
+    Resolve STATE_DIR e DATA_DIR com fallback para /tmp. Nunca levanta exceção.
     Lê de env; defaults Render-safe. state_dir_override usa o path dado se fornecido.
     """
-    state_dir = (
-        state_dir_override
-        if state_dir_override
-        else (os.environ.get("STATE_DIR", DEFAULT_STATE_DIR) or DEFAULT_STATE_DIR)
-    )
-    state_dir = str(state_dir).strip() or DEFAULT_STATE_DIR
-    data_dir = str(os.environ.get("DATA_DIR", DEFAULT_DATA_DIR) or DEFAULT_DATA_DIR).strip() or DEFAULT_DATA_DIR
-    resolved_state = _safe_makedirs(state_dir, DEFAULT_STATE_DIR)
-    resolved_data = _safe_makedirs(data_dir, DEFAULT_DATA_DIR)
-    return resolved_state, resolved_data
+    try:
+        state_dir = (
+            state_dir_override
+            if state_dir_override
+            else (os.environ.get("STATE_DIR", DEFAULT_STATE_DIR) or DEFAULT_STATE_DIR)
+        )
+        state_dir = str(state_dir).strip() or DEFAULT_STATE_DIR
+        data_dir = str(os.environ.get("DATA_DIR", DEFAULT_DATA_DIR) or DEFAULT_DATA_DIR).strip() or DEFAULT_DATA_DIR
+        resolved_state = _safe_makedirs(state_dir, DEFAULT_STATE_DIR)
+        resolved_data = _safe_makedirs(data_dir, DEFAULT_DATA_DIR)
+        return resolved_state, resolved_data
+    except Exception as e:
+        logger.warning(
+            "[SYSTEM] resolve_storage_paths falhou: %s -> fallback /tmp",
+            e,
+        )
+        return DEFAULT_STATE_DIR, DEFAULT_DATA_DIR
 # Fallback quando config não disponível
 RECONCILER_INTERVAL_SECONDS: int = 30
 
@@ -541,18 +559,25 @@ def create_system(
         oracle_provider=oracle_provider,
     )
 
-    # Metrics + Validation (persistência leve)
+    # Metrics + Validation (persistência leve); falhas não derrubam boot
+    degraded_components: List[str] = []
     data_dir = resolved_data_dir
     try:
         os.makedirs(data_dir, exist_ok=True)
     except OSError:
         pass
-    oracle_metrics_store = OracleMetricsStore(
-        metrics_path=os.path.join(data_dir, "oracle_metrics.jsonl"),
-    )
-    edge_validator = EdgeValidator(
-        log_path=os.path.join(data_dir, "edge_validation.jsonl"),
-    )
+    oracle_metrics_store = None
+    edge_validator = None
+    try:
+        oracle_metrics_store = OracleMetricsStore(
+            metrics_path=os.path.join(data_dir, "oracle_metrics.jsonl"),
+        )
+        edge_validator = EdgeValidator(
+            log_path=os.path.join(data_dir, "edge_validation.jsonl"),
+        )
+    except (PermissionError, OSError) as e:
+        logger.warning("[SYSTEM] oracle_metrics_store/edge_validator falhou (%s) -> modo degradado", e)
+        degraded_components.extend(["oracle_metrics_store", "edge_validator"])
 
     strategy_engine = StrategyEngine(
         safety_state=safety_state,
@@ -630,6 +655,7 @@ def create_system(
         "heuristic_oracle": heuristic_oracle,
         "oracle_metrics_store": oracle_metrics_store,
         "edge_validator": edge_validator,
+        "degraded_components": degraded_components,
     }
 
 
