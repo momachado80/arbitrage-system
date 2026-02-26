@@ -27,7 +27,7 @@ from typing import Any, Deque, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 DEFAULT_METRICS_PATH = os.path.join(
-    os.environ.get("DATA_DIR", "data"), "oracle_metrics.jsonl",
+    os.environ.get("DATA_DIR", "/tmp/polymarket_data"), "oracle_metrics.jsonl",
 )
 ROLLING_WINDOW = 200
 CALIBRATION_BINS = 10

@@ -35,7 +35,7 @@ from typing import Any, Deque, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 DEFAULT_LOG_PATH = os.path.join(
-    os.environ.get("DATA_DIR", "data"), "edge_validation.jsonl",
+    os.environ.get("DATA_DIR", "/tmp/polymarket_data"), "edge_validation.jsonl",
 )
 MAX_OPPORTUNITIES = 10000
 

@@ -114,9 +114,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_INITIAL_CAPITAL: float = 1000.0
 DEFAULT_STATE_DIR: str = os.environ.get(
     "STATE_DIR",
-    os.path.join(os.path.expanduser("~"), ".polymarket_bot"),
+    os.path.join("/tmp", "polymarket_state"),
 )
-DEFAULT_DATA_DIR: str = os.environ.get("DATA_DIR", "data")
+DEFAULT_DATA_DIR: str = os.environ.get("DATA_DIR", "/tmp/polymarket_data")
 HEARTBEAT_INTERVAL_SECONDS: int = 60
 # Fallback quando config não disponível
 RECONCILER_INTERVAL_SECONDS: int = 30
@@ -341,6 +341,22 @@ def _can_enter_live(config: AppConfig, safety_state: SafetyState) -> bool:
     return True
 
 
+def _safe_makedirs(path: str, fallback: str) -> str:
+    """Create directory, fall back to fallback path on permission error."""
+    try:
+        os.makedirs(path, exist_ok=True)
+        # Verify writable
+        test_file = os.path.join(path, ".write_test")
+        with open(test_file, "w") as f:
+            f.write("ok")
+        os.remove(test_file)
+        return path
+    except Exception as e:
+        logger.warning("[BOOT] Cannot use %s (%s), falling back to %s", path, e, fallback)
+        os.makedirs(fallback, exist_ok=True)
+        return fallback
+
+
 def create_system(
     initial_capital: float = DEFAULT_INITIAL_CAPITAL,
     state_dir: str = DEFAULT_STATE_DIR,
@@ -357,8 +373,9 @@ def create_system(
     cfg = config or load_app_config_from_env()
     logger.info(f"[SYSTEM] Inicializando componentes... RUN_MODE={cfg.run_mode}")
 
-    # Ensure state dir exists
-    os.makedirs(state_dir, exist_ok=True)
+    # Ensure dirs exist — fall back to /tmp if permission denied
+    state_dir = _safe_makedirs(state_dir, "/tmp/polymarket_state")
+    logger.info("[BOOT] state_dir=%s", state_dir)
 
     # 1. Core managers
     capital_manager = CapitalManager(initial_capital=initial_capital)
@@ -391,7 +408,10 @@ def create_system(
     config_snapshot = ConfigSnapshotManager(
         state_path=os.path.join(state_dir, "config_snapshot.json"),
     )
-    config_snapshot.initialize_or_validate(cfg, safety_state)
+    try:
+        config_snapshot.initialize_or_validate(cfg, safety_state)
+    except Exception as e:
+        logger.warning("[BOOT] config_snapshot.initialize_or_validate failed (non-fatal): %s", e)
 
     invariants_engine = RuntimeInvariantsEngine(
         capital_manager=capital_manager,
@@ -454,15 +474,27 @@ def create_system(
         oracle_provider=oracle_provider,
     )
 
-    # Metrics + Validation (persistência leve)
-    data_dir = DEFAULT_DATA_DIR
-    os.makedirs(data_dir, exist_ok=True)
-    oracle_metrics_store = OracleMetricsStore(
-        metrics_path=os.path.join(data_dir, "oracle_metrics.jsonl"),
-    )
-    edge_validator = EdgeValidator(
-        log_path=os.path.join(data_dir, "edge_validation.jsonl"),
-    )
+    # Metrics + Validation (persistência leve, non-fatal)
+    data_dir = _safe_makedirs(DEFAULT_DATA_DIR, "/tmp/polymarket_data")
+    logger.info("[BOOT] data_dir=%s", data_dir)
+    try:
+        oracle_metrics_store = OracleMetricsStore(
+            metrics_path=os.path.join(data_dir, "oracle_metrics.jsonl"),
+        )
+    except Exception as e:
+        logger.warning("[BOOT] OracleMetricsStore init failed (non-fatal): %s", e)
+        oracle_metrics_store = OracleMetricsStore(
+            metrics_path=os.path.join("/tmp", "oracle_metrics.jsonl"),
+        )
+    try:
+        edge_validator = EdgeValidator(
+            log_path=os.path.join(data_dir, "edge_validation.jsonl"),
+        )
+    except Exception as e:
+        logger.warning("[BOOT] EdgeValidator init failed (non-fatal): %s", e)
+        edge_validator = EdgeValidator(
+            log_path=os.path.join("/tmp", "edge_validation.jsonl"),
+        )
 
     strategy_engine = StrategyEngine(
         safety_state=safety_state,

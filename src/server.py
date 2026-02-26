@@ -145,10 +145,10 @@ async def startup() -> None:
 
         state_dir = os.environ.get(
             "STATE_DIR",
-            os.path.join(os.path.expanduser("~"), ".polymarket_bot"),
+            os.path.join("/tmp", "polymarket_state"),
         )
         os.makedirs(state_dir, exist_ok=True)
-        data_dir = os.environ.get("DATA_DIR", "data")
+        data_dir = os.environ.get("DATA_DIR", "/tmp/polymarket_data")
         os.makedirs(data_dir, exist_ok=True)
 
         initial_capital = float(os.environ.get("INITIAL_CAPITAL", "1000.0"))
