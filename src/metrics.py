@@ -19,6 +19,9 @@ INGESTION_METRICS: Dict[str, Any] = {
     "engine_events": 0,
     "events_discarded": 0,
     "last_event_timestamp": None,
+    "last_snapshot_ts": None,
+    "last_engine_ts": None,
+    "ws_disconnects": 0,
 }
 _INGESTION_LOCK = threading.Lock()
 
@@ -50,22 +53,31 @@ def set_markets_subscribed(n: int) -> None:
 def inc_snapshots_received() -> None:
     global _LAST_SNAPSHOT_TS
     with _INGESTION_LOCK:
+        now = time.time()
         INGESTION_METRICS["snapshots_received"] = INGESTION_METRICS.get("snapshots_received", 0) + 1
-        INGESTION_METRICS["last_event_timestamp"] = time.time()
-        _LAST_SNAPSHOT_TS = time.time()
+        INGESTION_METRICS["last_event_timestamp"] = now
+        INGESTION_METRICS["last_snapshot_ts"] = now
+        _LAST_SNAPSHOT_TS = now
 
 
 def inc_engine_events() -> None:
     global _LAST_ENGINE_TS
     with _INGESTION_LOCK:
+        now = time.time()
         INGESTION_METRICS["engine_events"] = INGESTION_METRICS.get("engine_events", 0) + 1
-        INGESTION_METRICS["last_event_timestamp"] = time.time()
-        _LAST_ENGINE_TS = time.time()
+        INGESTION_METRICS["last_event_timestamp"] = now
+        INGESTION_METRICS["last_engine_ts"] = now
+        _LAST_ENGINE_TS = now
 
 
 def inc_events_discarded() -> None:
     with _INGESTION_LOCK:
         INGESTION_METRICS["events_discarded"] = INGESTION_METRICS.get("events_discarded", 0) + 1
+
+
+def inc_ws_disconnects() -> None:
+    with _INGESTION_LOCK:
+        INGESTION_METRICS["ws_disconnects"] = INGESTION_METRICS.get("ws_disconnects", 0) + 1
 
 
 def record_decision_reason(reason: str) -> None:

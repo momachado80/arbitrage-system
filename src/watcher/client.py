@@ -109,6 +109,11 @@ class PolymarketClient:
             if not self._running:
                 break
 
+            try:
+                from src.metrics import inc_ws_disconnects
+                inc_ws_disconnects()
+            except ImportError:
+                pass
             logger.info(f"[WATCHER:RECONNECT] aguardando {backoff:.1f}s")
             await asyncio.sleep(backoff)
             backoff = min(backoff * BACKOFF_MULTIPLIER, BACKOFF_MAX)
@@ -162,11 +167,22 @@ class PolymarketClient:
                 raw_bytes = bytes(raw)
             else:
                 return
-            data = orjson.loads(raw_bytes)
+            payload = orjson.loads(raw_bytes)
         except (orjson.JSONDecodeError, ValueError) as e:
             logger.error(f"[WATCHER:PARSE_ERROR] {e}")
             return
 
+        if isinstance(payload, list):
+            for event in payload:
+                if isinstance(event, dict):
+                    self._handle_event(event)
+        elif isinstance(payload, dict):
+            self._handle_event(payload)
+        else:
+            logger.warning("[WATCHER] Formato inesperado de mensagem WebSocket")
+
+    def _handle_event(self, data: dict) -> None:
+        """Processa um único evento (dict)."""
         event_type = data.get("event_type") or data.get("type", "")
         asset_id = data.get("asset_id") or data.get("token_id", "")
 

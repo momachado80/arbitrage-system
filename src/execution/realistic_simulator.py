@@ -84,6 +84,7 @@ class SimulationStats:
 
 @dataclass
 class SimulatedFill:
+    """Fill simulado. Campos com default devem vir após os obrigatórios."""
     order_id: str
     market_id: str
     side: str
@@ -92,10 +93,10 @@ class SimulatedFill:
     mid_at_signal: float
     spread_at_signal: float
     liquidity_available: float
-    order_size: float = 0.0
     slippage_applied: float
     latency_ms: float
     timestamp: str
+    order_size: float = 0.0  # Único opcional; deve ficar no final
 
 
 def _book_to_slippage_format(book: Dict) -> Dict[str, List[Tuple[float, float]]]:
@@ -255,7 +256,7 @@ class RealisticSimulationOrderManager:
             latency_ms=latency_ms,
             timestamp=datetime.now(timezone.utc).isoformat(),
             order_size=size,
-        )
+        )  # order_size último (único com default)
         with self._lock:
             self._fills[order_id] = fill
             self._orders[order_id] = {"status": "FILLED", "filled_size": executed_size, "price": exec_price}

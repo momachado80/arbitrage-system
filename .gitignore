@@ -8,3 +8,8 @@ node_modules/
 .DS_Store
 .pytest_cache/
 .venv_render/
+venv_clean/
+venv_freeze/
+.pip_cache/
+run*.json
+logs/
