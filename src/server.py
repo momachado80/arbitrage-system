@@ -69,6 +69,8 @@ logger = logging.getLogger(__name__)
 
 _system: Dict[str, Any] = {}
 _boot_error: Optional[str] = None
+_git_sha: str = "unknown"
+_build_time_utc: str = "unknown"
 
 
 def _resolve_tokens_fast() -> list:
@@ -105,6 +107,11 @@ try:
     set_universe_source(_universe_source)
 except Exception:
     pass
+
+# Dashboard: _system pre-populado com paths estáticos para evitar mkdtemp no import
+_system["state_dir"] = "/tmp/polymarket_dashboard"
+_system["resolved_state_dir"] = "/tmp/polymarket_dashboard"
+_system["resolved_data_dir"] = "/tmp/polymarket_dashboard"
 
 # Dashboard gets reference to _system dict — will see updates after startup populates it
 try:
@@ -143,6 +150,8 @@ def health():
             "boot_error": _boot_error,
             "resolved_state_dir": _system.get("resolved_state_dir"),
             "resolved_data_dir": _system.get("resolved_data_dir"),
+            "git_sha": _git_sha,
+            "build_time_utc": _build_time_utc,
             "token_count": metrics.get("markets_subscribed", 0),
             "markets_subscribed": metrics.get("markets_subscribed", 0),
             "snapshots_received": metrics.get("snapshots_received", 0),
@@ -152,27 +161,48 @@ def health():
             "universe_last_refresh_timestamp": universe.get("universe_last_refresh_timestamp"),
             "universe_source": universe.get("universe_source", "none"),
             "universe_error": universe.get("universe_error"),
+            "degraded_components": _system.get("degraded_components", []),
         }
     except Exception as ex:
-        return {"status": "ok", "boot_error": _boot_error, "health_error": str(ex)}
+        return {
+            "status": "ok",
+            "boot_error": _boot_error,
+            "health_error": str(ex),
+            "git_sha": _git_sha,
+            "build_time_utc": _build_time_utc,
+            "resolved_state_dir": _system.get("resolved_state_dir"),
+            "resolved_data_dir": _system.get("resolved_data_dir"),
+        }
 
 
 # -----------------------------------------------------------------------
 # Startup — create system + start orchestrator
 # -----------------------------------------------------------------------
 
-def _log_git_commit() -> None:
-    """Log do hash do commit para auditoria."""
-    import subprocess
+def _resolve_git_sha() -> str:
+    """
+    Tenta obter git SHA: env primeiro, depois subprocess.
+    Nunca levanta. Nunca chamar no import.
+    """
+    for key in ("RENDER_GIT_COMMIT", "GIT_SHA", "COMMIT_SHA", "SOURCE_VERSION"):
+        val = os.environ.get(key, "").strip()
+        if val:
+            return val[:12] if len(val) > 12 else val
     try:
-        commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"],
+        import subprocess
+        out = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
             cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             stderr=subprocess.DEVNULL,
         ).decode().strip()
-        logger.info("GIT_COMMIT: %s", commit)
+        return out or "unknown"
     except Exception:
-        logger.warning("Could not retrieve git commit hash")
+        return "unknown"
+
+
+def _log_git_commit() -> None:
+    """Log do hash do commit para auditoria. Chamar apenas no startup."""
+    logger.info("GIT_COMMIT: %s", _git_sha)
 
 
 def _log_boot_info() -> None:
@@ -196,8 +226,11 @@ def _log_boot_info() -> None:
 
 @app.on_event("startup")
 async def startup() -> None:
-    global _boot_error
+    global _boot_error, _git_sha, _build_time_utc
     os.environ["TRADING_SERVER"] = "1"
+    _git_sha = _resolve_git_sha()
+    from datetime import datetime, timezone
+    _build_time_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     _log_boot_info()
 
     logger.info("[BOOT] startup event fired")
