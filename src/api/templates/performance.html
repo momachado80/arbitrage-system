@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Performance — Edge Laboratory</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <style>
+        body { background: #0f172a; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
+        .card { background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(71, 85, 105, 0.4); border-radius: 12px; backdrop-filter: blur(10px); }
+        .semaphore { width: 18px; height: 18px; border-radius: 50%; display: inline-block; }
+        .sem-green { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+        .sem-yellow { background: #eab308; box-shadow: 0 0 8px #eab308; }
+        .sem-red { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
+        .sem-gray { background: #64748b; }
+        .trend-up { color: #22c55e; }
+        .trend-down { color: #ef4444; }
+        .trend-flat { color: #94a3b8; }
+        .big-indicator { font-size: 3rem; font-weight: 800; letter-spacing: -2px; }
+        .bar-fill { height: 8px; border-radius: 4px; transition: width 0.5s; }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+    <div class="max-w-5xl mx-auto">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-8">
+            <div>
+                <h1 class="text-2xl font-bold text-white">Edge Laboratory</h1>
+                <p class="text-sm text-slate-400 mt-1">Validando se vantagem estatistica existe</p>
+            </div>
+            <div class="flex gap-3">
+                <a href="/" class="text-sm text-slate-400 hover:text-white">Dashboard</a>
+                <a href="/strategy" class="text-sm text-slate-400 hover:text-white">Strategy</a>
+            </div>
+        </div>
+
+        <!-- Universe Status Bar -->
+        <div class="card p-4 mb-4 flex flex-wrap items-center gap-4 text-sm">
+            <div class="flex items-center gap-2">
+                <span class="text-slate-400">Universo:</span>
+                <span id="uni-source" class="font-bold text-white">---</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-slate-400">Mercados:</span>
+                <span id="uni-markets" class="font-bold text-white">0</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-slate-400">Snapshots/min:</span>
+                <span id="uni-spm" class="font-bold text-white">0</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-slate-400">Ultimo snapshot:</span>
+                <span id="uni-age" class="font-bold text-white">---</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-slate-400">WS reconexoes:</span>
+                <span id="uni-disconnects" class="font-bold text-white">0</span>
+            </div>
+            <div id="uni-error-wrap" class="hidden flex items-center gap-2">
+                <span class="text-red-400">Erro:</span>
+                <span id="uni-error" class="text-red-300 text-xs"></span>
+            </div>
+        </div>
+
+        <!-- Big Status Indicator -->
+        <div id="big-status" class="card p-8 mb-6 text-center">
+            <p class="text-sm text-slate-400 uppercase tracking-wider mb-2">Sistema com Vantagem?</p>
+            <div id="big-answer" class="big-indicator text-slate-600">---</div>
+            <p id="big-detail" class="text-sm text-slate-500 mt-2"></p>
+        </div>
+
+        <!-- 5 Blocks Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+            <!-- 1. Oracle Quality -->
+            <div class="card p-5">
+                <div class="flex items-center gap-2 mb-3">
+                    <span id="oracle-sem" class="semaphore sem-gray"></span>
+                    <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">Qualidade do Oracle</h2>
+                </div>
+                <p id="oracle-label" class="text-2xl font-bold text-white">---</p>
+                <p id="oracle-brier" class="text-xs text-slate-500 mt-1">Brier: ---</p>
+                <div class="mt-3 bg-slate-700 rounded-full overflow-hidden">
+                    <div id="oracle-bar" class="bar-fill bg-slate-500" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- 2. Finding Edge -->
+            <div class="card p-5">
+                <div class="flex items-center gap-2 mb-3">
+                    <span id="edge-sem" class="semaphore sem-gray"></span>
+                    <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">Encontrando Vantagem?</h2>
+                </div>
+                <p id="edge-count" class="text-2xl font-bold text-white">0</p>
+                <p class="text-xs text-slate-500 mt-1">oportunidades com edge &gt; 0</p>
+            </div>
+
+            <!-- 3. Capturing Edge -->
+            <div class="card p-5">
+                <div class="flex items-center gap-2 mb-3">
+                    <span id="capture-sem" class="semaphore sem-gray"></span>
+                    <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">Capturando Vantagem?</h2>
+                </div>
+                <p id="capture-value" class="text-2xl font-bold text-white">---</p>
+                <p class="text-xs text-slate-500 mt-1">PnL por unidade de edge</p>
+            </div>
+
+            <!-- 4. Market Reaction -->
+            <div class="card p-5">
+                <div class="flex items-center gap-2 mb-3">
+                    <span id="decay-sem" class="semaphore sem-gray"></span>
+                    <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">Mercado Reage Rapido?</h2>
+                </div>
+                <p id="decay-value" class="text-2xl font-bold text-white">---</p>
+                <p class="text-xs text-slate-500 mt-1">tempo medio ate edge desaparecer</p>
+            </div>
+
+            <!-- 5. System Status -->
+            <div class="card p-5">
+                <div class="flex items-center gap-2 mb-3">
+                    <span id="status-sem" class="semaphore sem-gray"></span>
+                    <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">Status Geral</h2>
+                </div>
+                <p id="status-label" class="text-2xl font-bold text-white">---</p>
+                <p id="status-detail" class="text-xs text-slate-500 mt-1"></p>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+            <!-- P_market vs P_oracle -->
+            <div class="card p-5">
+                <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">P_market vs P_oracle</h3>
+                <canvas id="chart-probabilities" height="200"></canvas>
+            </div>
+
+            <!-- Net Edge over time -->
+            <div class="card p-5">
+                <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">Net Edge ao Longo do Tempo</h3>
+                <canvas id="chart-edge" height="200"></canvas>
+            </div>
+        </div>
+
+        <!-- Validation Report Table -->
+        <div class="card p-5 mb-6">
+            <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">Relatorio de Validacao</h3>
+            <div id="validation-table" class="overflow-x-auto">
+                <table class="w-full text-sm text-left">
+                    <thead class="text-xs text-slate-400 uppercase">
+                        <tr>
+                            <th class="py-2 px-3">Metrica</th>
+                            <th class="py-2 px-3">Valor</th>
+                        </tr>
+                    </thead>
+                    <tbody id="validation-body" class="text-slate-300">
+                        <tr><td class="py-2 px-3" colspan="2">Carregando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <p class="text-xs text-slate-600 text-center pb-4">Auto-refresh: 10s</p>
+    </div>
+
+    <script>
+    let probChart = null;
+    let edgeChart = null;
+    const probData = { labels: [], pMarket: [], pOracle: [] };
+    const edgeData = { labels: [], values: [] };
+
+    function semClass(level) {
+        if (level === 'excellent' || level === 'ok') return 'sem-green';
+        if (level === 'good' || level === 'warning') return 'sem-yellow';
+        if (level === 'poor' || level === 'danger') return 'sem-red';
+        return 'sem-gray';
+    }
+
+    function updateDashboard(data) {
+        // 0. Universe info
+        const uni = data.universe || {};
+        document.getElementById('uni-source').textContent = (uni.source || 'none').toUpperCase();
+        document.getElementById('uni-markets').textContent = uni.markets_subscribed || 0;
+        document.getElementById('uni-spm').textContent = uni.snapshots_per_minute || 0;
+        const age = uni.last_snapshot_age_seconds;
+        document.getElementById('uni-age').textContent = age !== null && age !== undefined ? age.toFixed(0) + 's' : '---';
+        document.getElementById('uni-disconnects').textContent = uni.ws_disconnects_total || 0;
+        const errWrap = document.getElementById('uni-error-wrap');
+        if (uni.universe_error) {
+            errWrap.classList.remove('hidden');
+            document.getElementById('uni-error').textContent = uni.universe_error;
+        } else {
+            errWrap.classList.add('hidden');
+        }
+
+        // 1. Oracle Quality
+        const oq = data.oracle_quality || {};
+        document.getElementById('oracle-label').textContent = oq.label || '---';
+        document.getElementById('oracle-brier').textContent = oq.brier !== null ? `Brier: ${oq.brier}` : 'Brier: ---';
+        document.getElementById('oracle-sem').className = 'semaphore ' + semClass(oq.level);
+        const barPct = oq.brier !== null ? Math.max(0, 100 - oq.brier * 400) : 0;
+        const bar = document.getElementById('oracle-bar');
+        bar.style.width = barPct + '%';
+        bar.className = 'bar-fill ' + (oq.level === 'excellent' ? 'bg-green-500' : oq.level === 'good' ? 'bg-yellow-500' : 'bg-red-500');
+
+        // 2. Finding Edge
+        const ef = data.edge_finding || {};
+        document.getElementById('edge-count').textContent = ef.count_24h || 0;
+        document.getElementById('edge-sem').className = 'semaphore ' + (ef.count_24h > 0 ? 'sem-green' : 'sem-gray');
+
+        // 3. Capturing Edge
+        const ec = data.edge_capturing || {};
+        const ppe = ec.profit_per_unit_edge;
+        document.getElementById('capture-value').textContent = ppe !== null && ppe !== undefined ? ppe.toFixed(4) : '---';
+        document.getElementById('capture-sem').className = 'semaphore ' + (ppe !== null && ppe > 0 ? 'sem-green' : ppe !== null ? 'sem-red' : 'sem-gray');
+
+        // 4. Market Reaction
+        const mr = data.market_reaction || {};
+        const decay = mr.avg_decay_seconds;
+        document.getElementById('decay-value').textContent = decay !== null && decay !== undefined ? decay.toFixed(1) + 's' : '---';
+        document.getElementById('decay-sem').className = 'semaphore ' + (decay !== null && decay > 30 ? 'sem-green' : decay !== null ? 'sem-yellow' : 'sem-gray');
+
+        // 5. System Status
+        const ss = data.system_status || {};
+        document.getElementById('status-label').textContent = ss.label || '---';
+        document.getElementById('status-sem').className = 'semaphore ' + semClass(ss.level);
+
+        // Big indicator
+        const vr = data.validation_report || {};
+        const bigEl = document.getElementById('big-answer');
+        const bigDetail = document.getElementById('big-detail');
+        const eq = vr.edge_quality || 'no_data';
+        if (eq === 'strong_edge') {
+            bigEl.textContent = 'SIM';
+            bigEl.className = 'big-indicator text-green-400';
+            bigDetail.textContent = 'Edge forte detectado — hit rate > 55%, Brier < 0.15';
+        } else if (eq === 'moderate_edge') {
+            bigEl.textContent = 'TALVEZ';
+            bigEl.className = 'big-indicator text-yellow-400';
+            bigDetail.textContent = 'Edge moderado detectado — precisa de mais dados';
+        } else if (eq === 'weak_edge') {
+            bigEl.textContent = 'FRACO';
+            bigEl.className = 'big-indicator text-orange-400';
+            bigDetail.textContent = 'Sinal fraco — oracle precisa melhorar';
+        } else if (eq === 'no_edge_detected') {
+            bigEl.textContent = 'NAO';
+            bigEl.className = 'big-indicator text-red-400';
+            bigDetail.textContent = 'Nenhuma vantagem detectada';
+        } else {
+            bigEl.textContent = '---';
+            bigEl.className = 'big-indicator text-slate-600';
+            bigDetail.textContent = 'Coletando dados...';
+        }
+
+        // Validation table
+        const tbody = document.getElementById('validation-body');
+        const metrics = [
+            ['Total Oportunidades', vr.total_opportunities ?? '---'],
+            ['Resolvidas', vr.resolved ?? '---'],
+            ['Pendentes', vr.pending ?? '---'],
+            ['Hit Rate', vr.hit_rate !== null && vr.hit_rate !== undefined ? (vr.hit_rate * 100).toFixed(1) + '%' : '---'],
+            ['Edge Medio', vr.average_net_edge ?? '---'],
+            ['PnL Simulado Total', vr.total_simulated_pnl ?? '---'],
+            ['PnL Simulado Medio', vr.avg_simulated_pnl ?? '---'],
+            ['Brier Score', vr.brier_score ?? '---'],
+            ['Decay Medio', vr.average_decay_time !== null && vr.average_decay_time !== undefined ? vr.average_decay_time + 's' : '---'],
+            ['Qualidade do Edge', eq],
+        ];
+        tbody.innerHTML = metrics.map(([k, v]) =>
+            `<tr class="border-t border-slate-700"><td class="py-2 px-3 text-slate-400">${k}</td><td class="py-2 px-3 font-mono">${v}</td></tr>`
+        ).join('');
+    }
+
+    function initCharts() {
+        const opts = {
+            responsive: true,
+            plugins: { legend: { labels: { color: '#94a3b8', font: { size: 11 } } } },
+            scales: {
+                x: { display: false },
+                y: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: 'rgba(71,85,105,0.3)' } }
+            }
+        };
+
+        probChart = new Chart(document.getElementById('chart-probabilities'), {
+            type: 'line',
+            data: {
+                labels: probData.labels,
+                datasets: [
+                    { label: 'P_market', data: probData.pMarket, borderColor: '#3b82f6', borderWidth: 2, pointRadius: 0, tension: 0.3 },
+                    { label: 'P_oracle', data: probData.pOracle, borderColor: '#22c55e', borderWidth: 2, pointRadius: 0, tension: 0.3 },
+                ]
+            },
+            options: opts,
+        });
+
+        edgeChart = new Chart(document.getElementById('chart-edge'), {
+            type: 'line',
+            data: {
+                labels: edgeData.labels,
+                datasets: [
+                    { label: 'Net Edge', data: edgeData.values, borderColor: '#a855f7', borderWidth: 2, pointRadius: 0, tension: 0.3, fill: { target: 'origin', above: 'rgba(168,85,247,0.1)', below: 'rgba(239,68,68,0.1)' } },
+                ]
+            },
+            options: opts,
+        });
+    }
+
+    async function fetchStrategyForCharts() {
+        try {
+            const res = await fetch('/api/strategy');
+            const data = await res.json();
+            const signals = data.signals || [];
+            if (signals.length > 0) {
+                const recent = signals.slice(-50);
+                probData.labels = recent.map((_, i) => i);
+                probData.pMarket = recent.map(s => s.p_market);
+                probData.pOracle = recent.map(s => s.p_oracle);
+                edgeData.labels = recent.map((_, i) => i);
+                edgeData.values = recent.map(s => s.edge);
+                if (probChart) { probChart.data.labels = probData.labels; probChart.data.datasets[0].data = probData.pMarket; probChart.data.datasets[1].data = probData.pOracle; probChart.update(); }
+                if (edgeChart) { edgeChart.data.labels = edgeData.labels; edgeChart.data.datasets[0].data = edgeData.values; edgeChart.update(); }
+            }
+        } catch (e) {}
+    }
+
+    async function refresh() {
+        try {
+            const res = await fetch('/api/performance');
+            const data = await res.json();
+            updateDashboard(data);
+        } catch (e) {}
+        await fetchStrategyForCharts();
+    }
+
+    initCharts();
+    refresh();
+    setInterval(refresh, 10000);
+    </script>
+</body>
+</html>

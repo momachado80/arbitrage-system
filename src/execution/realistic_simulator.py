@@ -93,10 +93,10 @@ class SimulatedFill:
     mid_at_signal: float
     spread_at_signal: float
     liquidity_available: float
-    slippage_applied: float
-    latency_ms: float
-    timestamp: str
-    order_size: float = 0.0  # Único opcional; deve ficar no final
+    order_size: float = 0.0
+    slippage_applied: float = 0.0
+    latency_ms: float = 0.0
+    timestamp: str = ""
 
 
 def _book_to_slippage_format(book: Dict) -> Dict[str, List[Tuple[float, float]]]:

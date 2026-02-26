@@ -9,15 +9,23 @@ Uso:
     uvicorn src.server:app --host 0.0.0.0 --port $PORT
 
 Render:
-    Procfile: web: uvicorn src.server:app --host 0.0.0.0 --port $PORT
-    Health check path: /health
+    Start Command: python -m uvicorn src.server:app --host 0.0.0.0 --port $PORT
+    Health Check Path: /health
+
+BOOT SEQUENCE:
+1. Module load: cria FastAPI app + empty _system dict (< 1s)
+2. Startup event: create_system() popula _system in-place
+3. Background thread: run_system() inicia watcher + engine
+4. Se AUTO_UNIVERSE=true: descobre mercados via Gamma API
 """
 
 import logging
 import os
 import sys
 import threading
-from typing import Any, Dict
+import time
+import traceback
+from typing import Any, Dict, Optional
 
 # -----------------------------------------------------------------------------
 # Fail fast: verificar versão Python antes de qualquer import pesado
@@ -47,63 +55,111 @@ set_global_seed(_seed)
 
 from fastapi import FastAPI
 
-from src.api.dashboard_server import create_dashboard_app
-from src.config.config import load_app_config_from_env
-from src.metrics import get_ingestion_metrics, get_decision_metrics
-from src.orchestrator import create_system, run_system, _resolve_token_ids
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 
 logger = logging.getLogger(__name__)
 
-# Estado global (preenchido antes de criar app)
+# -----------------------------------------------------------------------
+# Global state — mutable dict, populated in startup event
+# -----------------------------------------------------------------------
+
 _system: Dict[str, Any] = {}
+_boot_error: Optional[str] = None
 
 
-def _health_handler():
-    """GET /health para Render."""
-    cfg = load_app_config_from_env()
-    metrics = get_ingestion_metrics()
-    out = {
-        "status": "ok",
-        "markets_subscribed": metrics.get("markets_subscribed", 0),
-        "snapshots_received": metrics.get("snapshots_received", 0),
-        "engine_events": metrics.get("engine_events", 0),
-        "run_mode": cfg.run_mode,
-    }
-    if _system:
-        out["resolved_state_dir"] = _system.get("resolved_state_dir")
-        out["resolved_data_dir"] = _system.get("resolved_data_dir")
-        out["boot_error"] = _system.get("boot_error")
-    else:
-        out["resolved_state_dir"] = None
-        out["resolved_data_dir"] = None
-        out["boot_error"] = None
-    return out
+def _resolve_tokens_fast() -> list:
+    raw = os.environ.get("POLYMARKET_TOKENS", "").strip()
+    if not raw:
+        return []
+    tokens = [t.strip() for t in raw.split(",") if t.strip()]
+    if tokens:
+        logger.info("[BOOT] POLYMARKET_TOKENS: %d tokens", len(tokens))
+    return tokens
 
 
-# Criar app (com system se tokens disponíveis)
-token_ids = _resolve_token_ids()
-if not token_ids:
-    logger.critical("[SERVER] [NO_MARKETS] Usando modo demo")
-    from src.api.dashboard_server import _create_mock_system
-    _system = _create_mock_system()
-else:
-    initial_capital = float(os.environ.get("INITIAL_CAPITAL", "1000.0"))
-    _system = create_system(
-        initial_capital=initial_capital,
-        token_ids=token_ids,
-    )
+def _is_auto_universe() -> bool:
+    return os.environ.get("AUTO_UNIVERSE", "true").strip().lower() in ("true", "1", "yes")
 
-app = create_dashboard_app(_system)
 
+# -----------------------------------------------------------------------
+# Module-level: ONLY create FastAPI app (fast, no system creation)
+# -----------------------------------------------------------------------
+
+logger.info("[BOOT] Module load start")
+
+_manual_tokens = _resolve_tokens_fast()
+_auto_universe = _is_auto_universe()
+_universe_source = "manual" if _manual_tokens else ("auto" if _auto_universe else "none")
+
+logger.info(
+    "[BOOT] tokens=%d auto_universe=%s universe_source=%s",
+    len(_manual_tokens), _auto_universe, _universe_source,
+)
+
+try:
+    from src.metrics import set_universe_source
+    set_universe_source(_universe_source)
+except Exception:
+    pass
+
+# Dashboard gets reference to _system dict — will see updates after startup populates it
+try:
+    from src.api.dashboard_server import create_dashboard_app
+    app = create_dashboard_app(_system)
+    logger.info("[BOOT] Dashboard app created")
+except Exception as e:
+    logger.error("[BOOT] Dashboard creation FAILED: %s", e)
+    app = FastAPI(title="Trading System - Fallback")
+
+    @app.get("/")
+    async def fallback_root():
+        return {"status": "error", "message": str(e)}
+
+
+# -----------------------------------------------------------------------
+# Health check — ALWAYS works, exposes boot errors
+# -----------------------------------------------------------------------
 
 @app.get("/health")
 def health():
-    """Health check para Render. Path: /health"""
     try:
-        return _health_handler()
-    except Exception:
-        return {"status": "ok"}
+        from src.config.config import load_app_config_from_env
+        from src.metrics import get_ingestion_metrics, get_universe_metrics
+        cfg = load_app_config_from_env()
+        metrics = get_ingestion_metrics()
+        universe = get_universe_metrics()
 
+        last_ts = metrics.get("last_event_timestamp")
+        last_age = round(time.time() - last_ts, 1) if last_ts else None
+
+        return {
+            "status": "ok",
+            "run_mode": cfg.run_mode,
+            "has_system": bool(_system.get("ws_client")),
+            "boot_error": _boot_error,
+            "resolved_state_dir": _system.get("resolved_state_dir"),
+            "resolved_data_dir": _system.get("resolved_data_dir"),
+            "token_count": metrics.get("markets_subscribed", 0),
+            "markets_subscribed": metrics.get("markets_subscribed", 0),
+            "snapshots_received": metrics.get("snapshots_received", 0),
+            "last_snapshot_age_seconds": last_age,
+            "ws_disconnects_total": universe.get("ws_disconnects_total", 0),
+            "gaps_total": universe.get("gaps_total", 0),
+            "universe_last_refresh_timestamp": universe.get("universe_last_refresh_timestamp"),
+            "universe_source": universe.get("universe_source", "none"),
+            "universe_error": universe.get("universe_error"),
+        }
+    except Exception as ex:
+        return {"status": "ok", "boot_error": _boot_error, "health_error": str(ex)}
+
+
+# -----------------------------------------------------------------------
+# Startup — create system + start orchestrator
+# -----------------------------------------------------------------------
 
 def _log_git_commit() -> None:
     """Log do hash do commit para auditoria."""
@@ -140,27 +196,60 @@ def _log_boot_info() -> None:
 
 @app.on_event("startup")
 async def startup() -> None:
-    """Inicia orchestrator em background (run_system com loop)."""
-    _log_boot_info()
+    global _boot_error
     os.environ["TRADING_SERVER"] = "1"
-    token_ids = _system.get("token_ids", []) if _system else []
-    n_tokens = len(token_ids) if token_ids else 0
-    logger.info(
-        "[SERVER] Iniciando orchestrator (token_ids=%d, auto-discovery habilitado)",
-        n_tokens,
-    )
+    _log_boot_info()
 
+    logger.info("[BOOT] startup event fired")
+
+    # --- Step 1: Create system (sem os.makedirs; create_system usa resolve_storage_paths) ---
+    try:
+        from src.orchestrator import create_system
+
+        initial_capital = float(os.environ.get("INITIAL_CAPITAL", "1000.0"))
+
+        logger.info("[BOOT] calling create_system(tokens=%d)", len(_manual_tokens))
+        system = create_system(
+            initial_capital=initial_capital,
+            token_ids=_manual_tokens,
+        )
+
+        if _auto_universe and not _manual_tokens:
+            system["auto_universe"] = True
+
+        _system.update(system)
+        logger.info("[BOOT] system created — keys=%d", len(_system))
+
+    except Exception as e:
+        _boot_error = f"create_system failed: {type(e).__name__}: {e}"
+        logger.critical("[BOOT] FAILED: %s", _boot_error)
+        logger.critical(traceback.format_exc())
+        return
+
+    # --- Step 2: Start orchestrator in background thread ---
     def _run() -> None:
-        run_system(_system)
+        global _boot_error
+        try:
+            from src.orchestrator import run_system
+            logger.info("[BOOT] run_system starting")
+            run_system(_system)
+        except Exception as e:
+            _boot_error = f"run_system crashed: {type(e).__name__}: {e}"
+            logger.critical("[BOOT] Orchestrator crashed: %s", e)
+            logger.critical(traceback.format_exc())
 
     t = threading.Thread(target=_run, name="OrchestratorThread", daemon=True)
     t.start()
-    logger.info("[SERVER] [ORCHESTRATOR_STARTED]")
+
+    if _auto_universe and not _manual_tokens:
+        logger.info("[BOOT] AUTO_UNIVERSE enabled — markets will be discovered in background")
+    else:
+        logger.info("[BOOT] Manual mode — %d tokens", len(_manual_tokens))
 
 
-# -----------------------------------------------------------------------------
-# Ponto de entrada para execução direta (python -m src.server)
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------
+# Entry point
+# -----------------------------------------------------------------------
 
 if __name__ == "__main__":
     import uvicorn

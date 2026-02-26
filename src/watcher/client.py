@@ -72,6 +72,16 @@ class PolymarketClient:
         self._ws: Optional[aiohttp.ClientWebSocketResponse] = None
         self._running: bool = False
         self._tasks: List[asyncio.Task] = []  # type: ignore[type-arg]
+        self._disconnect_count: int = 0
+        self._gap_count: int = 0
+
+    @property
+    def disconnect_count(self) -> int:
+        return self._disconnect_count
+
+    @property
+    def gap_count(self) -> int:
+        return self._gap_count
 
     # ------------------------------------------------------------------
     # Main loop
@@ -95,16 +105,36 @@ class PolymarketClient:
                 backoff = BACKOFF_INITIAL
             except BookCorruptionError as e:
                 logger.warning(f"[WATCHER:BOOK_CORRUPT] {e} — reconectando")
+                self._disconnect_count += 1
+                self._gap_count += 1
+                try:
+                    from src.metrics import inc_ws_disconnects, inc_gaps
+                    inc_ws_disconnects()
+                    inc_gaps()
+                except Exception:
+                    pass
             except (
                 aiohttp.WSServerHandshakeError,
                 aiohttp.ClientError,
                 OSError,
             ) as e:
                 logger.warning(f"[WATCHER:DISCONNECT] {e}")
+                self._disconnect_count += 1
+                try:
+                    from src.metrics import inc_ws_disconnects
+                    inc_ws_disconnects()
+                except Exception:
+                    pass
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"[WATCHER:ERROR] {type(e).__name__}: {e}")
+                self._disconnect_count += 1
+                try:
+                    from src.metrics import inc_ws_disconnects
+                    inc_ws_disconnects()
+                except Exception:
+                    pass
 
             if not self._running:
                 break

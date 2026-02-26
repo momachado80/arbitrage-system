@@ -1,4 +1,0 @@
-# Render - Configuração para Trading System
-# Use este start command no Render Dashboard se o Procfile apontar para api:app
-# Start Command: uvicorn src.server:app --host 0.0.0.0 --port $PORT
-# Health Check Path: /health

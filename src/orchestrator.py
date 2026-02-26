@@ -81,6 +81,26 @@ from src.execution.realistic_simulator import (
 from src.watcher.bridge import WatcherBridge, MarketSnapshot
 from src.watcher.client import PolymarketClient
 
+# --- Strategy ---
+from src.strategy.strategy_engine import StrategyEngine
+from src.strategy.decision_pipeline import DecisionPipeline
+
+# --- Oracle ---
+from src.oracle.probability_oracle import (
+    ProbabilityOracle,
+    MockOracleProvider,
+    OraclePerformanceTracker,
+    EdgeDecayTracker,
+)
+from src.oracle.heuristic_oracle import HeuristicMicroOracle
+from src.oracle.metrics import OracleMetricsStore
+
+# --- Universe ---
+from src.universe.universe_builder import UniverseBuilder
+
+# --- Research ---
+from src.research.edge_validation import EdgeValidator
+
 # --- Market Universe (auto-discovery) ---
 from src.market.universe_manager import MarketUniverseManager
 from src.metrics import set_markets_subscribed, run_sanity_checks
@@ -96,7 +116,7 @@ logger = logging.getLogger(__name__)
 # ======================================================================
 
 DEFAULT_INITIAL_CAPITAL: float = 1000.0
-# Render-safe: /tmp sempre gravável; /var/data não é no free tier
+# Render-safe: fallback /tmp quando /var/data não gravável
 DEFAULT_STATE_DIR: str = "/tmp/polymarket_state"
 DEFAULT_DATA_DIR: str = "/tmp/polymarket_data"
 HEARTBEAT_INTERVAL_SECONDS: int = 60
@@ -179,23 +199,42 @@ class PipelineHandler:
     Handler que recebe MarketSnapshot do MarketDataEngine.
 
     Armazena o último snapshot por token_id (thread-safe).
-    Pronto para integração com strategy/execution futura.
+    Integra com StrategyEngine e DecisionPipeline para gerar trades.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        strategy_engine: Optional[StrategyEngine] = None,
+        decision_pipeline: Optional[DecisionPipeline] = None,
+    ) -> None:
         self._latest: Dict[str, MarketSnapshot] = {}
         self._lock = threading.Lock()
         self._update_count: int = 0
+        self._strategy_engine = strategy_engine
+        self._decision_pipeline = decision_pipeline
 
     def process_market_update(self, event: MarketSnapshot) -> None:
         """Processa snapshot de mercado. Thread-safe."""
         with self._lock:
             self._latest[event.token_id] = event
             self._update_count += 1
+
         logger.debug(
             f"[MARKET_ENGINE] Snapshot token={event.token_id} "
             f"bid={event.best_bid_price} ask={event.best_ask_price}"
         )
+
+        # Alimentar strategy engine
+        if self._strategy_engine is not None:
+            try:
+                signal = self._strategy_engine.process_snapshot(event)
+                if signal is not None and self._decision_pipeline is not None:
+                    self._decision_pipeline.process_signal(signal)
+            except Exception as e:
+                logger.error(
+                    "[MARKET_ENGINE] Strategy error: %s: %s",
+                    type(e).__name__, e,
+                )
 
     def get_latest(self, token_id: str) -> Optional[MarketSnapshot]:
         """Retorna último snapshot para um token."""
@@ -488,8 +527,53 @@ def create_system(
 
     logger.info(f"[SYSTEM] RUN_MODE efetivo: {effective_mode}")
 
-    # 5. Pipeline handler + Reconciler loop (era 5, mantém numeração)
-    pipeline_handler = PipelineHandler()
+    # 5. Oracle + Strategy Engine + Decision Pipeline
+    heuristic_oracle = HeuristicMicroOracle()
+    oracle_provider = heuristic_oracle  # V1: microstructure-based
+
+    probability_oracle = ProbabilityOracle(
+        provider=oracle_provider,
+        performance_tracker=OraclePerformanceTracker(),
+        edge_decay_tracker=EdgeDecayTracker(),
+    )
+    universe_builder = UniverseBuilder(
+        manual_tokens=token_ids or [],
+        oracle_provider=oracle_provider,
+    )
+
+    # Metrics + Validation (persistência leve)
+    data_dir = resolved_data_dir
+    try:
+        os.makedirs(data_dir, exist_ok=True)
+    except OSError:
+        pass
+    oracle_metrics_store = OracleMetricsStore(
+        metrics_path=os.path.join(data_dir, "oracle_metrics.jsonl"),
+    )
+    edge_validator = EdgeValidator(
+        log_path=os.path.join(data_dir, "edge_validation.jsonl"),
+    )
+
+    strategy_engine = StrategyEngine(
+        safety_state=safety_state,
+        oracle=probability_oracle,
+    )
+    decision_pipeline = DecisionPipeline(
+        run_mode=effective_mode,
+        safety_state=safety_state,
+        risk_manager=risk_manager,
+        calibrator=calibrator,
+        capital_manager=capital_manager,
+        position_manager=position_manager,
+        order_manager=order_manager,
+        trade_ledger=trade_ledger,
+    )
+
+    # 6. Pipeline handler + Reconciler loop
+    pipeline_handler = PipelineHandler(
+        strategy_engine=strategy_engine,
+        decision_pipeline=decision_pipeline,
+    )
     reconciler_loop = ReconcilerLoop(
         reconciler=reconciler,
         order_manager=order_manager,
@@ -537,6 +621,15 @@ def create_system(
         "resolved_data_dir": resolved_data_dir,
         "state_dir": use_dir,
         "boot_error": boot_error,
+        "strategy_engine": strategy_engine,
+        "decision_pipeline": decision_pipeline,
+        "reversion_metrics_collector": strategy_engine.metrics_collector,
+        "probability_oracle": probability_oracle,
+        "universe_builder": universe_builder,
+        "oracle_provider": oracle_provider,
+        "heuristic_oracle": heuristic_oracle,
+        "oracle_metrics_store": oracle_metrics_store,
+        "edge_validator": edge_validator,
     }
 
 
@@ -561,26 +654,78 @@ def _start_dashboard_thread(system: Dict[str, Any], config: AppConfig) -> None:
     logger.info(f"[SYSTEM] Dashboard iniciado em http://127.0.0.1:{port}")
 
 
+def _start_auto_universe(
+    system: Dict[str, Any],
+    ws_client: PolymarketClient,
+    watcher_loop: asyncio.AbstractEventLoop,
+) -> MarketUniverseManager:
+    """
+    Start auto-universe discovery in background.
+    Creates MarketUniverseManager wired to ws_client for dynamic subscription.
+    """
+    from src.metrics import set_universe_source
+
+    max_markets = int(os.environ.get("MAX_MARKETS", "30"))
+    refresh_seconds = int(os.environ.get("UNIVERSE_REFRESH_SECONDS", "900"))
+
+    def _subscribe_sync(token_id: str) -> None:
+        """Subscribe a token via ws_client (async → sync bridge)."""
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                ws_client.subscribe_market(token_id),
+                watcher_loop,
+            )
+            future.result(timeout=10)
+        except Exception as e:
+            logger.warning("[AUTO_UNIVERSE] Subscribe failed: token=%s err=%s", token_id, e)
+
+    def _unsubscribe_sync(token_id: str) -> None:
+        """Remove token from subscribed set."""
+        ws_client._subscribed_tokens.discard(token_id)
+
+    universe_manager = MarketUniverseManager(
+        top_n=max_markets,
+        update_interval_sec=refresh_seconds,
+        subscribe_cb=_subscribe_sync,
+        unsubscribe_cb=_unsubscribe_sync,
+    )
+
+    set_universe_source("auto")
+    logger.info(
+        "[AUTO_UNIVERSE] Starting auto-discovery: max_markets=%d refresh=%ds",
+        max_markets, refresh_seconds,
+    )
+
+    # Give watcher loop time to start before subscribing
+    time.sleep(1)
+    universe_manager.start()
+
+    return universe_manager
+
+
 def run_system(system: Dict[str, Any]) -> None:
     """
     Inicia todas as threads e entra no main loop.
 
     Shutdown via KeyboardInterrupt (Ctrl+C).
     Health check a cada health_check_interval_seconds.
+    Supports auto_universe mode: starts with 0 tokens and discovers dynamically.
     """
     system["system_start_time"] = time.time()
     ws_client: PolymarketClient = system["ws_client"]
     market_engine: MarketDataEngine = system["market_engine"]
     reconciler_loop: ReconcilerLoop = system["reconciler_loop"]
     token_ids: List[str] = system["token_ids"]
+    auto_universe: bool = system.get("auto_universe", False)
     cfg: AppConfig = system.get("config") or load_app_config_from_env()
     health_interval = cfg.health_check_interval_seconds
 
-    if not token_ids:
+    if not token_ids and not auto_universe:
         logger.critical("[SYSTEM] Nenhum market ativo — engine não iniciada")
         return
 
-    set_markets_subscribed(len(token_ids))
+    if token_ids:
+        set_markets_subscribed(len(token_ids))
 
     # --- Start threads ---
 
@@ -600,7 +745,13 @@ def run_system(system: Dict[str, Any]) -> None:
     watcher_thread.start()
     logger.info("[WATCHER] [STARTED] Thread iniciada (daemon)")
     system["watcher_thread"] = watcher_thread
+    system["watcher_loop"] = watcher_loop
     system["build_audit_report"] = build_audit_report
+
+    # 1b. Auto-universe (if enabled and no manual tokens)
+    if auto_universe and not token_ids:
+        universe_manager = _start_auto_universe(system, ws_client, watcher_loop)
+        system["universe_manager"] = universe_manager
 
     # 2. ReconcilerLoop (thread normal)
     reconciler_loop.start()

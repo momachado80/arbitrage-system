@@ -177,6 +177,45 @@ def _derive_events(
     return events
 
 
+def _build_universe_info(universe_manager: Any) -> Dict[str, Any]:
+    """Build universe info for /api/performance."""
+    try:
+        from src.metrics import get_ingestion_metrics, get_universe_metrics
+        metrics = get_ingestion_metrics()
+        universe = get_universe_metrics()
+
+        last_ts = metrics.get("last_event_timestamp")
+        now = time.time()
+        last_age = round(now - last_ts, 1) if last_ts else None
+
+        # Compute snapshots per minute
+        snapshots = metrics.get("snapshots_received", 0)
+        start_ts = universe.get("universe_last_refresh_timestamp")
+        if start_ts and snapshots > 0:
+            elapsed = now - start_ts
+            spm = round(snapshots / max(elapsed / 60.0, 0.1), 1) if elapsed > 0 else 0
+        else:
+            spm = 0
+
+        info: Dict[str, Any] = {
+            "source": universe.get("universe_source", "none"),
+            "markets_subscribed": metrics.get("markets_subscribed", 0),
+            "snapshots_received": snapshots,
+            "snapshots_per_minute": spm,
+            "last_snapshot_age_seconds": last_age,
+            "last_refresh_timestamp": universe.get("universe_last_refresh_timestamp"),
+            "universe_error": universe.get("universe_error"),
+            "ws_disconnects_total": universe.get("ws_disconnects_total", 0),
+        }
+
+        if universe_manager is not None and hasattr(universe_manager, "get_market_infos"):
+            info["top_markets"] = universe_manager.get_market_infos()
+
+        return info
+    except Exception:
+        return {"source": "unknown", "markets_subscribed": 0}
+
+
 def create_dashboard_app(system_context: Dict[str, Any]) -> FastAPI:
     """
     Cria app FastAPI do dashboard.
@@ -553,6 +592,294 @@ def create_dashboard_app(system_context: Dict[str, Any]) -> FastAPI:
         }
 
     # -------------------------------------------------------------------------
+    # GET /api/strategy
+    # -------------------------------------------------------------------------
+    @app.get("/api/strategy")
+    async def api_strategy():
+        """Dados da estratégia: sinais, mercados, performance."""
+        strategy_engine = system_context.get("strategy_engine")
+        decision_pipeline = system_context.get("decision_pipeline")
+
+        result: Dict[str, Any] = {
+            "markets": [],
+            "signals": [],
+            "decisions": [],
+            "strategy_summary": {},
+            "pipeline_summary": {},
+        }
+
+        if strategy_engine is not None:
+            try:
+                result["markets"] = strategy_engine.get_market_data()
+                result["signals"] = strategy_engine.get_signal_history(50)
+                result["strategy_summary"] = strategy_engine.get_strategy_summary()
+            except Exception as e:
+                result["error_strategy"] = str(e)
+
+        if decision_pipeline is not None:
+            try:
+                result["decisions"] = decision_pipeline.get_decision_history(50)
+                result["pipeline_summary"] = decision_pipeline.get_pipeline_summary()
+            except Exception as e:
+                result["error_pipeline"] = str(e)
+
+        return result
+
+    # -------------------------------------------------------------------------
+    # GET /api/market/{token_id}/history
+    # -------------------------------------------------------------------------
+    @app.get("/api/market/{token_id}/history")
+    async def api_market_history(token_id: str):
+        """Histórico de midpoints e z-scores para um token."""
+        strategy_engine = system_context.get("strategy_engine")
+        if strategy_engine is None:
+            return {"mid_history": [], "z_history": []}
+        return {
+            "mid_history": strategy_engine.get_mid_history(token_id, 200),
+            "z_history": strategy_engine.get_z_history(token_id, 200),
+        }
+
+    # -------------------------------------------------------------------------
+    # GET /strategy (pagina frontend)
+    # -------------------------------------------------------------------------
+    @app.get("/strategy", response_class=HTMLResponse)
+    async def strategy_page(request: Request):
+        return templates.TemplateResponse(
+            request=request,
+            name="strategy.html",
+            context={},
+        )
+
+    # -------------------------------------------------------------------------
+    # GET /api/oracle
+    # -------------------------------------------------------------------------
+    @app.get("/api/oracle")
+    async def api_oracle():
+        """Métricas completas do ProbabilityOracle."""
+        oracle = system_context.get("probability_oracle")
+        if oracle is None:
+            return {"error": "Oracle not available", "metrics": {}}
+        try:
+            return {"metrics": oracle.get_full_metrics()}
+        except Exception as e:
+            return {"error": str(e), "metrics": {}}
+
+    # -------------------------------------------------------------------------
+    # GET /api/backtest
+    # -------------------------------------------------------------------------
+    @app.get("/api/backtest")
+    async def api_backtest():
+        """Executa backtest rápido com cenários de exemplo."""
+        try:
+            from src.backtest.simple_backtest import SimpleBacktest, BacktestScenario
+            bt = SimpleBacktest()
+            # Cenários demonstrativos
+            scenarios = [
+                BacktestScenario(token_id="demo_1", p_market=0.40, p_oracle=0.55, outcome=1.0, spread=0.02),
+                BacktestScenario(token_id="demo_2", p_market=0.60, p_oracle=0.45, outcome=0.0, spread=0.02),
+                BacktestScenario(token_id="demo_3", p_market=0.50, p_oracle=0.52, outcome=1.0, spread=0.02),
+                BacktestScenario(token_id="demo_4", p_market=0.70, p_oracle=0.80, outcome=1.0, spread=0.03),
+                BacktestScenario(token_id="demo_5", p_market=0.30, p_oracle=0.15, outcome=0.0, spread=0.02),
+            ]
+            result = bt.run_scenarios(scenarios)
+            return {
+                "total_trades": result.total_trades,
+                "total_pnl": result.total_pnl,
+                "win_rate": result.win_rate,
+                "sharpe_ratio": result.sharpe_ratio,
+                "max_drawdown": result.max_drawdown,
+                "brier_score": result.brier_score,
+                "equity_curve": result.equity_curve,
+                "trades": result.trades,
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    # -------------------------------------------------------------------------
+    # GET /api/universe
+    # -------------------------------------------------------------------------
+    @app.get("/api/universe")
+    async def api_universe():
+        """Estado do UniverseBuilder."""
+        ub = system_context.get("universe_builder")
+        if ub is None:
+            return {"error": "Universe builder not available"}
+        try:
+            return ub.get_summary()
+        except Exception as e:
+            return {"error": str(e)}
+
+    # -------------------------------------------------------------------------
+    # GET /performance (executive dashboard page)
+    # -------------------------------------------------------------------------
+    @app.get("/performance", response_class=HTMLResponse)
+    async def performance_page(request: Request):
+        return templates.TemplateResponse(
+            request=request,
+            name="performance.html",
+            context={},
+        )
+
+    # -------------------------------------------------------------------------
+    # GET /api/performance (data for executive dashboard)
+    # -------------------------------------------------------------------------
+    @app.get("/api/performance")
+    async def api_performance():
+        """Dados para a página de performance executiva."""
+        oracle = system_context.get("probability_oracle")
+        edge_validator = system_context.get("edge_validator")
+        oracle_metrics_store = system_context.get("oracle_metrics_store")
+        universe_manager = system_context.get("universe_manager")
+
+        # 1. Oracle quality
+        oracle_quality = {"label": "Sem dados", "level": "unknown", "brier": None}
+        brier = None
+        if oracle is not None:
+            try:
+                brier = oracle.get_brier_score()
+            except Exception:
+                pass
+        if oracle_metrics_store is not None:
+            try:
+                brier = brier or oracle_metrics_store.rolling_brier_score()
+            except Exception:
+                pass
+        if brier is not None:
+            # Baseline: random oracle = 0.25
+            if brier < 0.15:
+                oracle_quality = {"label": "Excelente", "level": "excellent", "brier": round(brier, 4)}
+            elif brier < 0.25:
+                oracle_quality = {"label": "Boa", "level": "good", "brier": round(brier, 4)}
+            else:
+                oracle_quality = {"label": "Fraca", "level": "poor", "brier": round(brier, 4)}
+
+        # 2. Finding edge?
+        edge_count_24h = 0
+        if edge_validator is not None:
+            try:
+                report = edge_validator.generate_report()
+                edge_count_24h = report.get("total_opportunities", 0)
+            except Exception:
+                pass
+        elif oracle_metrics_store is not None:
+            try:
+                signals = oracle_metrics_store.get_signals_last_24h()
+                edge_count_24h = len(signals)
+            except Exception:
+                pass
+
+        # 3. Capturing edge?
+        profit_per_edge = None
+        if oracle_metrics_store is not None:
+            try:
+                profit_per_edge = oracle_metrics_store.profit_per_unit_edge()
+            except Exception:
+                pass
+
+        # 4. Market reaction speed
+        avg_decay = None
+        if oracle is not None:
+            try:
+                decay_metrics = oracle.edge_decay_tracker.get_metrics()
+                avg_decay = decay_metrics.get("avg_half_life_seconds")
+            except Exception:
+                pass
+
+        # 5. System status
+        oracle_blocked = False
+        if oracle is not None:
+            try:
+                oracle_blocked = oracle.should_block_oracle()
+            except Exception:
+                pass
+
+        if oracle_blocked:
+            system_status = {"label": "Oracle instavel", "level": "danger"}
+        elif edge_count_24h == 0:
+            system_status = {"label": "Sem edge detectavel", "level": "warning"}
+        else:
+            system_status = {"label": "Operando", "level": "ok"}
+
+        # Validation report
+        validation_report = {}
+        if edge_validator is not None:
+            try:
+                validation_report = edge_validator.generate_report()
+            except Exception:
+                pass
+
+        # Oracle full metrics
+        oracle_full = {}
+        if oracle_metrics_store is not None:
+            try:
+                oracle_full = oracle_metrics_store.get_full_report()
+            except Exception:
+                pass
+
+        # Universe info
+        universe_info = _build_universe_info(universe_manager)
+
+        return {
+            "oracle_quality": oracle_quality,
+            "edge_finding": {
+                "count_24h": edge_count_24h,
+                "avg_per_day": edge_count_24h,
+            },
+            "edge_capturing": {
+                "profit_per_unit_edge": round(profit_per_edge, 4) if profit_per_edge is not None else None,
+            },
+            "market_reaction": {
+                "avg_decay_seconds": round(avg_decay, 1) if avg_decay is not None else None,
+            },
+            "system_status": system_status,
+            "validation_report": validation_report,
+            "oracle_metrics": oracle_full,
+            "universe": universe_info,
+        }
+
+    # -------------------------------------------------------------------------
+    # GET /api/metrics_summary (remote monitoring endpoint)
+    # -------------------------------------------------------------------------
+    @app.get("/api/metrics_summary")
+    async def api_metrics_summary():
+        """Endpoint para verificação remota de métricas."""
+        oracle = system_context.get("probability_oracle")
+        oracle_metrics_store = system_context.get("oracle_metrics_store")
+        edge_validator = system_context.get("edge_validator")
+
+        result: Dict[str, Any] = {
+            "timestamp": time.time(),
+            "oracle_blocked": False,
+            "brier_score": None,
+            "edge_signals_24h": 0,
+            "system_ok": True,
+        }
+
+        if oracle is not None:
+            try:
+                result["oracle_blocked"] = oracle.should_block_oracle()
+                result["brier_score"] = oracle.get_brier_score()
+            except Exception:
+                pass
+
+        if oracle_metrics_store is not None:
+            try:
+                signals = oracle_metrics_store.get_signals_last_24h()
+                result["edge_signals_24h"] = len(signals)
+            except Exception:
+                pass
+
+        if edge_validator is not None:
+            try:
+                report = edge_validator.generate_report()
+                result["validation"] = report
+            except Exception:
+                pass
+
+        result["system_ok"] = not result.get("oracle_blocked", False)
+        return result
+
+    # -------------------------------------------------------------------------
     # POST /api/ack
     # -------------------------------------------------------------------------
     class AckBody(BaseModel):
@@ -645,6 +972,13 @@ def _create_mock_system() -> Dict[str, Any]:
         "resolved_data_dir": tmpdir,
         "state_dir": tmpdir,
         "boot_error": None,
+        "strategy_engine": None,
+        "decision_pipeline": None,
+        "probability_oracle": None,
+        "universe_builder": None,
+        "oracle_metrics_store": None,
+        "edge_validator": None,
+        "universe_manager": None,
     }
 
 
