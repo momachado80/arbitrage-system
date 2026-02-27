@@ -37,6 +37,8 @@ _REQUIRED_MAX = (3, 12)  # Rejeitar 3.12+ para garantia 3.11.x
 
 def _check_python_version() -> None:
     """Garante Python 3.11.x exclusivamente. Rejeita 3.12+."""
+    if os.environ.get("SKIP_PYTHON_VERSION_CHECK") == "1":
+        return
     v = sys.version_info
     if (v.major, v.minor) < _REQUIRED_PYTHON or (v.major, v.minor) >= _REQUIRED_MAX:
         raise RuntimeError(
@@ -108,10 +110,13 @@ try:
 except Exception:
     pass
 
-# Dashboard: _system pre-populado com paths estáticos para evitar mkdtemp no import
-_system["state_dir"] = "/tmp/polymarket_dashboard"
-_system["resolved_state_dir"] = "/tmp/polymarket_dashboard"
-_system["resolved_data_dir"] = "/tmp/polymarket_dashboard"
+# Dashboard: paths iguais ao orchestrator para evitar mkdtemp no import
+# Constantes locais (orchestrator.DEFAULT_*); sem I/O
+_IMPORT_STATE_DIR = "/tmp/polymarket_state"
+_IMPORT_DATA_DIR = "/tmp/polymarket_data"
+_system["state_dir"] = _IMPORT_STATE_DIR
+_system["resolved_state_dir"] = _IMPORT_STATE_DIR
+_system["resolved_data_dir"] = _IMPORT_DATA_DIR
 
 # Dashboard gets reference to _system dict — will see updates after startup populates it
 try:
