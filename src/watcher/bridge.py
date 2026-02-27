@@ -90,6 +90,11 @@ class WatcherBridge:
         prev = self._last_bba.get(token_id)
 
         if current == prev:
+            try:
+                from src.metrics import inc_total_filtered_events
+                inc_total_filtered_events()
+            except ImportError:
+                pass
             return  # Sem mudança — não enviar snapshot redundante
 
         self._last_bba[token_id] = current

@@ -22,6 +22,9 @@ INGESTION_METRICS: Dict[str, Any] = {
     "last_snapshot_ts": None,
     "last_engine_ts": None,
     "ws_disconnects": 0,
+    "total_ws_messages": 0,
+    "total_book_events": 0,
+    "total_filtered_events": 0,
 }
 _INGESTION_LOCK = threading.Lock()
 
@@ -84,6 +87,21 @@ def inc_engine_events() -> None:
 def inc_events_discarded() -> None:
     with _INGESTION_LOCK:
         INGESTION_METRICS["events_discarded"] = INGESTION_METRICS.get("events_discarded", 0) + 1
+
+
+def inc_total_ws_messages() -> None:
+    with _INGESTION_LOCK:
+        INGESTION_METRICS["total_ws_messages"] = INGESTION_METRICS.get("total_ws_messages", 0) + 1
+
+
+def inc_total_book_events() -> None:
+    with _INGESTION_LOCK:
+        INGESTION_METRICS["total_book_events"] = INGESTION_METRICS.get("total_book_events", 0) + 1
+
+
+def inc_total_filtered_events() -> None:
+    with _INGESTION_LOCK:
+        INGESTION_METRICS["total_filtered_events"] = INGESTION_METRICS.get("total_filtered_events", 0) + 1
 
 
 def inc_ws_disconnects() -> None:

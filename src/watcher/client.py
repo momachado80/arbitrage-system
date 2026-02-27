@@ -170,9 +170,12 @@ class PolymarketClient:
                 if not self._running:
                     break
 
-                if msg.type == aiohttp.WSMsgType.TEXT:
-                    self._handle_message(msg.data)
-                elif msg.type == aiohttp.WSMsgType.BINARY:
+                if msg.type in (aiohttp.WSMsgType.TEXT, aiohttp.WSMsgType.BINARY):
+                    try:
+                        from src.metrics import inc_total_ws_messages
+                        inc_total_ws_messages()
+                    except ImportError:
+                        pass
                     self._handle_message(msg.data)
                 elif msg.type == aiohttp.WSMsgType.PING:
                     await self._ws.pong()
@@ -217,8 +220,18 @@ class PolymarketClient:
         asset_id = data.get("asset_id") or data.get("token_id", "")
 
         if event_type == "book":
+            try:
+                from src.metrics import inc_total_book_events
+                inc_total_book_events()
+            except ImportError:
+                pass
             self._on_book_snapshot(asset_id, data)
         elif event_type == "price_change":
+            try:
+                from src.metrics import inc_total_book_events
+                inc_total_book_events()
+            except ImportError:
+                pass
             self._on_book_update(asset_id, data)
         elif event_type in ("last_trade_price", "trade"):
             self._on_trade(asset_id, data)
