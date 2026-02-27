@@ -126,7 +126,7 @@ class WatcherBridge:
     # ------------------------------------------------------------------
 
     def _enqueue_snapshot(self, snap: MarketSnapshot) -> None:
-        """Drop-tail: se cheia, remove item mais antigo e insere novo."""
+        """Drop-tail: se cheia, remove item mais antigo e insere novo. Nunca levanta."""
         try:
             _inc_snapshots_received()
             self._queue.put_nowait(snap)
@@ -143,10 +143,12 @@ class WatcherBridge:
             try:
                 self._queue.put_nowait(snap)
             except queue.Full:
-                pass  # Shouldn't happen after get
+                pass  # Race: fila encheu de novo — descarta silenciosamente
+        except Exception:
+            pass  # Nunca propagar exceção para o WebSocket loop
 
     def _enqueue_trade(self, trade: MarketTrade) -> None:
-        """Trades prioritários: tenta inserir, descarta se cheia."""
+        """Trades prioritários: tenta inserir, descarta se cheia. Nunca levanta."""
         try:
             self._queue.put_nowait(trade)
         except queue.Full:
@@ -155,7 +157,12 @@ class WatcherBridge:
                 inc_events_discarded()
             except ImportError:
                 pass
-            logger.warning(
-                "[WATCHER] [TRADE_DROP] token=%s price=%s size=%s",
-                trade.token_id, trade.price, trade.size,
-            )
+            try:
+                logger.warning(
+                    "[WATCHER] [TRADE_DROP] token=%s price=%s size=%s",
+                    trade.token_id, trade.price, trade.size,
+                )
+            except Exception:
+                pass
+        except Exception:
+            pass  # Nunca propagar exceção para o WebSocket loop
