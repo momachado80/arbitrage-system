@@ -28,26 +28,29 @@ import traceback
 from typing import Any, Dict, Optional
 
 # -----------------------------------------------------------------------------
-# Fail fast: verificar versão Python antes de qualquer import pesado
+# Python version: apenas log, nunca crash
 # -----------------------------------------------------------------------------
 
-_REQUIRED_PYTHON = (3, 11)
-_REQUIRED_MAX = (3, 12)  # Rejeitar 3.12+ para garantia 3.11.x
-
-
-def _check_python_version() -> None:
-    """Garante Python 3.11.x exclusivamente. Rejeita 3.12+."""
-    if os.environ.get("SKIP_PYTHON_VERSION_CHECK") == "1":
-        return
-    v = sys.version_info
-    if (v.major, v.minor) < _REQUIRED_PYTHON or (v.major, v.minor) >= _REQUIRED_MAX:
-        raise RuntimeError(
-            "Unsupported Python version. Required: 3.11.x. "
-            f"Current: {v.major}.{v.minor}.{v.micro}"
-        )
-
-
-_check_python_version()
+def _log_python_version() -> None:
+    """
+    Loga versão Python. Nunca levanta exceção.
+    >= 3.11: aceito; < 3.11: log error; > 3.12: log warning (não testado oficialmente).
+    """
+    try:
+        v = sys.version_info
+        ver = (v.major, v.minor)
+        if ver < (3, 11):
+            logger.error(
+                "[BOOT] Python %s.%s.%s é anterior a 3.11; podem ocorrer incompatibilidades",
+                v.major, v.minor, v.micro,
+            )
+        elif ver >= (3, 12):
+            logger.warning(
+                "[BOOT] Python %s.%s.%s (>= 3.12) — versão não testada oficialmente",
+                v.major, v.minor, v.micro,
+            )
+    except Exception as e:
+        logger.warning("[BOOT] Não foi possível verificar versão Python: %s", e)
 
 
 from src.seed import set_global_seed
@@ -233,6 +236,10 @@ def _log_boot_info() -> None:
 async def startup() -> None:
     global _boot_error, _git_sha, _build_time_utc
     os.environ["TRADING_SERVER"] = "1"
+    try:
+        _log_python_version()
+    except Exception:
+        pass
     _git_sha = _resolve_git_sha()
     from datetime import datetime, timezone
     _build_time_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

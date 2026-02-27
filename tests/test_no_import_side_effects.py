@@ -70,10 +70,9 @@ class TestNoImportSideEffects:
             mkdir_calls.append(path_str)
             return original_path_mkdir(self, *args, **kwargs)
 
-        with patch.dict(os.environ, {"SKIP_PYTHON_VERSION_CHECK": "1"}, clear=False):
-            with patch("os.makedirs", side_effect=_patched_makedirs(original_makedirs, makedirs_calls)):
-                with patch.object(Path, "mkdir", patched_path_mkdir):
-                    import src.server  # noqa: F401
+        with patch("os.makedirs", side_effect=_patched_makedirs(original_makedirs, makedirs_calls)):
+            with patch.object(Path, "mkdir", patched_path_mkdir):
+                import src.server  # noqa: F401
 
         for p in makedirs_calls + mkdir_calls:
             assert _is_allowed(p), f"Import criou path proibido: {p!r}"
