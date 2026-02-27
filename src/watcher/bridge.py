@@ -133,11 +133,34 @@ class WatcherBridge:
     def _enqueue_snapshot(self, snap: MarketSnapshot) -> None:
         """Drop-tail: se cheia, remove item mais antigo e insere novo. Nunca levanta."""
         try:
+            from src.metrics import (
+                inc_enqueue_snapshot_attempted,
+                inc_enqueue_snapshot_ok,
+                inc_enqueue_snapshot_dropped_full,
+                inc_enqueue_snapshot_error,
+                set_last_queue_size,
+            )
+            inc_enqueue_snapshot_attempted()
+        except ImportError:
+            pass
+
+        try:
+            from src.metrics import set_last_queue_size
+            set_last_queue_size(self._queue.qsize())
+        except Exception:
+            pass
+
+        try:
             _inc_snapshots_received()
             self._queue.put_nowait(snap)
+            try:
+                from src.metrics import inc_enqueue_snapshot_ok
+                inc_enqueue_snapshot_ok()
+            except ImportError:
+                pass
         except queue.Full:
             try:
-                self._queue.get_nowait()  # Drop oldest
+                self._queue.get_nowait()
                 try:
                     from src.metrics import inc_events_discarded
                     inc_events_discarded()
@@ -147,10 +170,24 @@ class WatcherBridge:
                 pass
             try:
                 self._queue.put_nowait(snap)
+                try:
+                    from src.metrics import inc_enqueue_snapshot_ok
+                    inc_enqueue_snapshot_ok()
+                except ImportError:
+                    pass
             except queue.Full:
-                pass  # Race: fila encheu de novo — descarta silenciosamente
-        except Exception:
-            pass  # Nunca propagar exceção para o WebSocket loop
+                try:
+                    from src.metrics import inc_enqueue_snapshot_dropped_full
+                    inc_enqueue_snapshot_dropped_full()
+                except ImportError:
+                    pass
+        except Exception as e:
+            try:
+                from src.metrics import inc_enqueue_snapshot_error
+                inc_enqueue_snapshot_error()
+            except ImportError:
+                pass
+            logger.warning("[WATCHER] [ENQUEUE_SNAPSHOT_ERROR] %s: %s", type(e).__name__, e)
 
     def _enqueue_trade(self, trade: MarketTrade) -> None:
         """Trades prioritários: tenta inserir, descarta se cheia. Nunca levanta."""

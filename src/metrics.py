@@ -25,6 +25,11 @@ INGESTION_METRICS: Dict[str, Any] = {
     "total_ws_messages": 0,
     "total_book_events": 0,
     "total_filtered_events": 0,
+    "enqueue_snapshot_attempted": 0,
+    "enqueue_snapshot_ok": 0,
+    "enqueue_snapshot_dropped_full": 0,
+    "enqueue_snapshot_error": 0,
+    "last_queue_size": None,
 }
 _INGESTION_LOCK = threading.Lock()
 
@@ -102,6 +107,39 @@ def inc_total_book_events() -> None:
 def inc_total_filtered_events() -> None:
     with _INGESTION_LOCK:
         INGESTION_METRICS["total_filtered_events"] = INGESTION_METRICS.get("total_filtered_events", 0) + 1
+
+
+def inc_enqueue_snapshot_attempted() -> None:
+    with _INGESTION_LOCK:
+        INGESTION_METRICS["enqueue_snapshot_attempted"] = (
+            INGESTION_METRICS.get("enqueue_snapshot_attempted", 0) + 1
+        )
+
+
+def inc_enqueue_snapshot_ok() -> None:
+    with _INGESTION_LOCK:
+        INGESTION_METRICS["enqueue_snapshot_ok"] = (
+            INGESTION_METRICS.get("enqueue_snapshot_ok", 0) + 1
+        )
+
+
+def inc_enqueue_snapshot_dropped_full() -> None:
+    with _INGESTION_LOCK:
+        INGESTION_METRICS["enqueue_snapshot_dropped_full"] = (
+            INGESTION_METRICS.get("enqueue_snapshot_dropped_full", 0) + 1
+        )
+
+
+def inc_enqueue_snapshot_error() -> None:
+    with _INGESTION_LOCK:
+        INGESTION_METRICS["enqueue_snapshot_error"] = (
+            INGESTION_METRICS.get("enqueue_snapshot_error", 0) + 1
+        )
+
+
+def set_last_queue_size(size: int) -> None:
+    with _INGESTION_LOCK:
+        INGESTION_METRICS["last_queue_size"] = size
 
 
 def inc_ws_disconnects() -> None:
