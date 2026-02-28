@@ -139,6 +139,30 @@ except Exception as e:
 # Health check — ALWAYS works, exposes boot errors
 # -----------------------------------------------------------------------
 
+def _edge_episode_health(system: Dict[str, Any]) -> Dict[str, Any]:
+    """Métricas do Edge Episode Tracker para /health."""
+    tracker = system.get("edge_episode_tracker")
+    if tracker is None:
+        return {}
+    try:
+        agg = tracker.get_aggregates()
+        return {
+            "edge_episodes_total": agg.get("edge_episodes_total"),
+            "edge_episodes_open": agg.get("edge_episodes_open"),
+            "edge_episodes_closed": agg.get("edge_episodes_closed"),
+            "edge_duration_ms_p50": agg.get("edge_duration_ms_p50"),
+            "edge_duration_ms_p90": agg.get("edge_duration_ms_p90"),
+            "expected_net_edge_bps_p50": agg.get("expected_net_edge_bps_p50"),
+            "expected_net_edge_bps_p90": agg.get("expected_net_edge_bps_p90"),
+            "episodes_survive_500ms": agg.get("episodes_survive_500ms"),
+            "episodes_survive_2000ms": agg.get("episodes_survive_2000ms"),
+            "episodes_survive_5000ms": agg.get("episodes_survive_5000ms"),
+            "top_5_markets_by_ev": agg.get("top_5_markets_by_ev", []),
+        }
+    except Exception:
+        return {}
+
+
 @app.get("/health")
 def health():
     try:
@@ -178,6 +202,7 @@ def health():
             "universe_source": universe.get("universe_source", "none"),
             "universe_error": universe.get("universe_error"),
             "degraded_components": _system.get("degraded_components", []),
+            **_edge_episode_health(_system),
         }
     except Exception as ex:
         return {

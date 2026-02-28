@@ -46,6 +46,7 @@ from dataclasses import dataclass, field
 from typing import Any, Deque, Dict, List, Optional, Tuple
 
 from src.strategy.edge_model import EdgeConfig, EdgeModel, EdgeResult
+from src.strategy.edge_episode_tracker import EdgeEpisodeTracker
 
 logger = logging.getLogger(__name__)
 
@@ -129,10 +130,12 @@ class StrategyEngine:
         safety_state: Optional[Any] = None,
         oracle: Optional[Any] = None,
         min_liquidity: float = 50.0,
+        edge_episode_tracker: Optional[EdgeEpisodeTracker] = None,
     ) -> None:
         self._config = config or create_default_strategy_config()
         self._safety_state = safety_state
         self._oracle = oracle  # ProbabilityOracle instance
+        self._edge_episode_tracker = edge_episode_tracker
         self._min_liquidity = min_liquidity
         self._lock = threading.RLock()
 
@@ -249,6 +252,23 @@ class StrategyEngine:
         )
         raw_edge = edge_result.raw_edge
         net_edge = edge_result.net_edge
+
+        # Instrumentação: Edge Episode Tracker (prova de edge empírica)
+        if self._edge_episode_tracker is not None:
+            bid_sz = getattr(snapshot, "best_bid_size", None)
+            ask_sz = getattr(snapshot, "best_ask_size", None)
+            try:
+                self._edge_episode_tracker.update(
+                    token_id=token_id,
+                    ts=now,
+                    best_bid=bid,
+                    bid_size=bid_sz,
+                    best_ask=ask,
+                    ask_size=ask_sz,
+                    p_oracle=p_oracle,
+                )
+            except Exception as e:
+                logger.debug("[EDGE_TRACKER] update skip: %s", e)
 
         with self._lock:
             # Atualizar estado

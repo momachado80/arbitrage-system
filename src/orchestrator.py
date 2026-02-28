@@ -579,9 +579,13 @@ def create_system(
         logger.warning("[SYSTEM] oracle_metrics_store/edge_validator falhou (%s) -> modo degradado", e)
         degraded_components.extend(["oracle_metrics_store", "edge_validator"])
 
+    from src.strategy.edge_episode_tracker import EdgeEpisodeTracker
+    edge_episode_tracker = EdgeEpisodeTracker()
+
     strategy_engine = StrategyEngine(
         safety_state=safety_state,
         oracle=probability_oracle,
+        edge_episode_tracker=edge_episode_tracker,
     )
     decision_pipeline = DecisionPipeline(
         run_mode=effective_mode,
@@ -655,6 +659,7 @@ def create_system(
         "heuristic_oracle": heuristic_oracle,
         "oracle_metrics_store": oracle_metrics_store,
         "edge_validator": edge_validator,
+        "edge_episode_tracker": edge_episode_tracker,
         "degraded_components": degraded_components,
     }
 
