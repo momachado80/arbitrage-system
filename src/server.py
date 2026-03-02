@@ -25,7 +25,7 @@ import sys
 import threading
 import time
 import traceback
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 # -----------------------------------------------------------------------------
 # Python version: apenas log, nunca crash
@@ -78,7 +78,37 @@ _git_sha: str = "unknown"
 _build_time_utc: str = "unknown"
 
 
+# Presets para testes controlados de ingestão WS (TOKEN_SET=1|3|5)
+_TOKEN_SET_PRESETS: dict = {
+    1: [
+        "38397507750621893057346880033441136112987238933685677349709401910643842844855",
+    ],
+    3: [
+        "38397507750621893057346880033441136112987238933685677349709401910643842844855",
+        "14793609061774012318755418128997240420901961440229138466682192794558490666550",
+        "5708561660601459805512817131601230493971589760294984590237789749933853841330",
+    ],
+    5: [
+        "38397507750621893057346880033441136112987238933685677349709401910643842844855",
+        "14793609061774012318755418128997240420901961440229138466682192794558490666550",
+        "5708561660601459805512817131601230493971589760294984590237789749933853841330",
+        "39317885422026394259056328144566743331998444273202427934141325790266108570112",
+        "8067407495040644813204108294851401001772374258077273118510788800804436836793",
+    ],
+}
+
+_token_set_active: Optional[int] = None
+
+
 def _resolve_tokens_fast() -> list:
+    global _token_set_active
+    token_set = os.environ.get("TOKEN_SET", "").strip()
+    if token_set in ("1", "3", "5"):
+        preset = _TOKEN_SET_PRESETS[int(token_set)]
+        _token_set_active = int(token_set)
+        logger.info("[BOOT] TOKEN_SET=%s — preset com %d tokens", token_set, len(preset))
+        return list(preset)
+    _token_set_active = None
     raw = os.environ.get("POLYMARKET_TOKENS", "").strip()
     if not raw:
         return []
@@ -138,6 +168,12 @@ except Exception as e:
 # -----------------------------------------------------------------------
 # Health check — ALWAYS works, exposes boot errors
 # -----------------------------------------------------------------------
+
+def _token_ids_sample() -> List[str]:
+    """Primeiros 3 token_ids truncados (para /health)."""
+    tokens = _system.get("token_ids") or _manual_tokens
+    return [t[:16] + "..." if len(t) > 16 else t for t in tokens[:3]]
+
 
 def _edge_episode_health(system: Dict[str, Any]) -> Dict[str, Any]:
     """Métricas do Edge Episode Tracker para /health."""
@@ -199,9 +235,14 @@ def health():
             "ws_disconnects_total": universe.get("ws_disconnects_total", 0),
             "gaps_total": universe.get("gaps_total", 0),
             "universe_last_refresh_timestamp": universe.get("universe_last_refresh_timestamp"),
-            "universe_source": universe.get("universe_source", "none"),
+            "universe_source": (
+                "manual" if _token_set_active is not None
+                else universe.get("universe_source", "none")
+            ),
             "universe_error": universe.get("universe_error"),
             "degraded_components": _system.get("degraded_components", []),
+            "token_set_active": _token_set_active,
+            "token_ids_sample": _token_ids_sample(),
             **_edge_episode_health(_system),
         }
     except Exception as ex:
@@ -256,7 +297,7 @@ def _log_boot_info() -> None:
     logger.info("GLOBAL_SEED_SET: %s", _seed)
     env_mode = os.environ.get("ENV", os.environ.get("ENVIRONMENT", "development"))
     logger.info("ENV: %s", env_mode)
-    for k in ("RUN_MODE", "PORT", "TRADING_SERVER"):
+    for k in ("RUN_MODE", "PORT", "TRADING_SERVER", "TOKEN_SET"):
         val = os.environ.get(k, "<unset>")
         logger.info("[BOOT] [ENV] %s=%s", k, val)
     tokens = os.environ.get("POLYMARKET_TOKENS", "")
