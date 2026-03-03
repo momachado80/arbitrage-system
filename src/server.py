@@ -19,12 +19,14 @@ BOOT SEQUENCE:
 4. Se AUTO_UNIVERSE=true: descobre mercados via Gamma API
 """
 
+import json
 import logging
 import os
 import sys
 import threading
 import time
 import traceback
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 # -----------------------------------------------------------------------------
@@ -76,6 +78,8 @@ _system: Dict[str, Any] = {}
 _boot_error: Optional[str] = None
 _git_sha: str = "unknown"
 _build_time_utc: str = "unknown"
+_process_start_time: float = time.time()
+_process_start_time_utc: str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # Presets para testes controlados de ingestão WS (TOKEN_SET=1|3|5)
@@ -166,6 +170,114 @@ except Exception as e:
 
 
 # -----------------------------------------------------------------------
+# Health checkpoint — persistência mínima em /tmp (não fatal)
+# -----------------------------------------------------------------------
+
+_HEALTH_CHECKPOINT_INTERVAL_SEC = 60
+_health_checkpoint_baseline: Dict[str, Any] = {}
+_health_checkpoint_last_session: Dict[str, Any] = {}
+_health_checkpoint_loaded: bool = False
+_health_checkpoint_lock = threading.Lock()
+_last_checkpoint_write_ts: Optional[float] = None
+_last_checkpoint_write_utc: Optional[str] = None
+
+
+def _get_checkpoint_path() -> str:
+    """Path do checkpoint. Garantido sob /tmp (fallback)."""
+    base = _system.get("resolved_state_dir") or _IMPORT_STATE_DIR
+    return os.path.join(base, "health_checkpoint.json")
+
+
+def _checkpoint_path_safe_under_tmp(path: str) -> bool:
+    """Garantia: path resolvido está sob /tmp (ou /private/tmp no macOS)."""
+    try:
+        real = os.path.realpath(path)
+        return real.startswith("/tmp") or real.startswith("/private/tmp")
+    except Exception:
+        return False
+
+
+def _load_health_checkpoint() -> None:
+    """Carrega baseline do checkpoint (não fatal)."""
+    global _health_checkpoint_baseline
+    try:
+        path = _get_checkpoint_path()
+        if not _checkpoint_path_safe_under_tmp(path):
+            logger.warning("[CHECKPOINT] path fora de /tmp, skip load: %s", path)
+            return
+        if os.path.isfile(path):
+            with open(path, "r") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                with _health_checkpoint_lock:
+                    _health_checkpoint_baseline = dict(data.get("counters", {}))
+                logger.info("[CHECKPOINT] loaded baseline: %d keys", len(_health_checkpoint_baseline))
+    except Exception as e:
+        logger.debug("[CHECKPOINT] load skip (non-fatal): %s", e)
+
+
+def _maybe_write_health_checkpoint(metrics: Dict[str, Any], universe: Dict[str, Any]) -> None:
+    """Escreve checkpoint se 60s desde última escrita (não fatal)."""
+    global _last_checkpoint_write_ts, _last_checkpoint_write_utc
+    global _health_checkpoint_baseline, _health_checkpoint_last_session, _health_checkpoint_loaded
+    if not _health_checkpoint_loaded:
+        _load_health_checkpoint()
+        _health_checkpoint_loaded = True
+    now = time.time()
+    with _health_checkpoint_lock:
+        if _last_checkpoint_write_ts is not None and (now - _last_checkpoint_write_ts) < _HEALTH_CHECKPOINT_INTERVAL_SEC:
+            return
+    try:
+        path = _get_checkpoint_path()
+        if not _checkpoint_path_safe_under_tmp(path):
+            logger.warning("[CHECKPOINT] path fora de /tmp, skip write: %s", path)
+            return
+        base = os.path.dirname(path)
+        os.makedirs(base, exist_ok=True)
+        keys = (
+            "total_ws_messages", "total_book_events", "snapshots_received", "total_filtered_events",
+            "enqueue_snapshot_attempted", "enqueue_snapshot_ok", "enqueue_snapshot_dropped_full",
+            "enqueue_snapshot_error", "ws_disconnects_total", "gaps_total",
+        )
+        current: Dict[str, Any] = {}
+        for k in keys:
+            v = metrics.get(k) if k in metrics else universe.get(k)
+            if v is not None and isinstance(v, (int, float)):
+                current[k] = v
+        tracker = _system.get("edge_episode_tracker")
+        if tracker:
+            try:
+                agg = tracker.get_aggregates()
+                for k in ("edge_episodes_total", "edge_episodes_closed"):
+                    v = agg.get(k)
+                    if v is not None:
+                        current[k] = v if isinstance(v, (int, float)) else 0
+            except Exception:
+                pass
+        delta = {
+            k: current.get(k, 0) - _health_checkpoint_last_session.get(k, 0)
+            for k in set(keys) | {"edge_episodes_total", "edge_episodes_closed"}
+        }
+        counters: Dict[str, Any] = {
+            k: _health_checkpoint_baseline.get(k, 0) + delta.get(k, 0)
+            for k in set(_health_checkpoint_baseline) | set(delta)
+        }
+        payload = {
+            "counters": counters,
+            "last_write_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        with open(path, "w") as f:
+            json.dump(payload, f, indent=0)
+        with _health_checkpoint_lock:
+            _last_checkpoint_write_ts = now
+            _last_checkpoint_write_utc = payload["last_write_utc"]
+            _health_checkpoint_baseline = dict(counters)
+            _health_checkpoint_last_session = dict(current)
+    except Exception as e:
+        logger.debug("[CHECKPOINT] write skip (non-fatal): %s", e)
+
+
+# -----------------------------------------------------------------------
 # Health check — ALWAYS works, exposes boot errors
 # -----------------------------------------------------------------------
 
@@ -211,8 +323,15 @@ def health():
         last_ts = metrics.get("last_event_timestamp")
         last_age = round(time.time() - last_ts, 1) if last_ts else None
 
+        _maybe_write_health_checkpoint(metrics, universe)
+
+        with _health_checkpoint_lock:
+            ck_age = round(time.time() - _last_checkpoint_write_ts, 1) if _last_checkpoint_write_ts else None
+
         return {
             "status": "ok",
+            "process_start_time_utc": _process_start_time_utc,
+            "uptime_seconds": int(time.time() - _process_start_time),
             "run_mode": cfg.run_mode,
             "has_system": bool(_system.get("ws_client")),
             "boot_error": _boot_error,
@@ -243,6 +362,8 @@ def health():
             "degraded_components": _system.get("degraded_components", []),
             "token_set_active": _token_set_active,
             "token_ids_sample": _token_ids_sample(),
+            "checkpoint_age_seconds": ck_age,
+            "last_checkpoint_write_utc": _last_checkpoint_write_utc,
             **_edge_episode_health(_system),
         }
     except Exception as ex:
@@ -250,10 +371,14 @@ def health():
             "status": "ok",
             "boot_error": _boot_error,
             "health_error": str(ex),
+            "process_start_time_utc": _process_start_time_utc,
+            "uptime_seconds": int(time.time() - _process_start_time),
             "git_sha": _git_sha,
             "build_time_utc": _build_time_utc,
             "resolved_state_dir": _system.get("resolved_state_dir"),
             "resolved_data_dir": _system.get("resolved_data_dir"),
+            "checkpoint_age_seconds": None,
+            "last_checkpoint_write_utc": None,
         }
 
 
