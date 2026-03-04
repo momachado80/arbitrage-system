@@ -300,12 +300,21 @@ def _edge_episode_health(system: Dict[str, Any]) -> Dict[str, Any]:
             "edge_episodes_closed": agg.get("edge_episodes_closed"),
             "edge_duration_ms_p50": agg.get("edge_duration_ms_p50"),
             "edge_duration_ms_p90": agg.get("edge_duration_ms_p90"),
+            "edge_duration_ms_p99": agg.get("edge_duration_ms_p99"),
             "expected_net_edge_bps_p50": agg.get("expected_net_edge_bps_p50"),
             "expected_net_edge_bps_p90": agg.get("expected_net_edge_bps_p90"),
             "episodes_survive_500ms": agg.get("episodes_survive_500ms"),
             "episodes_survive_2000ms": agg.get("episodes_survive_2000ms"),
             "episodes_survive_5000ms": agg.get("episodes_survive_5000ms"),
+            "episodes_per_hour": agg.get("episodes_per_hour"),
             "top_5_markets_by_ev": agg.get("top_5_markets_by_ev", []),
+            "edge_auc_bps_ms_p50": agg.get("edge_auc_bps_ms_p50"),
+            "edge_auc_bps_ms_p90": agg.get("edge_auc_bps_ms_p90"),
+            "top_5_markets_by_edge_auc": agg.get("top_5_markets_by_edge_auc", []),
+            "exec_latency_ms": agg.get("exec_latency_ms"),
+            "fee_bps": agg.get("fee_bps"),
+            "slippage_bps_base": agg.get("slippage_bps_base"),
+            "slippage_bps_per_spread": agg.get("slippage_bps_per_spread"),
         }
     except Exception:
         return {}

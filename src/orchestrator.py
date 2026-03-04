@@ -580,7 +580,9 @@ def create_system(
         degraded_components.extend(["oracle_metrics_store", "edge_validator"])
 
     from src.strategy.edge_episode_tracker import EdgeEpisodeTracker
-    edge_episode_tracker = EdgeEpisodeTracker()
+    from src.strategy.episode_store import EpisodeStore
+    episode_store = EpisodeStore(state_dir=resolved_data_dir)
+    edge_episode_tracker = EdgeEpisodeTracker(on_close=episode_store.append)
 
     strategy_engine = StrategyEngine(
         safety_state=safety_state,
@@ -660,6 +662,7 @@ def create_system(
         "oracle_metrics_store": oracle_metrics_store,
         "edge_validator": edge_validator,
         "edge_episode_tracker": edge_episode_tracker,
+        "episode_store": episode_store,
         "degraded_components": degraded_components,
     }
 
