@@ -433,6 +433,20 @@ class EdgeEpisodeTracker:
                 result[f"{b}ms"] = round(sum(vals) / len(vals), 2)
         return result
 
+    def compute_market_ranking(self, top_n: int = 10) -> List[Dict[str, Any]]:
+        """Rank markets by estimated profitability. O(n) over closed episodes."""
+        from src.strategy.market_ranking import compute_market_ranking
+
+        with self._lock:
+            closed = list(self._closed)
+        elapsed_hours = (time.monotonic() - self._tracker_start_mono) / 3600.0
+        return compute_market_ranking(
+            episodes=closed,
+            elapsed_hours=elapsed_hours,
+            exec_latency_ms=self._exec_latency_ms,
+            top_n=top_n,
+        )
+
     def get_aggregates(self) -> Dict[str, Any]:
         with self._lock:
             closed = list(self._closed)
