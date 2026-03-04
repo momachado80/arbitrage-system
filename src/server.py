@@ -421,7 +421,7 @@ def analytics():
         return {"edge_survival_curve": {}, "aggregates": {}}
     try:
         cross_arb = _cross_market_analytics()
-        return {
+        result = {
             "edge_survival_curve": tracker.compute_edge_survival_curve(),
             "edge_decay_curve": tracker.compute_edge_decay_curve(),
             "edge_hazard_curve": tracker.compute_edge_hazard_curve(),
@@ -435,6 +435,8 @@ def analytics():
             ),
             "aggregates": tracker.get_aggregates(),
         }
+        result["market_regime"] = _compute_market_regime(result)
+        return result
     except Exception as ex:
         return {
             "error": str(ex),
@@ -448,6 +450,7 @@ def analytics():
             "sim_summary": None,
             "cross_market_arbitrage_opportunities": [],
             "cross_market_trade_candidates": [],
+            "market_regime": {"regime_score": 0.0, "state": "hostile", "components": {}},
             "aggregates": {},
         }
 
@@ -493,6 +496,15 @@ def _cross_market_analytics() -> dict:
         return {"cross_market_arbitrage_opportunities": result.get("cross_market_arbitrage_opportunities", [])}
     except Exception:
         return {"cross_market_arbitrage_opportunities": []}
+
+
+def _compute_market_regime(analytics_snapshot: dict) -> dict:
+    """Compute market regime from the analytics snapshot (non-fatal)."""
+    try:
+        from src.strategy.market_regime_detector import MarketRegimeDetector
+        return MarketRegimeDetector().compute(analytics_snapshot)
+    except Exception:
+        return {"regime_score": 0.0, "state": "hostile", "components": {}}
 
 
 def _build_trade_candidates(opportunities: list) -> list:
