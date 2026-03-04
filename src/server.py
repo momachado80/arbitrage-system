@@ -427,6 +427,7 @@ def analytics():
             "expected_edge_after_latency": tracker.compute_expected_edge_after_latency(),
             "market_profitability_ranking": tracker.compute_market_ranking(),
             **_structural_analytics(tracker),
+            "sim_summary": _last_sim_summary,
             "aggregates": tracker.get_aggregates(),
         }
     except Exception as ex:
@@ -439,6 +440,7 @@ def analytics():
             "market_profitability_ranking": [],
             "structural_edge_candidates": [],
             "structural_edge_new_markets": [],
+            "sim_summary": None,
             "aggregates": {},
         }
 
@@ -448,6 +450,80 @@ def _structural_analytics(tracker) -> dict:
         return tracker.compute_structural_edge_discovery()
     except Exception:
         return {"structural_edge_candidates": [], "structural_edge_new_markets": []}
+
+
+# -----------------------------------------------------------------------
+# Simulate endpoint
+# -----------------------------------------------------------------------
+
+_last_sim_summary: Optional[Dict[str, Any]] = None
+
+@app.get("/simulate")
+def simulate_endpoint(
+    from_utc: Optional[str] = None,
+    to_utc: Optional[str] = None,
+    market_key: Optional[str] = None,
+    style: str = "both",
+    seed: Optional[int] = None,
+):
+    """Run execution simulation over recorded data + episodes."""
+    try:
+        from src.sim.execution_simulator import SimConfig, simulate, save_sim_trades_jsonl
+        from src.sim.marketdata_recorder import load_recorded_snapshots
+
+        state_dir = _system.get("resolved_data_dir") or "/tmp/polymarket_state"
+
+        recorder = _system.get("marketdata_recorder")
+        snap_path = recorder.path if recorder else os.path.join(state_dir, "marketdata_snapshots.jsonl")
+        snapshots = load_recorded_snapshots(snap_path)
+
+        tracker = _system.get("edge_episode_tracker")
+        episodes: list = []
+        if tracker is not None:
+            with tracker._lock:
+                episodes = [tracker._episode_to_dict(e) for e in tracker._closed]
+
+        overrides: Dict[str, Any] = {}
+        if seed is not None:
+            overrides["seed"] = seed
+
+        cfg = SimConfig.from_env(**overrides)
+
+        from_ts = None
+        to_ts = None
+        if from_utc:
+            try:
+                from_ts = datetime.fromisoformat(from_utc.replace("Z", "+00:00")).timestamp()
+            except Exception:
+                pass
+        if to_utc:
+            try:
+                to_ts = datetime.fromisoformat(to_utc.replace("Z", "+00:00")).timestamp()
+            except Exception:
+                pass
+
+        result = simulate(
+            episodes=episodes,
+            snapshots=snapshots,
+            cfg=cfg,
+            style=style,
+            from_ts=from_ts,
+            to_ts=to_ts,
+            market_key_filter=market_key,
+        )
+
+        save_sim_trades_jsonl(result.get("trades", []), state_dir=state_dir)
+
+        global _last_sim_summary
+        _last_sim_summary = result.get("summary")
+
+        return result
+    except Exception as ex:
+        return {
+            "error": str(ex),
+            "trades": [],
+            "summary": {},
+        }
 
 
 # -----------------------------------------------------------------------

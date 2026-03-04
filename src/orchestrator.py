@@ -224,12 +224,14 @@ class PipelineHandler:
         self,
         strategy_engine: Optional[StrategyEngine] = None,
         decision_pipeline: Optional[DecisionPipeline] = None,
+        marketdata_recorder=None,
     ) -> None:
         self._latest: Dict[str, MarketSnapshot] = {}
         self._lock = threading.Lock()
         self._update_count: int = 0
         self._strategy_engine = strategy_engine
         self._decision_pipeline = decision_pipeline
+        self._recorder = marketdata_recorder
 
     def process_market_update(self, event: MarketSnapshot) -> None:
         """Processa snapshot de mercado. Thread-safe."""
@@ -241,6 +243,18 @@ class PipelineHandler:
             f"[MARKET_ENGINE] Snapshot token={event.token_id} "
             f"bid={event.best_bid_price} ask={event.best_ask_price}"
         )
+
+        if self._recorder is not None:
+            try:
+                self._recorder.record(
+                    token_id=event.token_id,
+                    best_bid_px=event.best_bid_price or 0.0,
+                    best_bid_sz=event.best_bid_size or 0.0,
+                    best_ask_px=event.best_ask_price or 0.0,
+                    best_ask_sz=event.best_ask_size or 0.0,
+                )
+            except Exception:
+                pass
 
         # Alimentar strategy engine
         if self._strategy_engine is not None:
@@ -603,10 +617,18 @@ def create_system(
         trade_ledger=trade_ledger,
     )
 
-    # 6. Pipeline handler + Reconciler loop
+    # 6. Optional market data recorder for sim replay
+    marketdata_recorder = None
+    if os.environ.get("RECORD_MARKETDATA", "").strip() == "1":
+        from src.sim.marketdata_recorder import MarketDataRecorder
+        marketdata_recorder = MarketDataRecorder(state_dir=resolved_data_dir)
+        logger.info("[BOOT] MarketData recorder enabled -> %s", marketdata_recorder.path)
+
+    # 6b. Pipeline handler + Reconciler loop
     pipeline_handler = PipelineHandler(
         strategy_engine=strategy_engine,
         decision_pipeline=decision_pipeline,
+        marketdata_recorder=marketdata_recorder,
     )
     reconciler_loop = ReconcilerLoop(
         reconciler=reconciler,
@@ -666,6 +688,7 @@ def create_system(
         "edge_validator": edge_validator,
         "edge_episode_tracker": edge_episode_tracker,
         "episode_store": episode_store,
+        "marketdata_recorder": marketdata_recorder,
         "degraded_components": degraded_components,
     }
 
