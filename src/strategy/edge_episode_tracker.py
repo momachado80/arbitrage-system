@@ -318,6 +318,22 @@ class EdgeEpisodeTracker:
             self._close_episode(ep, ts, mid, dropped_reason, mono_now)
             del self._open[token_id]
 
+    _SURVIVAL_BUCKETS_MS: Tuple[int, ...] = (50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000)
+
+    def compute_edge_survival_curve(self) -> Dict[str, float]:
+        """O(n) survival probability at each bucket threshold."""
+        with self._lock:
+            closed = list(self._closed)
+        n = len(closed)
+        if n == 0:
+            return {}
+        counts = {b: 0 for b in self._SURVIVAL_BUCKETS_MS}
+        for ep in closed:
+            for b in self._SURVIVAL_BUCKETS_MS:
+                if ep.duration_ms >= b:
+                    counts[b] += 1
+        return {f"{b}ms": round(counts[b] / n, 4) for b in self._SURVIVAL_BUCKETS_MS}
+
     def get_aggregates(self) -> Dict[str, Any]:
         with self._lock:
             closed = list(self._closed)
