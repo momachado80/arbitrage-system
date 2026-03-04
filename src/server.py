@@ -436,6 +436,9 @@ def analytics():
             "aggregates": tracker.get_aggregates(),
         }
         result["market_regime"] = _compute_market_regime(result)
+        result["shadow_trading_summary"] = _shadow_trading_summary()
+        result["risk_engine_state"] = _risk_engine_state()
+        result["opportunity_ranking"] = _opportunity_ranking(result)
         return result
     except Exception as ex:
         return {
@@ -451,6 +454,9 @@ def analytics():
             "cross_market_arbitrage_opportunities": [],
             "cross_market_trade_candidates": [],
             "market_regime": {"regime_score": 0.0, "state": "hostile", "components": {}},
+            "shadow_trading_summary": {},
+            "risk_engine_state": {},
+            "opportunity_ranking": [],
             "aggregates": {},
         }
 
@@ -496,6 +502,55 @@ def _cross_market_analytics() -> dict:
         return {"cross_market_arbitrage_opportunities": result.get("cross_market_arbitrage_opportunities", [])}
     except Exception:
         return {"cross_market_arbitrage_opportunities": []}
+
+
+def _shadow_trading_summary() -> dict:
+    """Return shadow trader summary if available (non-fatal)."""
+    try:
+        trader = _system.get("shadow_trader")
+        if trader is None:
+            return {}
+        return trader.summary()
+    except Exception:
+        return {}
+
+
+def _risk_engine_state() -> dict:
+    """Return risk engine state if available (non-fatal)."""
+    try:
+        engine = _system.get("risk_engine")
+        if engine is None:
+            return {}
+        return engine.state()
+    except Exception:
+        return {}
+
+
+def _opportunity_ranking(analytics_snapshot: dict) -> list:
+    """Rank market profitability entries by regime-adjusted score (non-fatal)."""
+    try:
+        from src.trading.opportunity_prioritizer import OpportunityPrioritizer
+
+        ranking = analytics_snapshot.get("market_profitability_ranking", [])
+        if not ranking:
+            return []
+
+        regime = analytics_snapshot.get("market_regime", {})
+        regime_score = regime.get("regime_score", 0.5) if isinstance(regime, dict) else 0.5
+
+        opportunities = []
+        for entry in ranking:
+            opportunities.append({
+                "market_id": entry.get("market_slug", entry.get("token_id", "")),
+                "expected_pnl_per_hour": entry.get("episodes_per_hour", 0) * entry.get("mean_edge_after_latency", 0),
+                "liquidity_score": entry.get("latency_survival", 0.5),
+                "fill_rate": entry.get("latency_survival", 0.5),
+            })
+
+        prioritizer = OpportunityPrioritizer()
+        return prioritizer.rank(opportunities, regime_score=regime_score, top_n=10)
+    except Exception:
+        return []
 
 
 def _compute_market_regime(analytics_snapshot: dict) -> dict:
