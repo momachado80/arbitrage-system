@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0B0F19;
+  --panel: #141A2A;
+  --border: #1E293B;
+  --text: #E2E8F0;
+  --muted: #94A3B8;
+  --green: #4ADE80;
+  --yellow: #FACC15;
+  --red: #EF4444;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) var(--bg);
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+@layer components {
+  .terminal-panel {
+    @apply bg-terminal-panel border border-terminal-border rounded-lg p-4;
+  }
+
+  .terminal-glow-green {
+    text-shadow: 0 0 8px rgba(74, 222, 128, 0.4);
+  }
+
+  .terminal-glow-yellow {
+    text-shadow: 0 0 8px rgba(250, 204, 21, 0.4);
+  }
+
+  .terminal-glow-red {
+    text-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+  }
+
+  .pulse-dot {
+    @apply inline-block w-2 h-2 rounded-full;
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+
+  .pulse-dot-green {
+    @apply bg-terminal-green;
+    box-shadow: 0 0 6px rgba(74, 222, 128, 0.6);
+  }
+
+  .pulse-dot-yellow {
+    @apply bg-terminal-yellow;
+    box-shadow: 0 0 6px rgba(250, 204, 21, 0.6);
+  }
+
+  .pulse-dot-red {
+    @apply bg-terminal-red;
+    box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
