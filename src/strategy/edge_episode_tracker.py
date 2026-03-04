@@ -14,13 +14,15 @@ Métricas enriquecidas (v2):
 - episodes_per_hour
 """
 
+import json
 import logging
 import os
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +119,8 @@ class EdgeEpisodeTracker:
         slippage_bps_per_spread: float = SLIPPAGE_BPS_PER_SPREAD,
         min_net_edge_bps: float = MIN_NET_EDGE_BPS,
         on_close: Optional[Callable[[Dict[str, Any]], None]] = None,
+        state_dir: Optional[str] = None,
+        max_discovery_buffer: int = 50000,
     ) -> None:
         self._edge_enter_bps = edge_enter_bps
         self._edge_exit_bps = edge_exit_bps
@@ -139,6 +143,10 @@ class EdgeEpisodeTracker:
         self._decay_accum: Dict[int, List[float]] = {b: [] for b in self._DECAY_BUCKETS_MS}
         self._latency_accum: Dict[int, List[float]] = {b: [] for b in self._LATENCY_BUCKETS_MS}
         self._accum_max: int = 5000
+
+        # Bounded buffer of lightweight summaries for structural discovery
+        self._discovery_buffer: Deque[Dict[str, Any]] = deque(maxlen=max_discovery_buffer)
+        self._state_dir: Optional[str] = state_dir
 
     def update(
         self,
@@ -318,6 +326,15 @@ class EdgeEpisodeTracker:
         if len(self._closed) > self._max_closed:
             self._closed = self._closed[-self._max_closed:]
 
+        self._discovery_buffer.append({
+            "end_time_utc": end_utc,
+            "token_id": closed_ep.token_id,
+            "market_slug": None,
+            "duration_ms": closed_ep.duration_ms,
+            "expected_net_edge_bps_after_latency": closed_ep.expected_net_edge_bps_after_latency,
+            "edge_auc_bps_ms": closed_ep.edge_auc_bps_ms,
+        })
+
         if self._on_close is not None:
             try:
                 self._on_close(self._episode_to_dict(closed_ep))
@@ -446,6 +463,115 @@ class EdgeEpisodeTracker:
             exec_latency_ms=self._exec_latency_ms,
             top_n=top_n,
         )
+
+    def compute_structural_edge_discovery(self) -> Dict[str, Any]:
+        """Detect structurally persistent edge markets. O(n) over discovery buffer."""
+        from src.strategy.structural_edge_discovery import compute_structural_edge_candidates
+
+        with self._lock:
+            summaries = list(self._discovery_buffer)
+
+        window_minutes = int(os.environ.get("STRUCT_WINDOW_MINUTES", "60"))
+        lookback_windows = int(os.environ.get("STRUCT_LOOKBACK_WINDOWS", "3"))
+        min_ep = int(os.environ.get("MIN_EPISODES_PER_WINDOW", "20"))
+        min_surv = float(os.environ.get("MIN_SURVIVAL_AT_LATENCY", "0.40"))
+        min_med = float(os.environ.get("MIN_MEDIAN_NET_EDGE_BPS", "5.0"))
+        persist_req = int(os.environ.get("PERSISTENT_WINDOWS_REQUIRED", "2"))
+        spike_mult = float(os.environ.get("SPIKE_MULTIPLIER", "4.0"))
+        cooldown_hours = float(os.environ.get("NEW_MARKET_COOLDOWN_HOURS", "24"))
+
+        result = compute_structural_edge_candidates(
+            closed_episode_summaries=summaries,
+            exec_latency_ms=self._exec_latency_ms,
+            window_minutes=window_minutes,
+            lookback_windows=lookback_windows,
+            min_episodes_per_window=min_ep,
+            min_survival_at_latency=min_surv,
+            min_median_net_edge_bps=min_med,
+            persistent_windows_required=persist_req,
+            spike_multiplier=spike_mult,
+        )
+
+        candidates = result.get("structural_edge_candidates", [])
+        new_markets = self._compute_new_markets(candidates, cooldown_hours)
+        result["structural_edge_new_markets"] = new_markets
+        return result
+
+    def _compute_new_markets(
+        self,
+        candidates: List[Dict[str, Any]],
+        cooldown_hours: float,
+    ) -> List[Dict[str, Any]]:
+        """Identify newly-seen structural candidates using flagged.json state."""
+        flagged = self._load_flagged_json()
+        now = datetime.now(timezone.utc)
+        cutoff = now - __import__("datetime").timedelta(hours=cooldown_hours)
+        new_markets: List[Dict[str, Any]] = []
+
+        for c in candidates:
+            mk = c.get("market_key", "")
+            last_str = flagged.get(mk)
+            if last_str:
+                try:
+                    s = last_str
+                    if s.endswith("Z"):
+                        s = s[:-1] + "+00:00"
+                    last_dt = datetime.fromisoformat(s).replace(tzinfo=timezone.utc)
+                    if last_dt >= cutoff:
+                        continue
+                except Exception:
+                    pass
+            new_markets.append({
+                "market_key": mk,
+                "token_id": c.get("token_id", mk),
+                "market_slug": c.get("market_slug"),
+                "first_seen_utc": now.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                "reason": "structural_edge_persistent",
+            })
+            flagged[mk] = now.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+        self._save_flagged_json(flagged)
+        return new_markets
+
+    @staticmethod
+    def _flagged_path_safe(path: str) -> bool:
+        try:
+            real = os.path.realpath(path)
+            return real.startswith("/tmp") or real.startswith("/private/tmp")
+        except Exception:
+            return False
+
+    def _flagged_json_path(self) -> Optional[str]:
+        base = self._state_dir or "/tmp/polymarket_state"
+        p = os.path.join(base, "structural_edge_flagged.json")
+        return p if self._flagged_path_safe(p) else None
+
+    def _load_flagged_json(self) -> Dict[str, str]:
+        path = self._flagged_json_path()
+        if path is None:
+            return {}
+        try:
+            if os.path.exists(path):
+                with open(path, "r") as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+        except Exception as e:
+            logger.debug("[STRUCTURAL_DISCOVERY] flagged load skip: %s", e)
+        return {}
+
+    def _save_flagged_json(self, flagged: Dict[str, str]) -> None:
+        path = self._flagged_json_path()
+        if path is None:
+            return
+        try:
+            d = os.path.dirname(path)
+            if d:
+                os.makedirs(d, exist_ok=True)
+            with open(path, "w") as f:
+                json.dump(flagged, f, default=str)
+        except Exception as e:
+            logger.debug("[STRUCTURAL_DISCOVERY] flagged save skip (non-fatal): %s", e)
 
     def get_aggregates(self) -> Dict[str, Any]:
         with self._lock:

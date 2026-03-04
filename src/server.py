@@ -320,9 +320,23 @@ def _edge_episode_health(system: Dict[str, Any]) -> Dict[str, Any]:
             "edge_hazard_curve": tracker.compute_edge_hazard_curve(),
             "expected_edge_after_latency": tracker.compute_expected_edge_after_latency(),
             "market_profitability_ranking": tracker.compute_market_ranking(),
+            "structural_edge_candidates_top": _structural_top3(tracker),
         }
     except Exception:
         return {}
+
+
+def _structural_top3(tracker) -> list:
+    """Top 3 structural candidates (lightweight summary for /health)."""
+    try:
+        disc = tracker.compute_structural_edge_discovery()
+        cands = disc.get("structural_edge_candidates", [])
+        return [
+            {"market_key": c["market_key"], "score": c["score"]}
+            for c in cands[:3]
+        ]
+    except Exception:
+        return []
 
 
 @app.get("/health")
@@ -412,6 +426,7 @@ def analytics():
             "edge_hazard_curve": tracker.compute_edge_hazard_curve(),
             "expected_edge_after_latency": tracker.compute_expected_edge_after_latency(),
             "market_profitability_ranking": tracker.compute_market_ranking(),
+            **_structural_analytics(tracker),
             "aggregates": tracker.get_aggregates(),
         }
     except Exception as ex:
@@ -422,8 +437,17 @@ def analytics():
             "edge_hazard_curve": {},
             "expected_edge_after_latency": {},
             "market_profitability_ranking": [],
+            "structural_edge_candidates": [],
+            "structural_edge_new_markets": [],
             "aggregates": {},
         }
+
+
+def _structural_analytics(tracker) -> dict:
+    try:
+        return tracker.compute_structural_edge_discovery()
+    except Exception:
+        return {"structural_edge_candidates": [], "structural_edge_new_markets": []}
 
 
 # -----------------------------------------------------------------------

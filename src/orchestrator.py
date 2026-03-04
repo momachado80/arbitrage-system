@@ -582,7 +582,10 @@ def create_system(
     from src.strategy.edge_episode_tracker import EdgeEpisodeTracker
     from src.strategy.episode_store import EpisodeStore
     episode_store = EpisodeStore(state_dir=resolved_data_dir)
-    edge_episode_tracker = EdgeEpisodeTracker(on_close=episode_store.append)
+    edge_episode_tracker = EdgeEpisodeTracker(
+        on_close=episode_store.append,
+        state_dir=resolved_data_dir,
+    )
 
     strategy_engine = StrategyEngine(
         safety_state=safety_state,
