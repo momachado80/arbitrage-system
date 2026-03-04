@@ -135,6 +135,11 @@ class EdgeEpisodeTracker:
         self._tracker_start_mono: float = time.monotonic()
         self._tracker_start_time: float = time.time()
 
+        # Accumulators for decay / latency curves (populated at episode close)
+        self._decay_accum: Dict[int, List[float]] = {b: [] for b in self._DECAY_BUCKETS_MS}
+        self._latency_accum: Dict[int, List[float]] = {b: [] for b in self._LATENCY_BUCKETS_MS}
+        self._accum_max: int = 5000
+
     def update(
         self,
         token_id: str,
@@ -227,6 +232,50 @@ class EdgeEpisodeTracker:
                 )
                 self._open[token_id] = ep
 
+    @staticmethod
+    def _interpolate_at(samples: List[Tuple[float, float]], target_mono: float) -> Optional[float]:
+        """Linear-interpolate edge_bps at target monotonic time. O(n) scan."""
+        if not samples:
+            return None
+        if target_mono <= samples[0][0]:
+            return samples[0][1]
+        if target_mono >= samples[-1][0]:
+            return None
+        for i in range(1, len(samples)):
+            if samples[i][0] >= target_mono:
+                t0, e0 = samples[i - 1]
+                t1, e1 = samples[i]
+                dt = t1 - t0
+                if dt <= 0:
+                    return e0
+                frac = (target_mono - t0) / dt
+                return e0 + frac * (e1 - e0)
+        return None
+
+    def _extract_decay_and_latency(self, ep: OpenEpisode) -> None:
+        """Extract decay ratios and latency-adjusted edges from samples at close time."""
+        samples = ep.edge_samples
+        if not samples or len(samples) < 2:
+            return
+        start_mono = ep.start_monotonic
+        start_edge = samples[0][1]
+        if start_edge <= 0:
+            return
+        for b in self._DECAY_BUCKETS_MS:
+            val = self._interpolate_at(samples, start_mono + b / 1000.0)
+            if val is not None:
+                lst = self._decay_accum[b]
+                lst.append(val / start_edge)
+                if len(lst) > self._accum_max:
+                    self._decay_accum[b] = lst[-self._accum_max:]
+        for b in self._LATENCY_BUCKETS_MS:
+            val = self._interpolate_at(samples, start_mono + b / 1000.0)
+            if val is not None:
+                lst = self._latency_accum[b]
+                lst.append(val - self._fee_bps)
+                if len(lst) > self._accum_max:
+                    self._latency_accum[b] = lst[-self._accum_max:]
+
     def _close_episode(
         self,
         ep: OpenEpisode,
@@ -236,6 +285,7 @@ class EdgeEpisodeTracker:
         mono_now: float,
     ) -> None:
         """Build closed episode record and persist (lock must be held)."""
+        self._extract_decay_and_latency(ep)
         duration_ms = (mono_now - ep.start_monotonic) * 1000.0
         end_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         auc = _compute_auc(ep.edge_samples)
@@ -319,6 +369,11 @@ class EdgeEpisodeTracker:
             del self._open[token_id]
 
     _SURVIVAL_BUCKETS_MS: Tuple[int, ...] = (50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000)
+    _DECAY_BUCKETS_MS: Tuple[int, ...] = (0, 100, 250, 500, 1000, 2000, 5000)
+    _LATENCY_BUCKETS_MS: Tuple[int, ...] = (100, 250, 500, 1000, 2000)
+    _HAZARD_INTERVALS: Tuple[Tuple[int, int], ...] = (
+        (0, 100), (100, 250), (250, 500), (500, 1000), (1000, 2000), (2000, 5000),
+    )
 
     def compute_edge_survival_curve(self) -> Dict[str, float]:
         """O(n) survival probability at each bucket threshold."""
@@ -333,6 +388,50 @@ class EdgeEpisodeTracker:
                 if ep.duration_ms >= b:
                     counts[b] += 1
         return {f"{b}ms": round(counts[b] / n, 4) for b in self._SURVIVAL_BUCKETS_MS}
+
+    def compute_edge_decay_curve(self) -> Dict[str, float]:
+        """Average edge remaining ratio at each time bucket. O(1) over accumulators."""
+        with self._lock:
+            snap = {b: list(v) for b, v in self._decay_accum.items()}
+        result: Dict[str, float] = {}
+        for b in self._DECAY_BUCKETS_MS:
+            vals = snap.get(b, [])
+            if vals:
+                result[f"{b}ms"] = round(sum(vals) / len(vals), 4)
+        return result
+
+    def compute_edge_hazard_curve(self) -> Dict[str, float]:
+        """Hazard function: P(edge dies in interval | alive at interval start). O(n)."""
+        with self._lock:
+            closed = list(self._closed)
+        n = len(closed)
+        if n == 0:
+            return {}
+        deaths: Dict[Tuple[int, int], int] = {iv: 0 for iv in self._HAZARD_INTERVALS}
+        for ep in closed:
+            d = ep.duration_ms
+            for lo, hi in self._HAZARD_INTERVALS:
+                if lo <= d < hi:
+                    deaths[(lo, hi)] += 1
+                    break
+        alive = n
+        result: Dict[str, float] = {}
+        for lo, hi in self._HAZARD_INTERVALS:
+            if alive > 0:
+                result[f"{lo}-{hi}ms"] = round(deaths[(lo, hi)] / alive, 4)
+            alive -= deaths[(lo, hi)]
+        return result
+
+    def compute_expected_edge_after_latency(self) -> Dict[str, float]:
+        """Mean net edge at each latency bucket. O(1) over accumulators."""
+        with self._lock:
+            snap = {b: list(v) for b, v in self._latency_accum.items()}
+        result: Dict[str, float] = {}
+        for b in self._LATENCY_BUCKETS_MS:
+            vals = snap.get(b, [])
+            if vals:
+                result[f"{b}ms"] = round(sum(vals) / len(vals), 2)
+        return result
 
     def get_aggregates(self) -> Dict[str, Any]:
         with self._lock:

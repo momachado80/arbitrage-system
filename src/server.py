@@ -316,6 +316,9 @@ def _edge_episode_health(system: Dict[str, Any]) -> Dict[str, Any]:
             "slippage_bps_base": agg.get("slippage_bps_base"),
             "slippage_bps_per_spread": agg.get("slippage_bps_per_spread"),
             "edge_survival_curve": tracker.compute_edge_survival_curve(),
+            "edge_decay_curve": tracker.compute_edge_decay_curve(),
+            "edge_hazard_curve": tracker.compute_edge_hazard_curve(),
+            "expected_edge_after_latency": tracker.compute_expected_edge_after_latency(),
         }
     except Exception:
         return {}
@@ -404,10 +407,20 @@ def analytics():
     try:
         return {
             "edge_survival_curve": tracker.compute_edge_survival_curve(),
+            "edge_decay_curve": tracker.compute_edge_decay_curve(),
+            "edge_hazard_curve": tracker.compute_edge_hazard_curve(),
+            "expected_edge_after_latency": tracker.compute_expected_edge_after_latency(),
             "aggregates": tracker.get_aggregates(),
         }
     except Exception as ex:
-        return {"error": str(ex), "edge_survival_curve": {}, "aggregates": {}}
+        return {
+            "error": str(ex),
+            "edge_survival_curve": {},
+            "edge_decay_curve": {},
+            "edge_hazard_curve": {},
+            "expected_edge_after_latency": {},
+            "aggregates": {},
+        }
 
 
 # -----------------------------------------------------------------------
