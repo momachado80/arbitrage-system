@@ -420,6 +420,7 @@ def analytics():
     if tracker is None:
         return {"edge_survival_curve": {}, "aggregates": {}}
     try:
+        cross_arb = _cross_market_analytics()
         return {
             "edge_survival_curve": tracker.compute_edge_survival_curve(),
             "edge_decay_curve": tracker.compute_edge_decay_curve(),
@@ -428,7 +429,10 @@ def analytics():
             "market_profitability_ranking": tracker.compute_market_ranking(),
             **_structural_analytics(tracker),
             "sim_summary": _last_sim_summary,
-            **_cross_market_analytics(),
+            **cross_arb,
+            "cross_market_trade_candidates": _build_trade_candidates(
+                cross_arb.get("cross_market_arbitrage_opportunities", [])
+            ),
             "aggregates": tracker.get_aggregates(),
         }
     except Exception as ex:
@@ -443,6 +447,7 @@ def analytics():
             "structural_edge_new_markets": [],
             "sim_summary": None,
             "cross_market_arbitrage_opportunities": [],
+            "cross_market_trade_candidates": [],
             "aggregates": {},
         }
 
@@ -488,6 +493,35 @@ def _cross_market_analytics() -> dict:
         return {"cross_market_arbitrage_opportunities": result.get("cross_market_arbitrage_opportunities", [])}
     except Exception:
         return {"cross_market_arbitrage_opportunities": []}
+
+
+def _build_trade_candidates(opportunities: list) -> list:
+    """Convert arbitrage opportunities into simulated trade candidates (non-fatal)."""
+    try:
+        from src.strategy.arbitrage_basket_builder import ArbitrageBasketBuilder
+        from src.sim.basket_simulator import simulate_baskets, rank_baskets
+
+        if not opportunities:
+            return []
+
+        builder = ArbitrageBasketBuilder()
+        baskets = builder.build_many(opportunities, capital=100.0, max_baskets=100)
+        if not baskets:
+            return []
+
+        cfg_dict = {
+            "fee_taker_bps": float(os.environ.get("FEE_TAKER_BPS", "0")),
+            "slippage_from_spread_mult": float(os.environ.get("SLIPPAGE_FROM_SPREAD_MULT", "0.5")),
+            "slippage_bps_floor": float(os.environ.get("SLIPPAGE_BPS_FLOOR", "2.0")),
+            "lat_signal_to_order_ms": float(os.environ.get("LAT_SIGNAL_TO_ORDER_MS", "50")),
+            "lat_order_to_exchange_ms": float(os.environ.get("LAT_ORDER_TO_EXCHANGE_MS", "150")),
+            "lat_exchange_to_ack_ms": float(os.environ.get("LAT_EXCHANGE_TO_ACK_MS", "50")),
+        }
+
+        sim_result = simulate_baskets(baskets, cfg_dict, seed=42)
+        return rank_baskets(sim_result.get("basket_simulations", []), top_n=10)
+    except Exception:
+        return []
 
 
 # -----------------------------------------------------------------------
