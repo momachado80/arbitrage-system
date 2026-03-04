@@ -428,6 +428,7 @@ def analytics():
             "market_profitability_ranking": tracker.compute_market_ranking(),
             **_structural_analytics(tracker),
             "sim_summary": _last_sim_summary,
+            **_cross_market_analytics(),
             "aggregates": tracker.get_aggregates(),
         }
     except Exception as ex:
@@ -441,6 +442,7 @@ def analytics():
             "structural_edge_candidates": [],
             "structural_edge_new_markets": [],
             "sim_summary": None,
+            "cross_market_arbitrage_opportunities": [],
             "aggregates": {},
         }
 
@@ -450,6 +452,42 @@ def _structural_analytics(tracker) -> dict:
         return tracker.compute_structural_edge_discovery()
     except Exception:
         return {"structural_edge_candidates": [], "structural_edge_new_markets": []}
+
+
+def _cross_market_analytics() -> dict:
+    """Scan current market universe for cross-market arbitrage (non-fatal)."""
+    try:
+        from src.strategy.arbitrage_scanner import ArbitrageScanner
+        from src.strategy.market_graph import MarketGraph
+
+        universe = _system.get("universe")
+        if universe is None:
+            return {"cross_market_arbitrage_opportunities": []}
+
+        snapshot = []
+        try:
+            infos = universe.get_market_infos() if hasattr(universe, "get_market_infos") else {}
+            for mid, info in infos.items():
+                prob = info.get("prob") or info.get("oracle_price") or 0
+                snapshot.append({
+                    "market_id": mid,
+                    "prob": float(prob),
+                    "category": info.get("category", info.get("question", "unknown")),
+                    "best_bid": info.get("best_bid"),
+                    "best_ask": info.get("best_ask"),
+                })
+        except Exception:
+            pass
+
+        if not snapshot:
+            return {"cross_market_arbitrage_opportunities": []}
+
+        graph = _system.get("market_graph") or MarketGraph()
+        scanner = ArbitrageScanner(graph=graph)
+        result = scanner.scan(snapshot)
+        return {"cross_market_arbitrage_opportunities": result.get("cross_market_arbitrage_opportunities", [])}
+    except Exception:
+        return {"cross_market_arbitrage_opportunities": []}
 
 
 # -----------------------------------------------------------------------
