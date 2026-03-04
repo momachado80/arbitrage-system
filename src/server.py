@@ -468,7 +468,7 @@ def simulate_endpoint(
 ):
     """Run execution simulation over recorded data + episodes."""
     try:
-        from src.sim.execution_simulator import SimConfig, simulate, save_sim_trades_jsonl
+        from src.sim.execution_simulator import SimConfig, simulate_v2, save_sim_trades_jsonl
         from src.sim.marketdata_recorder import load_recorded_snapshots
 
         state_dir = _system.get("resolved_data_dir") or "/tmp/polymarket_state"
@@ -502,7 +502,7 @@ def simulate_endpoint(
             except Exception:
                 pass
 
-        result = simulate(
+        result = simulate_v2(
             episodes=episodes,
             snapshots=snapshots,
             cfg=cfg,

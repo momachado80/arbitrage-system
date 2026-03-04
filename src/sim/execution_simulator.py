@@ -372,6 +372,226 @@ def _build_summary(trades: List[SimTrade]) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# V2 Simulator — uses modular components, backward-compatible output
+# ---------------------------------------------------------------------------
+
+def simulate_v2(
+    episodes: List[Dict[str, Any]],
+    snapshots: List[Dict[str, Any]],
+    cfg: SimConfig,
+    style: str = "both",
+    from_ts: Optional[float] = None,
+    to_ts: Optional[float] = None,
+    market_key_filter: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    V2 simulator using modular QueueModel, LiquidityModel, FillEngine,
+    LatencyModel, PnLEngine, and MetricsEngine.
+
+    Returns same structure as simulate() plus additional advanced metrics.
+    Fully deterministic given cfg.seed.
+    """
+    from src.sim.queue_model import QueueModel
+    from src.sim.liquidity_model import LiquidityModel
+    from src.sim.fill_engine import FillEngine
+    from src.sim.latency_model import LatencyModel, LatencyConfig
+    from src.sim.pnl_engine import PnLEngine
+    from src.sim.metrics_engine import MetricsEngine
+
+    rng = random.Random(cfg.seed)
+    queue_model = QueueModel(rng=rng)
+    liq_model = LiquidityModel(impact_coeff=cfg.slippage_from_spread_mult)
+    fill_engine = FillEngine()
+    latency = LatencyModel(LatencyConfig(
+        signal_to_order_ms=cfg.lat_signal_to_order_ms,
+        order_to_exchange_ms=cfg.lat_order_to_exchange_ms,
+        exchange_ack_ms=cfg.lat_exchange_to_ack_ms,
+    ))
+    pnl_engine = PnLEngine()
+
+    # Index snapshots
+    snaps_by_market: Dict[str, List[dict]] = {}
+    for s in snapshots:
+        mk = s.get("token_id", "")
+        if market_key_filter and mk != market_key_filter:
+            continue
+        snaps_by_market.setdefault(mk, []).append(s)
+    for mk in snaps_by_market:
+        snaps_by_market[mk].sort(key=lambda x: x.get("ts_utc", 0))
+
+    # Filter episodes
+    filtered_eps = []
+    for ep in episodes:
+        ts_start = ep.get("ts_start", 0)
+        if from_ts and ts_start < from_ts:
+            continue
+        if to_ts and ts_start > to_ts:
+            continue
+        mk = ep.get("token_id", "")
+        if market_key_filter and mk != market_key_filter:
+            continue
+        filtered_eps.append(ep)
+    filtered_eps.sort(key=lambda x: x.get("ts_start", 0))
+
+    styles_to_run = []
+    if style in ("taker", "both"):
+        styles_to_run.append("taker")
+    if style in ("maker", "both"):
+        styles_to_run.append("maker")
+
+    trades: List[SimTrade] = []
+    trades_for_metrics: List[Dict[str, Any]] = []
+    trade_counter = 0
+
+    for ep in filtered_eps:
+        net_edge = ep.get("expected_net_edge_bps_after_latency")
+        if net_edge is None:
+            net_edge = ep.get("expected_net_edge_bps_at_entry")
+        if net_edge is None or net_edge <= 0:
+            for sty in styles_to_run:
+                trade_counter += 1
+                t = SimTrade(
+                    trade_id=f"sim_{trade_counter:06d}",
+                    market_key=ep.get("token_id", ""),
+                    side=ep.get("side", "BUY"),
+                    style=sty,
+                    detect_time_utc=ep.get("start_time_utc", ""),
+                    place_time_utc="",
+                    ack_time_utc="",
+                    dropped_reason="non_positive_edge",
+                    episode_id=ep.get("token_id", "") + "_" + str(ep.get("ts_start", "")),
+                )
+                trades.append(t)
+            continue
+
+        detect_ts = ep.get("ts_start", 0.0)
+        place_ts = latency.place_time(detect_ts)
+        ack_ts = latency.ack_time(detect_ts)
+        mk = ep.get("token_id", "")
+        side = ep.get("side", "BUY")
+
+        snap_at_place = _find_snapshot_at(snaps_by_market, mk, place_ts)
+        snap_at_detect = _find_snapshot_at(snaps_by_market, mk, detect_ts)
+
+        for sty in styles_to_run:
+            trade_counter += 1
+            tid = f"sim_{trade_counter:06d}"
+            ep_id = mk + "_" + str(detect_ts)
+
+            if snap_at_place is None:
+                trades.append(SimTrade(
+                    trade_id=tid, market_key=mk, side=side, style=sty,
+                    detect_time_utc=_ts_to_utc_str(detect_ts) if detect_ts > 0 else "",
+                    place_time_utc=_ts_to_utc_str(place_ts) if place_ts > 0 else "",
+                    ack_time_utc=_ts_to_utc_str(ack_ts) if ack_ts > 0 else "",
+                    dropped_reason="no_snapshot_at_placement",
+                    episode_id=ep_id,
+                ))
+                continue
+
+            mid_at_detect = snap_at_detect["mid_px"] if snap_at_detect else snap_at_place["mid_px"]
+            mid_at_place = snap_at_place["mid_px"]
+            alpha_decay = pnl_engine.alpha_decay(mid_at_detect, mid_at_place)
+            spread_bps = snap_at_place.get("spread_bps", 0.0) or 0.0
+
+            book = {
+                "best_bid": snap_at_place.get("best_bid_px", mid_at_place),
+                "best_ask": snap_at_place.get("best_ask_px", mid_at_place),
+                "mid": mid_at_place,
+            }
+
+            if sty == "taker":
+                fee = cfg.fee_taker_bps
+                liquidity = snap_at_place.get("best_ask_sz", 0) if side == "BUY" else snap_at_place.get("best_bid_sz", 0)
+                slippage = liq_model.compute_slippage_simple(spread_bps, cfg.slippage_from_spread_mult, cfg.slippage_bps_floor)
+
+                fill_result = fill_engine.process_taker(side, cfg.sim_order_size, book)
+                pnl = pnl_engine.compute(net_edge, slippage, fee, alpha_decay)
+
+                t = SimTrade(
+                    trade_id=tid, market_key=mk, side=side, style="taker",
+                    detect_time_utc=_ts_to_utc_str(detect_ts) if detect_ts > 0 else "",
+                    place_time_utc=_ts_to_utc_str(place_ts) if place_ts > 0 else "",
+                    ack_time_utc=_ts_to_utc_str(ack_ts) if ack_ts > 0 else "",
+                    fill_time_utc=_ts_to_utc_str(ack_ts) if ack_ts > 0 else "",
+                    fill_qty=cfg.sim_order_size,
+                    avg_fill_px=fill_result["price"],
+                    fees_bps=fee,
+                    slippage_bps=slippage,
+                    pnl_bps=pnl,
+                    alpha_decay_loss_bps=alpha_decay,
+                    episode_id=ep_id,
+                )
+                trades.append(t)
+                td = t.to_dict()
+                td["_expected_edge_bps"] = net_edge
+                trades_for_metrics.append(td)
+
+            else:  # maker
+                fee = cfg.fee_maker_bps
+                if side == "BUY":
+                    queue_depth = snap_at_place.get("best_bid_sz", 0)
+                else:
+                    queue_depth = snap_at_place.get("best_ask_sz", 0)
+
+                ep_duration_ms = ep.get("duration_ms", 0)
+                total_lat_s = latency.total_latency_ms() / 1000.0
+                time_at_best_s = max(0, ep_duration_ms / 1000.0 - total_lat_s)
+
+                filled = False
+                fill_time_offset_s = 0.0
+                if queue_depth > 0 and time_at_best_s > 0:
+                    filled = queue_model.probabilistic_fill(cfg.maker_fill_prob_per_second, time_at_best_s)
+                    if filled:
+                        fill_time_offset_s = queue_model.fill_time_offset(time_at_best_s)
+
+                if filled:
+                    fill_ts = ack_ts + fill_time_offset_s
+                    limit_px = fill_engine.maker_fill_price(side, book)
+                    maker_slip = max(0.0, liq_model.compute_slippage_simple(spread_bps, cfg.slippage_from_spread_mult, cfg.slippage_bps_floor) * 0.3)
+                    pnl = pnl_engine.compute(net_edge, maker_slip, fee, alpha_decay)
+
+                    t = SimTrade(
+                        trade_id=tid, market_key=mk, side=side, style="maker",
+                        detect_time_utc=_ts_to_utc_str(detect_ts) if detect_ts > 0 else "",
+                        place_time_utc=_ts_to_utc_str(place_ts) if place_ts > 0 else "",
+                        ack_time_utc=_ts_to_utc_str(ack_ts) if ack_ts > 0 else "",
+                        fill_time_utc=_ts_to_utc_str(fill_ts),
+                        fill_qty=cfg.sim_order_size,
+                        avg_fill_px=limit_px,
+                        fees_bps=fee,
+                        slippage_bps=maker_slip,
+                        pnl_bps=pnl,
+                        alpha_decay_loss_bps=alpha_decay,
+                        episode_id=ep_id,
+                    )
+                    trades.append(t)
+                    td = t.to_dict()
+                    td["_expected_edge_bps"] = net_edge
+                    trades_for_metrics.append(td)
+                else:
+                    trades.append(SimTrade(
+                        trade_id=tid, market_key=mk, side=side, style="maker",
+                        detect_time_utc=_ts_to_utc_str(detect_ts) if detect_ts > 0 else "",
+                        place_time_utc=_ts_to_utc_str(place_ts) if place_ts > 0 else "",
+                        ack_time_utc=_ts_to_utc_str(ack_ts) if ack_ts > 0 else "",
+                        dropped_reason="maker_no_fill",
+                        episode_id=ep_id,
+                    ))
+
+    # Build combined summary: legacy + advanced metrics
+    legacy_summary = _build_summary(trades)
+    advanced = MetricsEngine().compute(trades_for_metrics)
+
+    summary = {**legacy_summary}
+    summary["alpha_capture_ratio"] = advanced.get("alpha_capture_ratio")
+    summary["expected_pnl_per_hour"] = advanced.get("expected_pnl_per_hour")
+    summary["total_pnl_bps"] = advanced.get("total_pnl_bps", 0.0)
+
+    return {"trades": [t.to_dict() for t in trades], "summary": summary}
+
+
+# ---------------------------------------------------------------------------
 # JSONL persistence (append-only, non-fatal)
 # ---------------------------------------------------------------------------
 
