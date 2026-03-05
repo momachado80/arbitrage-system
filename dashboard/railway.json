@@ -5,6 +5,6 @@
     "buildCommand": "npm install && npm run build"
   },
   "deploy": {
-    "startCommand": "PORT=$PORT HOSTNAME=0.0.0.0 node .next/standalone/server.js"
+    "startCommand": "npx next start -H 0.0.0.0 -p ${PORT:-3000}"
   }
 }
