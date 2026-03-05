@@ -47,7 +47,9 @@ export interface AnalyticsData {
   error?: string;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://web-production-800bb.up.railway.app";
 
 export async function fetchAnalytics(): Promise<AnalyticsData> {
   const res = await fetch(`${API_URL}/analytics`, {
