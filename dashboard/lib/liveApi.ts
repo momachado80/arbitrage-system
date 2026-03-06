@@ -155,8 +155,26 @@ const EMPTY_EPISODES: GraphEpisodesResponse = {
   },
 };
 
+interface PaperSystemResponse {
+  status: string;
+  lastUpdate: string | null;
+  startingCapital: number;
+  currentEquity: number;
+  availableCapital: number;
+  reservedCapital: number;
+  activeTrades: number;
+  closedTrades: number;
+  realizedPnL: number;
+  unrealizedPnL: number;
+}
+
+interface PaperAnalyticsResponse {
+  analytics: { winRate: number };
+  equityCurve: unknown[];
+}
+
 export async function fetchLiveAnalytics(): Promise<AnalyticsData> {
-  const [systemData, oppData, graphData, episodeData] = await Promise.all([
+  const [systemData, oppData, graphData, episodeData, paperSystem, paperAnalytics, shadowProfilesRes] = await Promise.all([
     fetchJson<SystemResponse>("/api/system"),
     fetchJson<OpportunitiesResponse>("/api/opportunities"),
     fetchJson<GraphOpportunitiesResponse>("/api/graph-opportunities").catch(
@@ -168,6 +186,9 @@ export async function fetchLiveAnalytics(): Promise<AnalyticsData> {
     fetchJson<GraphEpisodesResponse>("/api/graph-episodes").catch(
       (): GraphEpisodesResponse => EMPTY_EPISODES
     ),
+    fetchJson<PaperSystemResponse>("/api/paper/system").catch(() => null),
+    fetchJson<PaperAnalyticsResponse>("/api/paper/analytics").catch(() => null),
+    fetchJson<{ profiles: Array<{ profileId: string; label: string; startingCapital: number; currentEquity: number; realizedPnL: number; activeTrades: number; closedTrades: number }> }>("/api/shadow/profiles").catch(() => ({ profiles: [] })),
   ]);
 
   const scannerCross = mapToCrossMarketCandidates(oppData.opportunities);
@@ -190,27 +211,62 @@ export async function fetchLiveAnalytics(): Promise<AnalyticsData> {
     );
   }
 
+  const shadowSummary: AnalyticsData["shadow_trading_summary"] = {
+    shadow_trades: allOppCount + epSummary.totalEpisodesTracked,
+    total_expected_pnl: totalPnl,
+    mean_expected_pnl: allOppCount > 0 ? totalPnl / allOppCount : 0,
+    mean_fill_rate:
+      oppData.count > 0
+        ? oppData.opportunities.reduce((s, o) => s + o.confidence, 0) / oppData.count
+        : 0,
+    profitable_trades: oppData.opportunities.filter((o) => o.edge > 0.02).length +
+      graphData.opportunities.filter((o) => o.edge > 0.02).length,
+    profitable_pct:
+      allOppCount > 0
+        ? (oppData.opportunities.filter((o) => o.edge > 0.02).length +
+            graphData.opportunities.filter((o) => o.edge > 0.02).length) /
+          allOppCount
+        : 0,
+  };
+
+  if (paperSystem && (paperSystem.closedTrades > 0 || paperSystem.activeTrades > 0)) {
+    shadowSummary.paper_trading = {
+      realizedPnL: paperSystem.realizedPnL,
+      currentEquity: paperSystem.currentEquity,
+      activeTrades: paperSystem.activeTrades,
+      closedTrades: paperSystem.closedTrades,
+      winRate: paperAnalytics?.analytics?.winRate ?? 0,
+    };
+  }
+
+  const paperTrading =
+    paperSystem && (paperSystem.activeTrades > 0 || paperSystem.closedTrades > 0)
+      ? {
+          realizedPnL: paperSystem.realizedPnL,
+          currentEquity: paperSystem.currentEquity,
+          activeTrades: paperSystem.activeTrades,
+          closedTrades: paperSystem.closedTrades,
+          winRate: paperAnalytics?.analytics?.winRate ?? 0,
+        }
+      : undefined;
+
+  const shadowProfiles = (shadowProfilesRes?.profiles ?? []).map((p) => ({
+    profileId: p.profileId,
+    label: p.label,
+    startingCapital: p.startingCapital ?? 0,
+    currentEquity: p.currentEquity ?? 0,
+    realizedPnL: p.realizedPnL ?? 0,
+    activeTrades: p.activeTrades ?? 0,
+    closedTrades: p.closedTrades ?? 0,
+  }));
+
   return {
     market_regime: regime,
     opportunity_ranking: mapToOpportunityRanking(oppData.opportunities),
     cross_market_trade_candidates: mergedCross,
-    shadow_trading_summary: {
-      shadow_trades: allOppCount + epSummary.totalEpisodesTracked,
-      total_expected_pnl: totalPnl,
-      mean_expected_pnl: allOppCount > 0 ? totalPnl / allOppCount : 0,
-      mean_fill_rate:
-        oppData.count > 0
-          ? oppData.opportunities.reduce((s, o) => s + o.confidence, 0) / oppData.count
-          : 0,
-      profitable_trades: oppData.opportunities.filter((o) => o.edge > 0.02).length +
-        graphData.opportunities.filter((o) => o.edge > 0.02).length,
-      profitable_pct:
-        allOppCount > 0
-          ? (oppData.opportunities.filter((o) => o.edge > 0.02).length +
-              graphData.opportunities.filter((o) => o.edge > 0.02).length) /
-            allOppCount
-          : 0,
-    },
+    shadow_trading_summary: shadowSummary,
+    paper_trading: paperTrading,
+    shadow_profiles: shadowProfiles,
     risk_engine_state: {
       inventory: {},
       pnl: totalPnl,

@@ -32,7 +32,30 @@ export interface AnalyticsData {
     mean_fill_rate: number;
     profitable_trades: number;
     profitable_pct: number;
+    paper_trading?: {
+      realizedPnL: number;
+      currentEquity: number;
+      activeTrades: number;
+      closedTrades: number;
+      winRate: number;
+    };
   };
+  paper_trading?: {
+    realizedPnL: number;
+    currentEquity: number;
+    activeTrades: number;
+    closedTrades: number;
+    winRate: number;
+  };
+  shadow_profiles?: Array<{
+    profileId: string;
+    label: string;
+    startingCapital: number;
+    currentEquity: number;
+    realizedPnL: number;
+    activeTrades: number;
+    closedTrades: number;
+  }>;
   risk_engine_state?: {
     inventory: Record<string, number>;
     pnl: number;
