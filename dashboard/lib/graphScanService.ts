@@ -7,6 +7,7 @@ import {
   type RankedGraphOpportunity,
   type GraphSummary,
 } from "./graphOpportunityEngine";
+import { updateGraphEpisodes } from "./graphEpisodeStore";
 
 const SCAN_INTERVAL_MS = 6_000;
 
@@ -37,6 +38,8 @@ async function runScan(): Promise<void> {
     cachedRanked = ranked;
     cachedSummary = summary;
     lastScanMs = Date.now();
+
+    try { updateGraphEpisodes(opportunities); } catch { /* non-fatal */ }
   } catch (err) {
     console.error("[GraphScanService] Scan failed:", err);
   } finally {

@@ -136,8 +136,27 @@ async function fetchJson<T>(path: string): Promise<T> {
   return res.json();
 }
 
+interface GraphEpisodeSummaryResponse {
+  activeEpisodes: number;
+  closedEpisodes: number;
+  avgActiveDurationMs: number;
+  longestRecentEpisodeMs: number;
+  totalEpisodesTracked: number;
+}
+
+interface GraphEpisodesResponse {
+  summary: GraphEpisodeSummaryResponse;
+}
+
+const EMPTY_EPISODES: GraphEpisodesResponse = {
+  summary: {
+    activeEpisodes: 0, closedEpisodes: 0,
+    avgActiveDurationMs: 0, longestRecentEpisodeMs: 0, totalEpisodesTracked: 0,
+  },
+};
+
 export async function fetchLiveAnalytics(): Promise<AnalyticsData> {
-  const [systemData, oppData, graphData] = await Promise.all([
+  const [systemData, oppData, graphData, episodeData] = await Promise.all([
     fetchJson<SystemResponse>("/api/system"),
     fetchJson<OpportunitiesResponse>("/api/opportunities"),
     fetchJson<GraphOpportunitiesResponse>("/api/graph-opportunities").catch(
@@ -145,6 +164,9 @@ export async function fetchLiveAnalytics(): Promise<AnalyticsData> {
         summary: { graphOpportunitiesDetected: 0, averageConfidence: 0, averageEdge: 0, numberOfClustersScanned: 0 },
         opportunities: [],
       })
+    ),
+    fetchJson<GraphEpisodesResponse>("/api/graph-episodes").catch(
+      (): GraphEpisodesResponse => EMPTY_EPISODES
     ),
   ]);
 
@@ -155,12 +177,25 @@ export async function fetchLiveAnalytics(): Promise<AnalyticsData> {
   const allOppCount = oppData.count + graphData.summary.graphOpportunitiesDetected;
   const totalPnl = oppData.opportunities.reduce((s, o) => s + o.compositeScore * 100, 0);
 
+  const epSummary = episodeData.summary;
+  const persistenceFactor = epSummary.avgActiveDurationMs > 0
+    ? Math.min(1, epSummary.avgActiveDurationMs / 60000)
+    : 0;
+
+  const regime = mapSystemToRegime(systemData);
+  if (regime?.components && persistenceFactor > 0) {
+    regime.components.edge_persistence = Math.min(
+      1,
+      regime.components.edge_persistence * 0.5 + persistenceFactor * 0.5
+    );
+  }
+
   return {
-    market_regime: mapSystemToRegime(systemData),
+    market_regime: regime,
     opportunity_ranking: mapToOpportunityRanking(oppData.opportunities),
     cross_market_trade_candidates: mergedCross,
     shadow_trading_summary: {
-      shadow_trades: allOppCount,
+      shadow_trades: allOppCount + epSummary.totalEpisodesTracked,
       total_expected_pnl: totalPnl,
       mean_expected_pnl: allOppCount > 0 ? totalPnl / allOppCount : 0,
       mean_fill_rate:
@@ -180,7 +215,7 @@ export async function fetchLiveAnalytics(): Promise<AnalyticsData> {
       inventory: {},
       pnl: totalPnl,
       total_inventory: systemData.marketsTracked,
-      markets_with_position: allOppCount,
+      markets_with_position: epSummary.activeEpisodes,
       drawdown_remaining: 1000,
     },
   };
