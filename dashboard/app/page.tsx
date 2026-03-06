@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AnalyticsData } from "@/lib/api";
 import { fetchAnalytics } from "@/lib/api";
+import { fetchLiveAnalytics } from "@/lib/liveApi";
 import Header from "@/components/Header";
 import MarketRegimeCard from "@/components/MarketRegimeCard";
 import OpportunitiesTable from "@/components/OpportunitiesTable";
@@ -20,12 +21,19 @@ export default function DashboardPage() {
 
   const refresh = useCallback(async () => {
     try {
-      const result = await fetchAnalytics();
-      setData(result);
-      setError(result.error ?? null);
+      const liveData = await fetchLiveAnalytics();
+      setData(liveData);
+      setError(null);
       setLastUpdate(new Date());
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Erro de conexão");
+    } catch {
+      try {
+        const backendData = await fetchAnalytics();
+        setData(backendData);
+        setError(backendData.error ?? null);
+        setLastUpdate(new Date());
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Erro de conexão");
+      }
     }
   }, []);
 
