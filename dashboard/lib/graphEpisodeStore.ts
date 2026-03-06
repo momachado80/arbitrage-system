@@ -1,12 +1,15 @@
 import type { GraphEpisode } from "./graphEpisodeTracker";
 import { GraphEpisodeTracker } from "./graphEpisodeTracker";
 import type { GraphOpportunity } from "./graphArbitrageEngine";
+import { persistEpisodes, restoreEpisodes } from "./graphEpisodePersistence";
 
 const MAX_ACTIVE = 500;
 const MAX_CLOSED = 5000;
 
 let closedEpisodes: GraphEpisode[] = [];
 let lastUpdateMs = 0;
+let initialized = false;
+let updatesSincePersist = 0;
 
 function onEpisodeClose(ep: GraphEpisode): void {
   closedEpisodes.push(ep);
@@ -17,7 +20,43 @@ function onEpisodeClose(ep: GraphEpisode): void {
 
 const tracker = new GraphEpisodeTracker({ onClose: onEpisodeClose });
 
+function initFromDisk(): void {
+  if (initialized) return;
+  initialized = true;
+  try {
+    const restored = restoreEpisodes();
+    if (!restored) return;
+
+    if (restored.active.length > 0) {
+      tracker.restoreEpisodes(restored.active);
+    }
+    if (restored.recentClosed.length > 0) {
+      closedEpisodes = [
+        ...restored.recentClosed,
+        ...closedEpisodes,
+      ].slice(-MAX_CLOSED);
+    }
+  } catch (err) {
+    console.warn("[GraphEpisodeStore] Disk restore failed (non-fatal):", err);
+  }
+}
+
+function maybePersist(): void {
+  updatesSincePersist++;
+  if (updatesSincePersist < 2) return;
+  updatesSincePersist = 0;
+
+  try {
+    const active = tracker.getActive();
+    const recent = getRecentClosedGraphEpisodes(500);
+    persistEpisodes(active, recent);
+  } catch {
+    // non-fatal
+  }
+}
+
 export function updateGraphEpisodes(opportunities: GraphOpportunity[]): void {
+  initFromDisk();
   try {
     tracker.update(opportunities);
     lastUpdateMs = Date.now();
@@ -27,16 +66,20 @@ export function updateGraphEpisodes(opportunities: GraphOpportunity[]): void {
         `[GraphEpisodeStore] Active episodes (${tracker.getActiveCount()}) exceeds max (${MAX_ACTIVE})`
       );
     }
+
+    maybePersist();
   } catch (err) {
     console.error("[GraphEpisodeStore] Update failed:", err);
   }
 }
 
 export function getActiveGraphEpisodes(): GraphEpisode[] {
+  initFromDisk();
   return tracker.getActive();
 }
 
 export function getRecentClosedGraphEpisodes(limit = 50): GraphEpisode[] {
+  initFromDisk();
   const start = Math.max(0, closedEpisodes.length - limit);
   return closedEpisodes.slice(start);
 }
@@ -51,6 +94,7 @@ export interface GraphEpisodeSummary {
 }
 
 export function getGraphEpisodeSummary(): GraphEpisodeSummary {
+  initFromDisk();
   const active = tracker.getActive();
   const activeCount = active.length;
   const closedCount = closedEpisodes.length;
