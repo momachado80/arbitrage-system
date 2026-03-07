@@ -20,6 +20,7 @@ import {
   getActivePaperTrades,
 } from "./paperPortfolioStore";
 import { estimateOpportunityCapacity } from "./capitalCapacityEngine";
+import { logTradeRejection } from "./tradeRejectionLogger";
 
 export interface PaperTradePolicy {
   initialCapital: number;
@@ -97,11 +98,16 @@ export function processOpportunities(
   let rejected = 0;
 
   for (const { opp, capacity } of opportunities) {
+    const marketId = opp.marketsInvolved[0]?.marketId ?? opp.opportunityId;
+    const edgeBps = Math.round((capacity.estimatedNetEdge ?? opp.edge) * 10000);
+
     if (capacity.recommendedCapital <= 0 || capacity.estimatedNetEdge < pol.minNetEdgeToTrade) {
+      logTradeRejection({ timestamp: Date.now(), marketId, edgeBps, reason: "EDGE_BELOW_THRESHOLD" });
       rejected++;
       continue;
     }
     if (opp.confidence < pol.minConfidenceToTrade) {
+      logTradeRejection({ timestamp: Date.now(), marketId, edgeBps, reason: "LATENCY_RISK" });
       rejected++;
       continue;
     }
@@ -113,6 +119,7 @@ export function processOpportunities(
       0
     );
     if (clusterExposure >= pol.maxCapitalPerCluster || marketExposure >= pol.maxCapitalPerMarket) {
+      logTradeRejection({ timestamp: Date.now(), marketId, edgeBps, reason: "TRADE_SIZE_TOO_SMALL" });
       rejected++;
       continue;
     }
@@ -123,12 +130,14 @@ export function processOpportunities(
       portfolio.availableCapital
     );
     if (requested <= 0) {
+      logTradeRejection({ timestamp: Date.now(), marketId, edgeBps, reason: "TRADE_SIZE_TOO_SMALL" });
       rejected++;
       continue;
     }
 
     const entry: SimulatedEntry = simulateEntry(opp, capacity, portfolio.availableCapital);
     if (entry.filledCapital <= 0) {
+      logTradeRejection({ timestamp: Date.now(), marketId, edgeBps, reason: "INSUFFICIENT_LIQUIDITY" });
       rejected++;
       continue;
     }

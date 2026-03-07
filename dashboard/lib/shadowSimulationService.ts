@@ -26,6 +26,7 @@ import {
   getProfileExposure,
   type ShadowTrade,
 } from "./shadowSimulationStore";
+import { logTradeRejection, type TradeRejectionReason } from "./tradeRejectionLogger";
 import type { NormalizedPaperOpportunity } from "./paperTypes";
 import type { PersistenceData } from "./edgeDecayModel";
 
@@ -182,6 +183,18 @@ function runCycle(): void {
 
             if (entryResult.rejectionReason) {
               recordRejection(profile.profileId, entryResult.rejectionReason);
+              const reasonMap: Record<string, import("./tradeRejectionLogger").TradeRejectionReason> = {
+                insufficient_capital_or_exposure_limit: "TRADE_SIZE_TOO_SMALL",
+                net_edge_below_threshold: "EDGE_BELOW_THRESHOLD",
+                fill_rejected: "INSUFFICIENT_LIQUIDITY",
+              };
+              const reason = reasonMap[entryResult.rejectionReason] ?? "UNKNOWN";
+              logTradeRejection({
+                timestamp: Date.now(),
+                marketId: opp.marketsInvolved[0]?.marketId ?? opp.opportunityId,
+                edgeBps: Math.round((entryResult.observedEdge ?? opp.edge) * 10000),
+                reason,
+              });
               continue;
             }
             if (entryResult.filledCapital <= 0) continue;

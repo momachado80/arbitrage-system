@@ -173,8 +173,14 @@ interface PaperAnalyticsResponse {
   equityCurve: unknown[];
 }
 
+interface RejectionStatsResponse {
+  countsByReason: Record<string, number>;
+  totalRejected: number;
+  timestamp: string;
+}
+
 export async function fetchLiveAnalytics(): Promise<AnalyticsData> {
-  const [systemData, oppData, graphData, episodeData, paperSystem, paperAnalytics, shadowProfilesRes] = await Promise.all([
+  const [systemData, oppData, graphData, episodeData, paperSystem, paperAnalytics, shadowProfilesRes, rejectionStatsRes] = await Promise.all([
     fetchJson<SystemResponse>("/api/system"),
     fetchJson<OpportunitiesResponse>("/api/opportunities"),
     fetchJson<GraphOpportunitiesResponse>("/api/graph-opportunities").catch(
@@ -189,6 +195,7 @@ export async function fetchLiveAnalytics(): Promise<AnalyticsData> {
     fetchJson<PaperSystemResponse>("/api/paper/system").catch(() => null),
     fetchJson<PaperAnalyticsResponse>("/api/paper/analytics").catch(() => null),
     fetchJson<{ profiles: Array<{ profileId: string; label: string; startingCapital: number; currentEquity: number; realizedPnL: number; activeTrades: number; closedTrades: number }> }>("/api/shadow/profiles").catch(() => ({ profiles: [] })),
+    fetchJson<RejectionStatsResponse>("/api/system/rejection-stats").catch(() => null),
   ]);
 
   const scannerCross = mapToCrossMarketCandidates(oppData.opportunities);
@@ -267,6 +274,9 @@ export async function fetchLiveAnalytics(): Promise<AnalyticsData> {
     shadow_trading_summary: shadowSummary,
     paper_trading: paperTrading,
     shadow_profiles: shadowProfiles,
+    rejection_stats: rejectionStatsRes
+      ? { countsByReason: rejectionStatsRes.countsByReason, totalRejected: rejectionStatsRes.totalRejected, timestamp: rejectionStatsRes.timestamp }
+      : undefined,
     risk_engine_state: {
       inventory: {},
       pnl: totalPnl,

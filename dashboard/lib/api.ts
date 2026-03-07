@@ -67,6 +67,11 @@ export interface AnalyticsData {
   edge_decay_curve?: Record<string, number>;
   edge_hazard_curve?: Record<string, number>;
   aggregates?: Record<string, unknown>;
+  rejection_stats?: {
+    countsByReason: Record<string, number>;
+    totalRejected: number;
+    timestamp: string;
+  };
   error?: string;
 }
 

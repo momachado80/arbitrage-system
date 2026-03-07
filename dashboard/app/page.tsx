@@ -10,6 +10,7 @@ import OpportunitiesTable from "@/components/OpportunitiesTable";
 import ArbitrageTable from "@/components/ArbitrageTable";
 import ShadowTradingPanel from "@/components/ShadowTradingPanel";
 import RiskPanel from "@/components/RiskPanel";
+import ExecutionDiagnosticsPanel from "@/components/ExecutionDiagnosticsPanel";
 
 const REFRESH_MS = 5_000;
 
@@ -63,7 +64,10 @@ export default function DashboardPage() {
         <ShadowTradingPanel data={data} />
       </div>
 
-      <RiskPanel data={data} />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <ExecutionDiagnosticsPanel data={data} />
+        <RiskPanel data={data} />
+      </div>
 
       <footer className="text-center text-terminal-muted text-[10px] py-2">
         POLYMARKET ALPHA TERMINAL — Atualização a cada 5 segundos
