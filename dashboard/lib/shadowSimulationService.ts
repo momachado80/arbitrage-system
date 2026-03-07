@@ -306,6 +306,97 @@ function runCycle(): void {
     });
 }
 
+/**
+ * Evaluate a single opportunity (from scanner) and either open a shadow trade or log rejection.
+ * Called by executionDispatcher when opportunities are produced.
+ */
+export function evaluateOpportunity(opportunity: Record<string, unknown>): void {
+  ensureShadowSimulation();
+  const isGraph = Array.isArray(opportunity.marketsInvolved) && (opportunity.marketsInvolved as unknown[]).length > 0;
+  const opp: NormalizedPaperOpportunity = isGraph
+    ? normalizeGraph(opportunity as Parameters<typeof normalizeGraph>[0])
+    : normalizeStandard(opportunity);
+  const capacity = estimateOpportunityCapacity(opp);
+  const marketId = opp.marketsInvolved[0]?.marketId ?? opp.opportunityId;
+  const edgeBps = Math.round((opp.edge ?? 0) * 10000);
+  const persistenceData = getPersistenceData();
+  const reasonMap: Record<string, TradeRejectionReason> = {
+    insufficient_capital_or_exposure_limit: "TRADE_SIZE_TOO_SMALL",
+    net_edge_below_threshold: "EDGE_BELOW_THRESHOLD",
+    fill_rejected: "INSUFFICIENT_LIQUIDITY",
+  };
+
+  for (const profile of getEnabledProfiles()) {
+    try {
+      ensureProfileState(profile);
+      const state = getShadowProfileState(profile.profileId);
+      const exposure = getProfileExposure(profile.profileId);
+      const activeOppIds = new Set((state?.activeTrades ?? []).map((t) => t.opportunityId));
+      if (activeOppIds.has(opp.opportunityId)) continue;
+
+      if (capacity.recommendedCapital <= 0) {
+        logTradeRejection({ timestamp: Date.now(), marketId, edgeBps, reason: "EDGE_BELOW_THRESHOLD" });
+        continue;
+      }
+      if (opp.confidence < profile.minConfidenceToTrade) {
+        logTradeRejection({ timestamp: Date.now(), marketId, edgeBps, reason: "LATENCY_RISK" });
+        continue;
+      }
+      const freshExposure = getProfileExposure(profile.profileId);
+      const freshState = getShadowProfileState(profile.profileId);
+      const profileState = {
+        availableCapital: freshState?.availableCapital ?? profile.startingCapital,
+        maxCapitalPerTrade: profile.maxCapitalPerTrade,
+        maxCapitalPerCluster: profile.maxCapitalPerCluster,
+        maxCapitalPerMarket: profile.maxCapitalPerMarket,
+        exposureByCluster: freshExposure.exposureByCluster,
+        exposureByMarket: freshExposure.exposureByMarket,
+      };
+      const entryResult = simulateRealisticEntry(opp, capacity, profileState, persistenceData, {
+        latencyProfile: profile.latencyProfile,
+        impactConfig: { impactAlpha: profile.impactAlpha },
+        minCapturableEdgeToTrade: profile.minNetCapturableEdgeToTrade,
+        feeBuffer: profile.feeBuffer,
+        liquidityHaircut: profile.liquidityHaircut,
+      });
+      if (entryResult.rejectionReason) {
+        recordRejection(profile.profileId, entryResult.rejectionReason);
+        const reason = reasonMap[entryResult.rejectionReason] ?? "UNKNOWN";
+        logTradeRejection({
+          timestamp: Date.now(),
+          marketId,
+          edgeBps: Math.round((entryResult.observedEdge ?? opp.edge) * 10000),
+          reason,
+        });
+        continue;
+      }
+      if (entryResult.filledCapital <= 0) continue;
+
+      const trade: ShadowTrade = {
+        tradeId: `sst-${profile.profileId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        opportunityId: opp.opportunityId,
+        sourceType: opp.sourceType,
+        opportunityType: opp.opportunityType,
+        clusterId: opp.clusterId,
+        marketsInvolved: opp.marketsInvolved,
+        openedAt: new Date().toISOString(),
+        closedAt: null,
+        status: "active",
+        observedEdgeAtEntry: entryResult.observedEdge,
+        capturableEdgeAtEntry: entryResult.capturableEdgeBeforeImpact,
+        effectiveEntryPrice: entryResult.effectiveEntryPrice,
+        filledCapital: entryResult.filledCapital,
+        realizedPnL: 0,
+        realizedReturn: 0,
+        holdingTimeMs: 0,
+      };
+      addShadowTrade(profile.profileId, trade, profile);
+    } catch (err) {
+      console.warn(`[ShadowSim] evaluateOpportunity failed for ${opp.opportunityId}:`, err instanceof Error ? err.message : err);
+    }
+  }
+}
+
 export function ensureShadowSimulation(): void {
   if (loopStarted) return;
   loopStarted = true;

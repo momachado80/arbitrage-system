@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getGraphOpportunities, getGraphSummary, getGraphScanStats } from "@/lib/graphScanService";
+import { dispatchOpportunity } from "@/lib/executionDispatcher";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +9,10 @@ export async function GET() {
     const ranked = getGraphOpportunities();
     const summary = getGraphSummary();
     const stats = getGraphScanStats();
+
+    for (const opp of ranked) {
+      dispatchOpportunity(opp as unknown as Record<string, unknown>);
+    }
 
     return NextResponse.json({
       summary: {

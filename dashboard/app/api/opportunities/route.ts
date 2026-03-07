@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getAllMarkets } from "@/lib/marketDataService";
 import { scanMarkets } from "@/lib/probabilityScanner";
 import { rankOpportunities } from "@/lib/opportunityEngine";
+import { dispatchOpportunity } from "@/lib/executionDispatcher";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,10 @@ export async function GET() {
     const markets = getAllMarkets();
     const edges = scanMarkets(markets);
     const ranked = rankOpportunities(edges);
+
+    for (const opp of ranked) {
+      dispatchOpportunity(opp as unknown as Record<string, unknown>);
+    }
 
     return NextResponse.json({
       count: ranked.length,
