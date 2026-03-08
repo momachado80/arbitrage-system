@@ -68,6 +68,22 @@ export interface ExecutableMetrics {
   likelyNoiseSized: boolean;
 }
 
+function inferSource(opp: Record<string, unknown>): "standard" | "graph" {
+  const hasGraphShape =
+    typeof opp.id === "string" &&
+    Array.isArray(opp.marketsInvolved) &&
+    (opp.marketsInvolved as unknown[]).length > 0;
+  return hasGraphShape ? "graph" : "standard";
+}
+
+export function estimateExecutableValueForDispatch(opp: Record<string, unknown>): ExecutableMetrics | null {
+  const profiles = getEnabledProfiles();
+  if (profiles.length === 0) return null;
+  const source = inferSource(opp);
+  const normalized = normalizeForDiagnostic(opp, source);
+  return estimateExecutableMetrics(normalized, profiles[0]);
+}
+
 function estimateExecutableMetrics(
   opp: NormalizedPaperOpportunity,
   profile: { maxCapitalPerTrade: number; maxCapitalPerCluster: number; maxCapitalPerMarket: number; liquidityHaircut: number; startingCapital: number }

@@ -21,6 +21,8 @@ const counters = {
   totalEvaluateCalls: 0,
   totalExecutionCalls: 0,
   totalShadowTradesOpened: 0,
+  totalFilteredByEEV: 0,
+  totalPassedEEVFilter: 0,
   earlyExitCounts: {} as Record<string, number>,
 };
 
@@ -51,11 +53,21 @@ export function incrementEarlyExit(reason: EarlyExitReason | string): void {
   counters.earlyExitCounts[reason]++;
 }
 
+export function incrementFilteredByEEV(): void {
+  counters.totalFilteredByEEV++;
+}
+
+export function incrementPassedEEVFilter(): void {
+  counters.totalPassedEEVFilter++;
+}
+
 export function getPipelineDiagnostics(): {
   totalDispatches: number;
   totalEvaluateCalls: number;
   totalExecutionCalls: number;
   totalShadowTradesOpened: number;
+  totalFilteredByEEV: number;
+  totalPassedEEVFilter: number;
   earlyExitCounts: Record<string, number>;
   timestamp: string;
 } {
