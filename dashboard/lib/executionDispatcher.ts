@@ -4,6 +4,7 @@
  */
 
 import { evaluateOpportunity } from "./shadowSimulationService";
+import { incrementDispatch, incrementEarlyExit } from "./shadowPipelineDiagnostics";
 
 export type DispatchedOpportunity = Record<string, unknown>;
 
@@ -14,11 +15,14 @@ export function dispatchOpportunity(opportunity: DispatchedOpportunity): void {
   const rank = opportunity.rank ?? "?";
   console.log("DISPATCH START", { marketId, type, edge, rank });
 
+  incrementDispatch();
+
   try {
     console.log("CALLING EXECUTION ENGINE", marketId);
     evaluateOpportunity(opportunity);
   } catch (err) {
-    console.log("DISPATCH EARLY EXIT", "dispatch threw error");
+    incrementEarlyExit("DISPATCH_CATCH_ERROR");
+    console.log("[DIAGNOSTICS] EARLY EXIT", { reason: "DISPATCH_CATCH_ERROR", marketId });
     console.error("[ExecutionDispatcher] Dispatch error:", err);
   }
 }

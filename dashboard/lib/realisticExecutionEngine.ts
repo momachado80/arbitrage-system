@@ -151,6 +151,12 @@ export function simulateRealisticEntry(
   const requestedCapital = Math.min(recommendedRaw, remainingCluster, remainingMarket);
 
   if (requestedCapital <= 0) {
+    const marketId = opportunity.marketsInvolved[0]?.marketId ?? opportunity.opportunityId;
+    console.log("[DIAGNOSTICS] CAPITAL REJECTION", {
+      marketId,
+      recommendedCapital: recommendedRaw,
+      requestedCapital: 0,
+    });
     return {
       observedEdge,
       capturableEdgeBeforeImpact: capturableBeforeImpact,
@@ -175,6 +181,12 @@ export function simulateRealisticEntry(
   );
 
   if (netEdgeAfterImpact < cfg.minCapturableEdgeToTrade) {
+    const marketId = opportunity.marketsInvolved[0]?.marketId ?? opportunity.opportunityId;
+    console.log("[DIAGNOSTICS] FILL REJECTION", {
+      marketId,
+      filledCapital: 0,
+      reason: "net_edge_below_threshold",
+    });
     return {
       observedEdge,
       capturableEdgeBeforeImpact: capturableBeforeImpact,
@@ -202,6 +214,13 @@ export function simulateRealisticEntry(
   const filled = deterministicFill(prob, requestedCapital);
 
   if (filled <= 0) {
+    const marketId = opportunity.marketsInvolved[0]?.marketId ?? opportunity.opportunityId;
+    console.log("[DIAGNOSTICS] FILL REJECTION", {
+      marketId,
+      filledCapital: 0,
+      fillProbability: prob,
+      reason: "fill_rejected",
+    });
     return {
       observedEdge,
       capturableEdgeBeforeImpact: capturableBeforeImpact,
