@@ -9,13 +9,30 @@ import { scanMarkets } from "./lib/probabilityScanner";
 import { rankOpportunities } from "./lib/opportunityEngine";
 import { getGraphOpportunities } from "./lib/graphScanService";
 import { dispatchOpportunity } from "./lib/executionDispatcher";
+import { getPipelineDiagnostics } from "./lib/shadowPipelineDiagnostics";
 
 console.log("BOT RUNNER FILE LOADED");
 
 const CYCLE_INTERVAL_MS = 5_000;
+const SNAPSHOT_INTERVAL_MS = 60_000;
+
+function startDiagnosticsSnapshot(): void {
+  setInterval(() => {
+    const d = getPipelineDiagnostics();
+    console.log("[DIAGNOSTICS] WORKER SNAPSHOT", {
+      totalDispatches: d.totalDispatches,
+      totalEvaluateCalls: d.totalEvaluateCalls,
+      totalExecutionCalls: d.totalExecutionCalls,
+      totalShadowTradesOpened: d.totalShadowTradesOpened,
+      earlyExitCounts: d.earlyExitCounts,
+      timestamp: d.timestamp,
+    });
+  }, SNAPSHOT_INTERVAL_MS);
+}
 
 async function runBot(): Promise<void> {
   console.log("ARBITRAGE WORKER ONLINE");
+  startDiagnosticsSnapshot();
 
   while (true) {
     try {
