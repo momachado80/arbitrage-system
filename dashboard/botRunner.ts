@@ -10,10 +10,12 @@ import { rankOpportunities } from "./lib/opportunityEngine";
 import { getGraphOpportunities } from "./lib/graphScanService";
 import { dispatchOpportunity } from "./lib/executionDispatcher";
 
+console.log("BOT RUNNER FILE LOADED");
+
 const CYCLE_INTERVAL_MS = 5_000;
 
 async function runBot(): Promise<void> {
-  console.log("[BotRunner] Arbitrage worker started (interval: 5s)");
+  console.log("ARBITRAGE WORKER ONLINE");
 
   while (true) {
     try {
@@ -41,7 +43,7 @@ async function runBot(): Promise<void> {
         dispatchOpportunity(opp as unknown as Record<string, unknown>);
       }
     } catch (err) {
-      console.warn("[BotRunner] Cycle error:", err instanceof Error ? err.message : err);
+      console.error("WORKER LOOP ERROR:", err);
     }
 
     await new Promise((r) => setTimeout(r, CYCLE_INTERVAL_MS));

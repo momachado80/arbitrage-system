@@ -9,7 +9,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "node server.js",
-    "bot": "npx ts-node botRunner.ts",
+    "bot": "npx ts-node -P tsconfig.worker.json botRunner.ts",
     "lint": "next lint"
   },
   "dependencies": {
