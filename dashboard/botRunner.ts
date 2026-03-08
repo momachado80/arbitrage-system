@@ -10,6 +10,7 @@ import { rankOpportunities } from "./lib/opportunityEngine";
 import { getGraphOpportunities } from "./lib/graphScanService";
 import { dispatchOpportunity } from "./lib/executionDispatcher";
 import { getPipelineDiagnostics } from "./lib/shadowPipelineDiagnostics";
+import { runRankingComparisonDiagnostics } from "./lib/rankingComparisonDiagnostics";
 
 console.log("BOT RUNNER FILE LOADED");
 
@@ -46,6 +47,10 @@ async function runBot(): Promise<void> {
         const ranked = rankOpportunities(edges);
         console.log("OPPORTUNITIES RANKED:", ranked.length);
 
+        if (ranked.length > 0) {
+          runRankingComparisonDiagnostics(ranked as unknown as Record<string, unknown>[], "standard", 15);
+        }
+
         for (const opp of ranked) {
           console.log("DISPATCHING OPPORTUNITY", opp);
           dispatchOpportunity(opp as unknown as Record<string, unknown>);
@@ -54,6 +59,10 @@ async function runBot(): Promise<void> {
 
       const graphOpps = getGraphOpportunities();
       console.log("GRAPH OPPORTUNITIES:", graphOpps.length);
+
+      if (graphOpps.length > 0) {
+        runRankingComparisonDiagnostics(graphOpps as unknown as Record<string, unknown>[], "graph", 15);
+      }
 
       for (const opp of graphOpps) {
         console.log("DISPATCHING OPPORTUNITY", opp);
