@@ -215,11 +215,20 @@ export function simulateRealisticEntry(
 
   if (filled <= 0) {
     const marketId = opportunity.marketsInvolved[0]?.marketId ?? opportunity.opportunityId;
-    console.log("[DIAGNOSTICS] FILL REJECTION", {
+    const hypo015 = prob < 0.15 ? 0 : requestedCapital * Math.min(1, prob);
+    const hypo010 = prob < 0.1 ? 0 : requestedCapital * Math.min(1, prob);
+    const hypo008 = prob < 0.08 ? 0 : requestedCapital * Math.min(1, prob);
+    const hypo005 = prob < 0.05 ? 0 : requestedCapital * Math.min(1, prob);
+    const hypoProportional = requestedCapital * prob;
+    console.log("[DIAGNOSTICS] FILL REJECTION WHAT-IF", {
       marketId,
-      filledCapital: 0,
-      fillProbability: prob,
-      reason: "fill_rejected",
+      currentFillProbability: prob,
+      currentRequestedCapital: requestedCapital,
+      hypotheticalFilledAt015: hypo015,
+      hypotheticalFilledAt010: hypo010,
+      hypotheticalFilledAt008: hypo008,
+      hypotheticalFilledAt005: hypo005,
+      hypotheticalFilledProportional: hypoProportional,
     });
     return {
       observedEdge,
