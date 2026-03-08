@@ -326,20 +326,30 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
     fill_rejected: "INSUFFICIENT_LIQUIDITY",
   };
 
-  for (const profile of getEnabledProfiles()) {
+  const enabledProfiles = getEnabledProfiles();
+  if (enabledProfiles.length === 0) {
+    console.log("DISPATCH EARLY EXIT", "no enabled profiles");
+  }
+
+  for (const profile of enabledProfiles) {
     try {
       ensureProfileState(profile);
       const state = getShadowProfileState(profile.profileId);
       const exposure = getProfileExposure(profile.profileId);
       const activeOppIds = new Set((state?.activeTrades ?? []).map((t) => t.opportunityId));
-      if (activeOppIds.has(opp.opportunityId)) continue;
+      if (activeOppIds.has(opp.opportunityId)) {
+        console.log("DISPATCH EARLY EXIT", "already has active trade for opportunity");
+        continue;
+      }
 
       if (capacity.recommendedCapital <= 0) {
         logTradeRejection({ timestamp: Date.now(), marketId, edgeBps, reason: "EDGE_BELOW_THRESHOLD" });
+        console.log("OPPORTUNITY REJECTED", { marketId, reason: "EDGE_BELOW_THRESHOLD" });
         continue;
       }
       if (opp.confidence < profile.minConfidenceToTrade) {
         logTradeRejection({ timestamp: Date.now(), marketId, edgeBps, reason: "LATENCY_RISK" });
+        console.log("OPPORTUNITY REJECTED", { marketId, reason: "LATENCY_RISK" });
         continue;
       }
       const freshExposure = getProfileExposure(profile.profileId);
@@ -359,18 +369,24 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
         feeBuffer: profile.feeBuffer,
         liquidityHaircut: profile.liquidityHaircut,
       });
+      console.log("EXECUTION ENGINE RESULT", entryResult);
+
       if (entryResult.rejectionReason) {
-        recordRejection(profile.profileId, entryResult.rejectionReason);
         const reason = reasonMap[entryResult.rejectionReason] ?? "UNKNOWN";
+        recordRejection(profile.profileId, entryResult.rejectionReason);
         logTradeRejection({
           timestamp: Date.now(),
           marketId,
           edgeBps: Math.round((entryResult.observedEdge ?? opp.edge) * 10000),
           reason,
         });
+        console.log("OPPORTUNITY REJECTED", { marketId, reason });
         continue;
       }
-      if (entryResult.filledCapital <= 0) continue;
+      if (entryResult.filledCapital <= 0) {
+        console.log("DISPATCH EARLY EXIT", "fill rejected or zero");
+        continue;
+      }
 
       const trade: ShadowTrade = {
         tradeId: `sst-${profile.profileId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -391,7 +407,15 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
         holdingTimeMs: 0,
       };
       addShadowTrade(profile.profileId, trade, profile);
+      console.log("SHADOW TRADE EXECUTED", { tradeId: trade.tradeId, filledCapital: trade.filledCapital });
+      const updatedState = getShadowProfileState(profile.profileId);
+      console.log("SHADOW PORTFOLIO UPDATED", {
+        activeTrades: updatedState?.activeTrades?.length ?? 0,
+        closedTrades: updatedState?.closedTrades?.length ?? 0,
+        equity: updatedState?.currentEquity ?? 0,
+      });
     } catch (err) {
+      console.log("DISPATCH EARLY EXIT", "evaluateOpportunity threw error");
       console.warn(`[ShadowSim] evaluateOpportunity failed for ${opp.opportunityId}:`, err instanceof Error ? err.message : err);
     }
   }

@@ -28,6 +28,7 @@ export function logTradeRejection(event: TradeRejectionEvent): void {
     if (buffer.length > MAX_EVENTS) {
       buffer.splice(0, buffer.length - MAX_EVENTS);
     }
+    console.log("REJECTION STATS UPDATED", event.reason);
   } catch {
     // non-fatal
   }
