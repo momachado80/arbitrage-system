@@ -212,8 +212,26 @@ export function simulateRealisticEntry(
   );
   const filled = deterministicFill(prob, requestedCapital);
 
+  const executableExpectedValue = requestedCapital * prob * netEdgeAfterImpact;
+  const expectedProfitDollars = executableExpectedValue;
+  const likelyNoiseSized = expectedProfitDollars < 0.01 || requestedCapital < 1;
+
+  const marketId = opportunity.marketsInvolved[0]?.marketId ?? opportunity.opportunityId;
+  console.log("[DIAGNOSTICS] EXECUTABLE VALUE", {
+    marketId,
+    edge: observedEdge,
+    confidence: opportunity.confidence,
+    opportunityLiquidity: opportunity.liquidity,
+    requestedCapital,
+    recommendedCapital: recommendedRaw,
+    fillProbability: prob,
+    netEdgeAfterImpact,
+    executableExpectedValue,
+    expectedProfitDollars,
+    likelyNoiseSized,
+  });
+
   if (filled <= 0) {
-    const marketId = opportunity.marketsInvolved[0]?.marketId ?? opportunity.opportunityId;
     const caps = [
       { name: "capacity.recommendedCapital", val: capCapacity },
       { name: "availableCapital", val: capAvailable },
@@ -224,7 +242,6 @@ export function simulateRealisticEntry(
       { name: "remainingMarket", val: remainingMarket },
     ];
     const binding = caps.filter((c) => Math.abs(c.val - requestedCapital) < 1e-9).map((c) => c.name);
-    const executableExpectedValue = recommendedRaw * prob * netEdgeAfterImpact;
     const scenarios = [
       { cutoff: 0.15, filled: prob < 0.15 ? 0 : requestedCapital * Math.min(1, prob) },
       { cutoff: 0.1, filled: prob < 0.1 ? 0 : requestedCapital * Math.min(1, prob) },
