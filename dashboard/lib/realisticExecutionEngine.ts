@@ -215,20 +215,40 @@ export function simulateRealisticEntry(
 
   if (filled <= 0) {
     const marketId = opportunity.marketsInvolved[0]?.marketId ?? opportunity.opportunityId;
-    const hypo015 = prob < 0.15 ? 0 : requestedCapital * Math.min(1, prob);
-    const hypo010 = prob < 0.1 ? 0 : requestedCapital * Math.min(1, prob);
-    const hypo008 = prob < 0.08 ? 0 : requestedCapital * Math.min(1, prob);
-    const hypo005 = prob < 0.05 ? 0 : requestedCapital * Math.min(1, prob);
-    const hypoProportional = requestedCapital * prob;
-    console.log("[DIAGNOSTICS] FILL REJECTION WHAT-IF", {
+    const scenarios = [
+      { cutoff: 0.15, filled: prob < 0.15 ? 0 : requestedCapital * Math.min(1, prob) },
+      { cutoff: 0.1, filled: prob < 0.1 ? 0 : requestedCapital * Math.min(1, prob) },
+      { cutoff: 0.08, filled: prob < 0.08 ? 0 : requestedCapital * Math.min(1, prob) },
+      { cutoff: 0.05, filled: prob < 0.05 ? 0 : requestedCapital * Math.min(1, prob) },
+      { cutoff: "proportional", filled: requestedCapital * prob },
+    ] as const;
+    const MIN_ECONOMIC_USD = 1;
+    const MIN_EXPECTED_PROFIT_USD = 0.01;
+    const economicAnalysis = scenarios.map((s) => {
+      const h = s.filled;
+      const netEdgeCaptured = h * netEdgeAfterImpact;
+      const fillFraction = requestedCapital > 0 ? h / requestedCapital : 0;
+      const exceedsMinSize = h >= MIN_ECONOMIC_USD;
+      const exceedsMinProfit = netEdgeCaptured >= MIN_EXPECTED_PROFIT_USD;
+      const likelyNoise = h < MIN_ECONOMIC_USD || netEdgeCaptured < MIN_EXPECTED_PROFIT_USD;
+      return {
+        cutoff: s.cutoff,
+        hypotheticalFilledCapital: h,
+        hypotheticalNetEdgeCaptured: netEdgeCaptured,
+        hypotheticalFillFraction: fillFraction,
+        exceedsMinEconomicSize: exceedsMinSize,
+        exceedsMinExpectedProfit: exceedsMinProfit,
+        likelyNoiseSized: likelyNoise,
+      };
+    });
+    console.log("[DIAGNOSTICS] FILL REJECTION ECONOMIC WHAT-IF", {
       marketId,
       currentFillProbability: prob,
       currentRequestedCapital: requestedCapital,
-      hypotheticalFilledAt015: hypo015,
-      hypotheticalFilledAt010: hypo010,
-      hypotheticalFilledAt008: hypo008,
-      hypotheticalFilledAt005: hypo005,
-      hypotheticalFilledProportional: hypoProportional,
+      netEdgeAfterImpact,
+      economicAnalysis,
+      minEconomicFloorUsd: MIN_ECONOMIC_USD,
+      minExpectedProfitUsd: MIN_EXPECTED_PROFIT_USD,
     });
     return {
       observedEdge,
