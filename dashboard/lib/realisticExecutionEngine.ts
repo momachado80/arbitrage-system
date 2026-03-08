@@ -131,13 +131,12 @@ export function simulateRealisticEntry(
   const decayResult = estimateCapturableEdge(opportunity, latencySample.totalEntryLatencyMs, persistenceData);
   const capturableBeforeImpact = Math.max(0, decayResult.capturableEdge - latencyPenalty - cfg.feeBuffer);
 
-  const recommendedRaw = Math.min(
-    capacity.recommendedCapital,
-    profileState.availableCapital,
-    profileState.maxCapitalPerTrade,
-    liquidity * 0.1,
-    opportunity.liquidity * 0.08
-  );
+  const capCapacity = capacity.recommendedCapital;
+  const capAvailable = profileState.availableCapital;
+  const capMaxTrade = profileState.maxCapitalPerTrade;
+  const capLiq10Pct = liquidity * 0.1;
+  const capLiq8Pct = opportunity.liquidity * 0.08;
+  const recommendedRaw = Math.min(capCapacity, capAvailable, capMaxTrade, capLiq10Pct, capLiq8Pct);
 
   const clusterExposure = opportunity.clusterId
     ? profileState.exposureByCluster[opportunity.clusterId] || 0
@@ -215,6 +214,17 @@ export function simulateRealisticEntry(
 
   if (filled <= 0) {
     const marketId = opportunity.marketsInvolved[0]?.marketId ?? opportunity.opportunityId;
+    const caps = [
+      { name: "capacity.recommendedCapital", val: capCapacity },
+      { name: "availableCapital", val: capAvailable },
+      { name: "maxCapitalPerTrade", val: capMaxTrade },
+      { name: "liquidity×0.1", val: capLiq10Pct },
+      { name: "opportunity.liquidity×0.08", val: capLiq8Pct },
+      { name: "remainingCluster", val: remainingCluster },
+      { name: "remainingMarket", val: remainingMarket },
+    ];
+    const binding = caps.filter((c) => Math.abs(c.val - requestedCapital) < 1e-9).map((c) => c.name);
+    const executableExpectedValue = recommendedRaw * prob * netEdgeAfterImpact;
     const scenarios = [
       { cutoff: 0.15, filled: prob < 0.15 ? 0 : requestedCapital * Math.min(1, prob) },
       { cutoff: 0.1, filled: prob < 0.1 ? 0 : requestedCapital * Math.min(1, prob) },
@@ -246,6 +256,10 @@ export function simulateRealisticEntry(
       currentFillProbability: prob,
       currentRequestedCapital: requestedCapital,
       netEdgeAfterImpact,
+      executableExpectedValue,
+      bindingCaps: binding,
+      capValues: { capCapacity, capLiq8Pct, capLiq10Pct, capMaxTrade, capAvailable },
+      opportunityLiquidity: opportunity.liquidity,
       economicAnalysis,
       minEconomicFloorUsd: MIN_ECONOMIC_USD,
       minExpectedProfitUsd: MIN_EXPECTED_PROFIT_USD,
