@@ -23,5 +23,7 @@ app.prepare().then(() => {
     })
     .listen(port, hostname, () => {
       console.log(`> Ready on http://${hostname}:${port}`);
+      const domain = process.env.RAILWAY_PUBLIC_DOMAIN;
+      if (domain) console.log(`[DASHBOARD_URL] https://${domain}`);
     });
 });
