@@ -27,8 +27,8 @@ export interface ShadowProfileConfig {
 export const SHADOW_PROFILES: ShadowProfileConfig[] = [
   {
     profileId: "shadow_100",
-    label: "Shadow 100 USD",
-    startingCapital: 100,
+    label: "Shadow 500 USD (test)",
+    startingCapital: 500,
     latencyProfile: "normal",
     maxCapitalPerTrade: 25,
     maxCapitalPerCluster: 50,
@@ -45,8 +45,8 @@ export const SHADOW_PROFILES: ShadowProfileConfig[] = [
   },
   {
     profileId: "shadow_1000",
-    label: "Shadow 1000 USD",
-    startingCapital: 1000,
+    label: "Shadow 5000 USD (test)",
+    startingCapital: 5000,
     latencyProfile: "normal",
     maxCapitalPerTrade: 150,
     maxCapitalPerCluster: 400,
