@@ -20,6 +20,7 @@ console.log("BOT RUNNER FILE LOADED");
 
 function logShadowProfileConfig(): void {
   const profiles = getEnabledProfiles();
+  console.log("[WORKER_STARTUP] SHADOW_PROFILE_CONFIG");
   console.log("[DIAGNOSTICS] SHADOW PROFILE CONFIG", {
     profileCount: profiles.length,
     profiles: profiles.map((p) => ({
@@ -36,8 +37,9 @@ function logShadowProfileConfig(): void {
   });
 }
 
-function logShadowPortfolioState(): void {
+function logShadowPortfolioState(atStartup = false): void {
   const states = getAllShadowProfiles();
+  if (atStartup) console.log("[WORKER_STARTUP] SHADOW_PORTFOLIO_STATE");
   if (states.length === 0) {
     console.log("[DIAGNOSTICS] SHADOW PORTFOLIO STATE", {
       message: "No profile states initialized yet (no evaluateOpportunity call)",
@@ -114,7 +116,7 @@ async function runBot(): Promise<void> {
   console.log("ARBITRAGE WORKER ONLINE");
   logShadowProfileConfig();
   ensureShadowSimulation();
-  logShadowPortfolioState();
+  logShadowPortfolioState(true);
   startDiagnosticsSnapshot();
   console.log("[WORKER] Main loop starting");
 
