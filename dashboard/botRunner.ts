@@ -13,8 +13,53 @@ import { getPipelineDiagnostics } from "./lib/shadowPipelineDiagnostics";
 import { runRankingComparisonDiagnostics } from "./lib/rankingComparisonDiagnostics";
 import { getEEVFilterQualitySummary, getPassedEEVDownstreamSummary } from "./lib/eevFilterQualityTracker";
 import { getAllShadowProfiles } from "./lib/shadowSimulationStore";
+import { getEnabledProfiles } from "./lib/shadowSimulationProfiles";
+import { ensureShadowSimulation } from "./lib/shadowSimulationService";
 
 console.log("BOT RUNNER FILE LOADED");
+
+function logShadowProfileConfig(): void {
+  const profiles = getEnabledProfiles();
+  console.log("[DIAGNOSTICS] SHADOW PROFILE CONFIG", {
+    profileCount: profiles.length,
+    profiles: profiles.map((p) => ({
+      profileId: p.profileId,
+      label: p.label,
+      startingCapital: p.startingCapital,
+      maxCapitalPerTrade: p.maxCapitalPerTrade,
+      maxCapitalPerCluster: p.maxCapitalPerCluster,
+      maxCapitalPerMarket: p.maxCapitalPerMarket,
+      minConfidenceToTrade: p.minConfidenceToTrade,
+      maxHoldingTimeMs: p.maxHoldingTimeMs,
+    })),
+    timestamp: new Date().toISOString(),
+  });
+}
+
+function logShadowPortfolioState(): void {
+  const states = getAllShadowProfiles();
+  if (states.length === 0) {
+    console.log("[DIAGNOSTICS] SHADOW PORTFOLIO STATE", {
+      message: "No profile states initialized yet (no evaluateOpportunity call)",
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+  console.log("[DIAGNOSTICS] SHADOW PORTFOLIO STATE", {
+    profiles: states.map((s) => ({
+      profileId: s.profileId,
+      label: s.label,
+      startingCapital: s.startingCapital,
+      currentEquity: s.currentEquity,
+      reservedCapital: s.reservedCapital,
+      availableCapital: s.availableCapital,
+      activeTrades: s.activeTrades.length,
+      closedTrades: s.closedTrades.length,
+      freeCapitalRatio: s.startingCapital > 0 ? s.availableCapital / s.startingCapital : 0,
+    })),
+    timestamp: new Date().toISOString(),
+  });
+}
 
 const CYCLE_INTERVAL_MS = 5_000;
 const SNAPSHOT_INTERVAL_MS = 60_000;
@@ -46,6 +91,7 @@ function startDiagnosticsSnapshot(): void {
       });
       console.log("[DIAGNOSTICS] PASSED EEV DOWNSTREAM SUMMARY", downstream);
     }
+    logShadowPortfolioState();
     const shadowProfiles = getAllShadowProfiles();
     const lowCap = shadowProfiles.filter((p) => p.availableCapital < 5);
     if (lowCap.length > 0) {
@@ -66,6 +112,9 @@ function startDiagnosticsSnapshot(): void {
 
 async function runBot(): Promise<void> {
   console.log("ARBITRAGE WORKER ONLINE");
+  logShadowProfileConfig();
+  ensureShadowSimulation();
+  logShadowPortfolioState();
   startDiagnosticsSnapshot();
 
   while (true) {
