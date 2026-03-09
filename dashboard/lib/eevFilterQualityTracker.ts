@@ -40,6 +40,11 @@ const emptyStats = (): AggregateStats => ({
 const filtered: AggregateStats = emptyStats();
 const passed: AggregateStats = emptyStats();
 
+const weakSubgroupCounts = {
+  passedButTinyCapital: 0,
+  passedButLowFillProbability: 0,
+};
+
 function addToStats(
   stats: AggregateStats,
   opp: { edge?: unknown; confidence?: unknown; liquidity?: unknown },
@@ -120,6 +125,8 @@ export function recordPassed(
       executableExpectedValue: metrics.executableExpectedValue,
     }
   );
+  if (metrics.requestedCapital < 0.5) weakSubgroupCounts.passedButTinyCapital++;
+  if (metrics.fillProbability < 0.15) weakSubgroupCounts.passedButLowFillProbability++;
 }
 
 export function getEEVFilterQualitySummary(): {
@@ -150,6 +157,86 @@ export function getEEVFilterQualitySummary(): {
       passedHasHigherAvgRequestedCapital: passedAvgReq > filteredAvgReq,
       passedHasLowerLikelyNoisePct: passedNoisePct < filteredNoisePct,
     },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+export interface PipelineDiagnosticsInput {
+  totalPassedEEVFilter: number;
+  totalEvaluateCalls: number;
+  totalExecutionCalls: number;
+  totalShadowTradesOpened: number;
+  earlyExitCounts: Record<string, number>;
+}
+
+export function getPassedEEVDownstreamSummary(pipeline: PipelineDiagnosticsInput): {
+  passedCohort: {
+    count: number;
+    reachedEvaluate: number;
+    reachedExecution: number;
+    shadowTradesOpened: number;
+    conversionRate: number;
+  };
+  passedAverages: {
+    avgRequestedCapital: number;
+    avgFillProbability: number;
+    avgNetEdge: number;
+    avgExecutableExpectedValue: number;
+  };
+  rejectionBreakdown: Record<string, number>;
+  fillRejectionDominance: boolean;
+  fillRejectionPct: number;
+  weakSubgroups: {
+    passedButTinyCapital: number;
+    passedButLowFillProbability: number;
+    tinyCapitalPct: number;
+    lowFillPct: number;
+  };
+  timestamp: string;
+} {
+  const passedCount = pipeline.totalPassedEEVFilter;
+  const reachedEvaluate = pipeline.totalEvaluateCalls;
+  const reachedExecution = pipeline.totalExecutionCalls;
+  const shadowTradesOpened = pipeline.totalShadowTradesOpened;
+  const rejectionBreakdown = pipeline.earlyExitCounts;
+
+  const totalEarlyExits = Object.values(rejectionBreakdown).reduce((s, v) => s + v, 0);
+  const fillRejected = rejectionBreakdown.FILL_REJECTED ?? 0;
+  const fillRejectionPct = reachedExecution > 0 ? (fillRejected / reachedExecution) * 100 : 0;
+  const fillRejectionDominance = totalEarlyExits > 0 && fillRejected >= totalEarlyExits * 0.4;
+
+  const weakSubgroups = {
+    passedButTinyCapital: weakSubgroupCounts.passedButTinyCapital,
+    passedButLowFillProbability: weakSubgroupCounts.passedButLowFillProbability,
+    tinyCapitalPct: passedCount > 0 ? (weakSubgroupCounts.passedButTinyCapital / passedCount) * 100 : 0,
+    lowFillPct: passedCount > 0 ? (weakSubgroupCounts.passedButLowFillProbability / passedCount) * 100 : 0,
+  };
+
+  return {
+    passedCohort: {
+      count: passedCount,
+      reachedEvaluate,
+      reachedExecution,
+      shadowTradesOpened,
+      conversionRate: passedCount > 0 ? shadowTradesOpened / passedCount : 0,
+    },
+    passedAverages: passed.count > 0
+      ? {
+          avgRequestedCapital: passed.sumRequestedCapital / passed.count,
+          avgFillProbability: passed.sumFillProbability / passed.count,
+          avgNetEdge: passed.sumNetEdge / passed.count,
+          avgExecutableExpectedValue: passed.sumEEV / passed.count,
+        }
+      : {
+          avgRequestedCapital: 0,
+          avgFillProbability: 0,
+          avgNetEdge: 0,
+          avgExecutableExpectedValue: 0,
+        },
+    rejectionBreakdown,
+    fillRejectionDominance,
+    fillRejectionPct,
+    weakSubgroups,
     timestamp: new Date().toISOString(),
   };
 }

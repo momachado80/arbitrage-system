@@ -11,7 +11,7 @@ import { getGraphOpportunities } from "./lib/graphScanService";
 import { dispatchOpportunity } from "./lib/executionDispatcher";
 import { getPipelineDiagnostics } from "./lib/shadowPipelineDiagnostics";
 import { runRankingComparisonDiagnostics } from "./lib/rankingComparisonDiagnostics";
-import { getEEVFilterQualitySummary } from "./lib/eevFilterQualityTracker";
+import { getEEVFilterQualitySummary, getPassedEEVDownstreamSummary } from "./lib/eevFilterQualityTracker";
 
 console.log("BOT RUNNER FILE LOADED");
 
@@ -34,6 +34,16 @@ function startDiagnosticsSnapshot(): void {
     });
     if ((eevSummary.filtered.count as number) > 0 || (eevSummary.passed.count as number) > 0) {
       console.log("[DIAGNOSTICS] EEV FILTER QUALITY SUMMARY", eevSummary);
+    }
+    if (d.totalPassedEEVFilter > 0) {
+      const downstream = getPassedEEVDownstreamSummary({
+        totalPassedEEVFilter: d.totalPassedEEVFilter,
+        totalEvaluateCalls: d.totalEvaluateCalls,
+        totalExecutionCalls: d.totalExecutionCalls,
+        totalShadowTradesOpened: d.totalShadowTradesOpened,
+        earlyExitCounts: d.earlyExitCounts,
+      });
+      console.log("[DIAGNOSTICS] PASSED EEV DOWNSTREAM SUMMARY", downstream);
     }
   }, SNAPSHOT_INTERVAL_MS);
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getRejectionStats } from "@/lib/tradeRejectionLogger";
 import { getPipelineDiagnostics } from "@/lib/shadowPipelineDiagnostics";
-import { getEEVFilterQualitySummary } from "@/lib/eevFilterQualityTracker";
+import { getEEVFilterQualitySummary, getPassedEEVDownstreamSummary } from "@/lib/eevFilterQualityTracker";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +10,15 @@ export async function GET() {
     const stats = getRejectionStats();
     const pipeline = getPipelineDiagnostics();
     const eevQuality = getEEVFilterQualitySummary();
+    const passedDownstream = pipeline.totalPassedEEVFilter > 0
+      ? getPassedEEVDownstreamSummary({
+          totalPassedEEVFilter: pipeline.totalPassedEEVFilter,
+          totalEvaluateCalls: pipeline.totalEvaluateCalls,
+          totalExecutionCalls: pipeline.totalExecutionCalls,
+          totalShadowTradesOpened: pipeline.totalShadowTradesOpened,
+          earlyExitCounts: pipeline.earlyExitCounts,
+        })
+      : null;
     return NextResponse.json({
       countsByReason: stats.countsByReason,
       totalRejected: stats.totalRejected,
@@ -24,6 +33,7 @@ export async function GET() {
         earlyExitCounts: pipeline.earlyExitCounts,
         pipelineTimestamp: pipeline.timestamp,
         eevFilterQualitySummary: eevQuality,
+        passedEEVDownstreamSummary: passedDownstream,
       },
     });
   } catch (err) {
@@ -43,6 +53,7 @@ export async function GET() {
           earlyExitCounts: {},
           pipelineTimestamp: new Date().toISOString(),
           eevFilterQualitySummary: null,
+          passedEEVDownstreamSummary: null,
         },
       },
       { status: 200 }
