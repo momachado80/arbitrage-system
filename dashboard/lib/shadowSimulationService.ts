@@ -92,7 +92,8 @@ function normalizeGraph(opp: {
 
 async function fetchStandardOpportunities(): Promise<NormalizedPaperOpportunity[]> {
   try {
-    const base = typeof window !== "undefined" ? "" : "http://localhost:3000";
+    const port = process.env.PORT || "3000";
+    const base = typeof window !== "undefined" ? "" : `http://127.0.0.1:${port}`;
     const res = await fetch(`${base}/api/opportunities`, {
       cache: "no-store",
       signal: AbortSignal.timeout(5000),
