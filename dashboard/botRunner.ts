@@ -116,46 +116,54 @@ async function runBot(): Promise<void> {
   ensureShadowSimulation();
   logShadowPortfolioState();
   startDiagnosticsSnapshot();
+  console.log("[WORKER] Main loop starting");
 
   while (true) {
     try {
+      console.log("[WORKER] Loop iteration start");
       const markets = getAllMarkets();
-      console.log("MARKETS FETCHED:", markets.length);
+      console.log("[WORKER] MARKETS FETCHED:", markets.length);
 
       if (markets.length > 0) {
+        console.log("[WORKER] Before scan");
         const edges = scanMarkets(markets);
-        console.log("OPPORTUNITIES DETECTED:", edges.length);
+        console.log("[WORKER] OPPORTUNITIES DETECTED:", edges.length);
 
         const ranked = rankOpportunities(edges);
-        console.log("OPPORTUNITIES RANKED:", ranked.length);
+        console.log("[WORKER] OPPORTUNITIES RANKED:", ranked.length);
 
         if (ranked.length > 0) {
           runRankingComparisonDiagnostics(ranked as unknown as Record<string, unknown>[], "standard", 15);
         }
 
+        console.log("[WORKER] Before dispatch standard");
         for (const opp of ranked) {
-          console.log("DISPATCHING OPPORTUNITY", opp);
           dispatchOpportunity(opp as unknown as Record<string, unknown>);
         }
       }
 
+      console.log("[WORKER] Fetching graph opportunities");
       const graphOpps = getGraphOpportunities();
-      console.log("GRAPH OPPORTUNITIES:", graphOpps.length);
+      console.log("[WORKER] GRAPH OPPORTUNITIES:", graphOpps.length);
 
       if (graphOpps.length > 0) {
         runRankingComparisonDiagnostics(graphOpps as unknown as Record<string, unknown>[], "graph", 15);
       }
 
+      console.log("[WORKER] Before dispatch graph");
       for (const opp of graphOpps) {
-        console.log("DISPATCHING OPPORTUNITY", opp);
         dispatchOpportunity(opp as unknown as Record<string, unknown>);
       }
     } catch (err) {
-      console.error("WORKER LOOP ERROR:", err);
+      console.error("[WORKER] LOOP ERROR:", err);
     }
 
+    console.log("[WORKER] Waiting", CYCLE_INTERVAL_MS, "ms until next cycle");
     await new Promise((r) => setTimeout(r, CYCLE_INTERVAL_MS));
   }
 }
 
-runBot();
+runBot().catch((err) => {
+  console.error("[WORKER] FATAL:", err);
+  process.exitCode = 1;
+});
