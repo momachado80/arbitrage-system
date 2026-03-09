@@ -4,8 +4,8 @@
  */
 
 import { NextResponse } from "next/server";
-import { ensureShadowSimulation } from "@/lib/shadowSimulationService";
-import { getAllShadowProfiles } from "@/lib/shadowSimulationStore";
+import { ensureShadowSimulation, getShadowSystemStatus } from "@/lib/shadowSimulationService";
+import { getAllShadowProfiles, getRejectionCountsByProfile } from "@/lib/shadowSimulationStore";
 import { computeClosedTradeAudit } from "@/lib/shadowClosedTradeAudit";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,13 @@ export async function GET() {
     ensureShadowSimulation();
     const profiles = getAllShadowProfiles();
     const audit = computeClosedTradeAudit(profiles);
-    return NextResponse.json(audit);
+    const status = getShadowSystemStatus();
+    const rejectionCountsByProfile = getRejectionCountsByProfile();
+    return NextResponse.json({
+      ...audit,
+      opportunitiesSeenLastCycle: status.opportunitiesSeenLastCycle,
+      rejectionCountsByProfile,
+    });
   } catch (err) {
     console.error("[API /shadow/audit]", err);
     return NextResponse.json(

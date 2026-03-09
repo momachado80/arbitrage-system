@@ -66,6 +66,11 @@ export interface ClosedTradeAuditResult {
   };
   negativeExpectancy: boolean;
   safestNextChange: string;
+  dataSufficiency: {
+    totalClosed: number;
+    minRequiredForTuning: number;
+    sufficientForThresholdTuning: boolean;
+  };
 }
 
 function median(arr: number[]): number {
@@ -195,6 +200,12 @@ export function computeClosedTradeAudit(profiles: ShadowProfileState[]): ClosedT
   const totalClosed = allEntries.length;
   const hasNegativeExpectancy = totalClosed > 0 && totalPnL / totalClosed < 0;
 
+  const MIN_CLOSED_FOR_TUNING = 20;
+  const dataSufficient = totalClosed >= MIN_CLOSED_FOR_TUNING;
+  const dynamicSafestNextChange = dataSufficient
+    ? "Add minRealizedEdgeThreshold: only open when capturableEdgeAtEntry exceeds a floor (e.g. 0.01) to filter marginal entries. Or tighten minNetCapturableEdgeToTrade slightly. Test on shadow profile first."
+    : `Insufficient data for threshold tuning. Need ≥${MIN_CLOSED_FOR_TUNING} closed trades. Current: ${totalClosed}. Once sufficient, re-run audit.`;
+
   return {
     timestamp: new Date().toISOString(),
     realizedPnLFormula:
@@ -218,7 +229,11 @@ export function computeClosedTradeAudit(profiles: ShadowProfileState[]): ClosedT
         "Exit uses latestOpportunity.edge for exitPrice; if opportunity disappeared, uses effectiveEntryPrice (flat exit).",
     },
     negativeExpectancy: hasNegativeExpectancy,
-    safestNextChange:
-      "Add minRealizedEdgeThreshold: only open when capturableEdgeAtEntry exceeds a floor (e.g. 0.01) to filter marginal entries. Or tighten minNetCapturableEdgeToTrade slightly. Test on shadow profile first.",
+    safestNextChange: dynamicSafestNextChange,
+    dataSufficiency: {
+      totalClosed,
+      minRequiredForTuning: MIN_CLOSED_FOR_TUNING,
+      sufficientForThresholdTuning: dataSufficient,
+    },
   };
 }

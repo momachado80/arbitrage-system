@@ -219,6 +219,15 @@ export function recordRejection(profileId: string, reason: string): void {
   counts.set(reason, (counts.get(reason) ?? 0) + 1);
 }
 
+/** Per-profile rejection counts for audit instrumentation. No business logic. */
+export function getRejectionCountsByProfile(): Record<string, Record<string, number>> {
+  const out: Record<string, Record<string, number>> = {};
+  Array.from(rejectionCounts.entries()).forEach(([profileId, counts]) => {
+    out[profileId] = Object.fromEntries(Array.from(counts.entries()));
+  });
+  return out;
+}
+
 export function getShadowAnalytics(profileId: string): ShadowAnalytics | null {
   const state = profileStates.get(profileId);
   if (!state) return null;
