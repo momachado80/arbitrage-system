@@ -11,6 +11,7 @@ import { getGraphOpportunities } from "./lib/graphScanService";
 import { dispatchOpportunity } from "./lib/executionDispatcher";
 import { getPipelineDiagnostics } from "./lib/shadowPipelineDiagnostics";
 import { runRankingComparisonDiagnostics } from "./lib/rankingComparisonDiagnostics";
+import { getEEVFilterQualitySummary } from "./lib/eevFilterQualityTracker";
 
 console.log("BOT RUNNER FILE LOADED");
 
@@ -20,14 +21,20 @@ const SNAPSHOT_INTERVAL_MS = 60_000;
 function startDiagnosticsSnapshot(): void {
   setInterval(() => {
     const d = getPipelineDiagnostics();
+    const eevSummary = getEEVFilterQualitySummary();
     console.log("[DIAGNOSTICS] WORKER SNAPSHOT", {
       totalDispatches: d.totalDispatches,
+      totalFilteredByEEV: d.totalFilteredByEEV,
+      totalPassedEEVFilter: d.totalPassedEEVFilter,
       totalEvaluateCalls: d.totalEvaluateCalls,
       totalExecutionCalls: d.totalExecutionCalls,
       totalShadowTradesOpened: d.totalShadowTradesOpened,
       earlyExitCounts: d.earlyExitCounts,
       timestamp: d.timestamp,
     });
+    if ((eevSummary.filtered.count as number) > 0 || (eevSummary.passed.count as number) > 0) {
+      console.log("[DIAGNOSTICS] EEV FILTER QUALITY SUMMARY", eevSummary);
+    }
   }, SNAPSHOT_INTERVAL_MS);
 }
 

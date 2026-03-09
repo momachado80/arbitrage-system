@@ -7,6 +7,7 @@ import { evaluateOpportunity } from "./shadowSimulationService";
 import { incrementDispatch, incrementEarlyExit, incrementFilteredByEEV, incrementPassedEEVFilter } from "./shadowPipelineDiagnostics";
 import { estimateExecutableValueForDispatch } from "./rankingComparisonDiagnostics";
 import { MIN_EXECUTABLE_EXPECTED_VALUE_USD } from "./executionFilterConfig";
+import { recordFiltered, recordPassed } from "./eevFilterQualityTracker";
 
 export type DispatchedOpportunity = Record<string, unknown>;
 
@@ -22,6 +23,7 @@ export function dispatchOpportunity(opportunity: DispatchedOpportunity): void {
   const metrics = estimateExecutableValueForDispatch(opportunity);
   if (metrics && metrics.executableExpectedValue < MIN_EXECUTABLE_EXPECTED_VALUE_USD) {
     incrementFilteredByEEV();
+    recordFiltered(opportunity, metrics);
     console.log("[DIAGNOSTICS] EEV FILTERED OUT", {
       marketId,
       edge,
@@ -37,6 +39,7 @@ export function dispatchOpportunity(opportunity: DispatchedOpportunity): void {
   }
 
   incrementPassedEEVFilter();
+  if (metrics) recordPassed(opportunity, metrics);
 
   try {
     console.log("CALLING EXECUTION ENGINE", marketId);
