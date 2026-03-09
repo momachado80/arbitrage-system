@@ -1,5 +1,16 @@
 # Dashboard Deploy Verification
 
+## Railway UI (OBRIGATÓRIO — conferir)
+
+- **Service:** dashboard-next
+- **Source > Root Directory:** `dashboard` (se vazio ou `.`, o build usa o repo root e falha)
+- **Branch:** main
+- **Se ainda servindo código antigo:** Variables → adicionar `NO_CACHE=1` → Redeploy (ou Clear Build Cache no deploy)
+
+## Dockerfile (desde este commit)
+
+O `dashboard/Dockerfile` força build determinístico e ignora cache do Nixpacks. Railway usa o Dockerfile automaticamente quando presente na raiz do serviço (dashboard/).
+
 ## Commit Hashes (origin/main)
 
 | Feature | Commit |

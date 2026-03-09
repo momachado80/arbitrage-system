@@ -5,6 +5,7 @@ __pycache__/
 .env
 temp_clob/
 node_modules/
+.next/
 .DS_Store
 .pytest_cache/
 .venv_render/

@@ -1,0 +1,9 @@
+# Evita copiar artefatos de dev e build local (forçamos build fresco no container)
+node_modules
+.next
+.git
+.gitignore
+*.md
+.env*
+__pycache__
+.DS_Store
