@@ -12,6 +12,7 @@ import { dispatchOpportunity } from "./lib/executionDispatcher";
 import { getPipelineDiagnostics } from "./lib/shadowPipelineDiagnostics";
 import { runRankingComparisonDiagnostics } from "./lib/rankingComparisonDiagnostics";
 import { getEEVFilterQualitySummary, getPassedEEVDownstreamSummary } from "./lib/eevFilterQualityTracker";
+import { getAllShadowProfiles } from "./lib/shadowSimulationStore";
 
 console.log("BOT RUNNER FILE LOADED");
 
@@ -44,6 +45,21 @@ function startDiagnosticsSnapshot(): void {
         earlyExitCounts: d.earlyExitCounts,
       });
       console.log("[DIAGNOSTICS] PASSED EEV DOWNSTREAM SUMMARY", downstream);
+    }
+    const shadowProfiles = getAllShadowProfiles();
+    const lowCap = shadowProfiles.filter((p) => p.availableCapital < 5);
+    if (lowCap.length > 0) {
+      console.log("[DIAGNOSTICS] AVAILABLE CAPITAL ANALYSIS", {
+        profilesWithLowAvailable: lowCap.map((p) => ({
+          profileId: p.profileId,
+          portfolioEquity: p.currentEquity,
+          reservedCapital: p.reservedCapital,
+          availableCapital: p.availableCapital,
+          activeTrades: p.activeTrades.length,
+          startingCapital: p.startingCapital,
+          freeCapitalRatio: p.startingCapital > 0 ? p.availableCapital / p.startingCapital : 0,
+        })),
+      });
     }
   }, SNAPSHOT_INTERVAL_MS);
 }

@@ -380,6 +380,33 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
         exposureByCluster: freshExposure.exposureByCluster,
         exposureByMarket: freshExposure.exposureByMarket,
       };
+      if (freshState && profileState.availableCapital < 5) {
+        const freeRatio = freshState.startingCapital > 0
+          ? profileState.availableCapital / freshState.startingCapital
+          : 0;
+        const otherCaps = [
+          capacity.recommendedCapital,
+          profile.maxCapitalPerTrade,
+          opportunity.liquidity * 0.1,
+          opportunity.liquidity * 0.08,
+        ];
+        const bindingCap = profileState.availableCapital <= Math.min(...otherCaps)
+          ? "availableCapital"
+          : "other";
+        console.log("[DIAGNOSTICS] AVAILABLE CAPITAL ANALYSIS", {
+          profileId: profile.profileId,
+          portfolioEquity: freshState.currentEquity,
+          reservedCapital: freshState.reservedCapital,
+          availableCapital: profileState.availableCapital,
+          activeTrades: freshState.activeTrades.length,
+          startingCapital: freshState.startingCapital,
+          freeCapitalRatio: freeRatio,
+          bindingCap,
+          capCapacity: capacity.recommendedCapital,
+          capMaxTrade: profile.maxCapitalPerTrade,
+          capLiq8Pct: opportunity.liquidity * 0.08,
+        });
+      }
       incrementExecutionCall();
       const entryResult = simulateRealisticEntry(opp, capacity, profileState, persistenceData, {
         latencyProfile: profile.latencyProfile,
