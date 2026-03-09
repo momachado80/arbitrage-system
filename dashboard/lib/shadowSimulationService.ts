@@ -3,7 +3,8 @@
  * Combines latency, decay, impact; per-profile state; starts automatically.
  */
 
-import { getGraphOpportunities } from "./graphScanService";
+import { getGraphOpportunities, ensureGraphScanning } from "./graphScanService";
+import { ensureRunning as ensureMarketDataRunning } from "./marketDataService";
 import { getGraphEpisodeSummary } from "./graphEpisodeStore";
 import { estimateOpportunityCapacity, estimateBatchCapacity } from "./capitalCapacityEngine";
 import {
@@ -493,6 +494,8 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
 export function ensureShadowSimulation(): void {
   if (loopStarted) return;
   loopStarted = true;
+  ensureMarketDataRunning();
+  ensureGraphScanning();
   for (const p of getEnabledProfiles()) {
     ensureProfileState(p);
   }
