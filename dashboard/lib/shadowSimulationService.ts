@@ -37,6 +37,7 @@ import type { NormalizedPaperOpportunity } from "./paperTypes";
 import type { PersistenceData } from "./edgeDecayModel";
 
 const CYCLE_INTERVAL_MS = 10_000;
+const VERBOSE = process.env.WORKER_VERBOSE_LOGS === "1";
 const INITIAL_DELAY_MS = 6_000;
 
 let loopStarted = false;
@@ -337,7 +338,7 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
   const enabledProfiles = getEnabledProfiles();
   if (enabledProfiles.length === 0) {
     incrementEarlyExit("NO_ENABLED_PROFILES");
-    console.log("[DIAGNOSTICS] EARLY EXIT", { reason: "NO_ENABLED_PROFILES", marketId });
+    if (VERBOSE) console.log("[DIAGNOSTICS] EARLY EXIT", { reason: "NO_ENABLED_PROFILES", marketId });
   }
 
   for (const profile of enabledProfiles) {
@@ -348,25 +349,25 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
       const activeOppIds = new Set((state?.activeTrades ?? []).map((t) => t.opportunityId));
       if (activeOppIds.has(opp.opportunityId)) {
         incrementEarlyExit("TRADE_ALREADY_ACTIVE");
-        console.log("[DIAGNOSTICS] EARLY EXIT", { reason: "TRADE_ALREADY_ACTIVE", marketId });
+        if (VERBOSE) console.log("[DIAGNOSTICS] EARLY EXIT", { reason: "TRADE_ALREADY_ACTIVE", marketId });
         continue;
       }
 
       if (capacity.recommendedCapital <= 0) {
         incrementEarlyExit("RECOMMENDED_CAPITAL_ZERO_OR_NEGATIVE");
-        console.log("[DIAGNOSTICS] CAPITAL REJECTION", { marketId, recommendedCapital: capacity.recommendedCapital });
-        console.log("[DIAGNOSTICS] EARLY EXIT", { reason: "RECOMMENDED_CAPITAL_ZERO_OR_NEGATIVE", marketId });
+        if (VERBOSE) console.log("[DIAGNOSTICS] CAPITAL REJECTION", { marketId, recommendedCapital: capacity.recommendedCapital });
+        if (VERBOSE) console.log("[DIAGNOSTICS] EARLY EXIT", { reason: "RECOMMENDED_CAPITAL_ZERO_OR_NEGATIVE", marketId });
         logTradeRejection({ timestamp: Date.now(), marketId, edgeBps, reason: "EDGE_BELOW_THRESHOLD" });
         continue;
       }
       if (opp.confidence < profile.minConfidenceToTrade) {
         incrementEarlyExit("CONFIDENCE_BELOW_THRESHOLD");
-        console.log("[DIAGNOSTICS] CONFIDENCE REJECTION", {
+        if (VERBOSE) console.log("[DIAGNOSTICS] CONFIDENCE REJECTION", {
           marketId,
           confidence: opp.confidence,
           minConfidenceToTrade: profile.minConfidenceToTrade,
         });
-        console.log("[DIAGNOSTICS] EARLY EXIT", { reason: "CONFIDENCE_BELOW_THRESHOLD", marketId });
+        if (VERBOSE) console.log("[DIAGNOSTICS] EARLY EXIT", { reason: "CONFIDENCE_BELOW_THRESHOLD", marketId });
         logTradeRejection({ timestamp: Date.now(), marketId, edgeBps, reason: "LATENCY_RISK" });
         continue;
       }
@@ -380,7 +381,7 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
         exposureByCluster: freshExposure.exposureByCluster,
         exposureByMarket: freshExposure.exposureByMarket,
       };
-      if (freshState && profileState.availableCapital < 5) {
+      if (VERBOSE && freshState && profileState.availableCapital < 5) {
         const freeRatio = freshState.startingCapital > 0
           ? profileState.availableCapital / freshState.startingCapital
           : 0;
@@ -415,7 +416,7 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
         feeBuffer: profile.feeBuffer,
         liquidityHaircut: profile.liquidityHaircut,
       });
-      console.log("EXECUTION ENGINE RESULT", entryResult);
+      if (VERBOSE) console.log("EXECUTION ENGINE RESULT", entryResult);
 
       if (entryResult.rejectionReason) {
         const engineReason =
@@ -425,12 +426,12 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
               ? "NET_EDGE_BELOW_THRESHOLD"
               : "FILL_REJECTED";
         incrementEarlyExit(engineReason);
-        console.log("[DIAGNOSTICS] FILL REJECTION", {
+        if (VERBOSE) console.log("[DIAGNOSTICS] FILL REJECTION", {
           marketId,
           filledCapital: entryResult.filledCapital,
           reason: entryResult.rejectionReason,
         });
-        console.log("[DIAGNOSTICS] EARLY EXIT", { reason: engineReason, marketId });
+        if (VERBOSE) console.log("[DIAGNOSTICS] EARLY EXIT", { reason: engineReason, marketId });
         const reason = reasonMap[entryResult.rejectionReason] ?? "UNKNOWN";
         recordRejection(profile.profileId, entryResult.rejectionReason);
         logTradeRejection({
@@ -443,12 +444,12 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
       }
       if (entryResult.filledCapital <= 0) {
         incrementEarlyExit("FILLED_CAPITAL_ZERO");
-        console.log("[DIAGNOSTICS] FILL REJECTION", {
+        if (VERBOSE) console.log("[DIAGNOSTICS] FILL REJECTION", {
           marketId,
           filledCapital: entryResult.filledCapital,
           reason: "filled_capital_zero",
         });
-        console.log("[DIAGNOSTICS] EARLY EXIT", { reason: "FILLED_CAPITAL_ZERO", marketId });
+        if (VERBOSE) console.log("[DIAGNOSTICS] EARLY EXIT", { reason: "FILLED_CAPITAL_ZERO", marketId });
         continue;
       }
 
@@ -472,17 +473,17 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
       };
       addShadowTrade(profile.profileId, trade, profile);
       incrementShadowTradeOpened();
-      console.log("[DIAGNOSTICS] SHADOW TRADE OPENED", { marketId });
-      console.log("SHADOW TRADE EXECUTED", { tradeId: trade.tradeId, filledCapital: trade.filledCapital });
+      if (VERBOSE) console.log("[DIAGNOSTICS] SHADOW TRADE OPENED", { marketId });
+      if (VERBOSE) console.log("SHADOW TRADE EXECUTED", { tradeId: trade.tradeId, filledCapital: trade.filledCapital });
       const updatedState = getShadowProfileState(profile.profileId);
-      console.log("SHADOW PORTFOLIO UPDATED", {
+      if (VERBOSE) console.log("SHADOW PORTFOLIO UPDATED", {
         activeTrades: updatedState?.activeTrades?.length ?? 0,
         closedTrades: updatedState?.closedTrades?.length ?? 0,
         equity: updatedState?.currentEquity ?? 0,
       });
     } catch (err) {
       incrementEarlyExit("EVALUATION_CATCH_ERROR");
-      console.log("[DIAGNOSTICS] EARLY EXIT", { reason: "EVALUATION_CATCH_ERROR", marketId });
+      if (VERBOSE) console.log("[DIAGNOSTICS] EARLY EXIT", { reason: "EVALUATION_CATCH_ERROR", marketId });
       console.warn(`[ShadowSim] evaluateOpportunity failed for ${opp.opportunityId}:`, err instanceof Error ? err.message : err);
     }
   }

@@ -213,7 +213,7 @@ export function runRankingComparisonDiagnostics(
     };
   });
 
-  console.log("[DIAGNOSTICS] RANKING COMPARISON", {
+  if (process.env.WORKER_VERBOSE_LOGS === "1") console.log("[DIAGNOSTICS] RANKING COMPARISON", {
     source,
     sampleSize: comparison.length,
     comparison,

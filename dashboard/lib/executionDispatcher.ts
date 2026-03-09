@@ -11,12 +11,14 @@ import { recordFiltered, recordPassed } from "./eevFilterQualityTracker";
 
 export type DispatchedOpportunity = Record<string, unknown>;
 
+const VERBOSE = process.env.WORKER_VERBOSE_LOGS === "1";
+
 export function dispatchOpportunity(opportunity: DispatchedOpportunity): void {
   const marketId = String(opportunity.marketId ?? opportunity.id ?? "?");
   const type = String(opportunity.type ?? "?");
   const edge = Number(opportunity.edge ?? 0);
   const rank = opportunity.rank ?? "?";
-  console.log("DISPATCH START", { marketId, type, edge, rank });
+  if (VERBOSE) console.log("DISPATCH START", { marketId, type, edge, rank });
 
   incrementDispatch();
 
@@ -24,7 +26,7 @@ export function dispatchOpportunity(opportunity: DispatchedOpportunity): void {
   if (metrics && metrics.executableExpectedValue < MIN_EXECUTABLE_EXPECTED_VALUE_USD) {
     incrementFilteredByEEV();
     recordFiltered(opportunity, metrics);
-    console.log("[DIAGNOSTICS] EEV FILTERED OUT", {
+    if (VERBOSE) console.log("[DIAGNOSTICS] EEV FILTERED OUT", {
       marketId,
       edge,
       confidence: opportunity.confidence,
@@ -42,11 +44,11 @@ export function dispatchOpportunity(opportunity: DispatchedOpportunity): void {
   if (metrics) recordPassed(opportunity, metrics);
 
   try {
-    console.log("CALLING EXECUTION ENGINE", marketId);
+    if (VERBOSE) console.log("CALLING EXECUTION ENGINE", marketId);
     evaluateOpportunity(opportunity);
   } catch (err) {
     incrementEarlyExit("DISPATCH_CATCH_ERROR");
-    console.log("[DIAGNOSTICS] EARLY EXIT", { reason: "DISPATCH_CATCH_ERROR", marketId });
+    if (VERBOSE) console.log("[DIAGNOSTICS] EARLY EXIT", { reason: "DISPATCH_CATCH_ERROR", marketId });
     console.error("[ExecutionDispatcher] Dispatch error:", err);
   }
 }

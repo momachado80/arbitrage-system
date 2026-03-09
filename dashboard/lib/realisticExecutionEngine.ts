@@ -64,6 +64,8 @@ export interface RealisticExitResult {
   exitReason: string;
 }
 
+const VERBOSE = process.env.WORKER_VERBOSE_LOGS === "1";
+
 export interface ActiveShadowTradeState {
   tradeId: string;
   opportunityId: string;
@@ -151,7 +153,7 @@ export function simulateRealisticEntry(
 
   if (requestedCapital <= 0) {
     const marketId = opportunity.marketsInvolved[0]?.marketId ?? opportunity.opportunityId;
-    console.log("[DIAGNOSTICS] CAPITAL REJECTION", {
+    if (VERBOSE) console.log("[DIAGNOSTICS] CAPITAL REJECTION", {
       marketId,
       recommendedCapital: recommendedRaw,
       requestedCapital: 0,
@@ -181,7 +183,7 @@ export function simulateRealisticEntry(
 
   if (netEdgeAfterImpact < cfg.minCapturableEdgeToTrade) {
     const marketId = opportunity.marketsInvolved[0]?.marketId ?? opportunity.opportunityId;
-    console.log("[DIAGNOSTICS] FILL REJECTION", {
+    if (VERBOSE) console.log("[DIAGNOSTICS] FILL REJECTION", {
       marketId,
       filledCapital: 0,
       reason: "net_edge_below_threshold",
@@ -217,7 +219,7 @@ export function simulateRealisticEntry(
   const likelyNoiseSized = expectedProfitDollars < 0.01 || requestedCapital < 1;
 
   const marketId = opportunity.marketsInvolved[0]?.marketId ?? opportunity.opportunityId;
-  console.log("[DIAGNOSTICS] EXECUTABLE VALUE", {
+  if (VERBOSE) console.log("[DIAGNOSTICS] EXECUTABLE VALUE", {
     marketId,
     edge: observedEdge,
     confidence: opportunity.confidence,
@@ -268,7 +270,7 @@ export function simulateRealisticEntry(
         likelyNoiseSized: likelyNoise,
       };
     });
-    console.log("[DIAGNOSTICS] FILL REJECTION ECONOMIC WHAT-IF", {
+    if (VERBOSE) console.log("[DIAGNOSTICS] FILL REJECTION ECONOMIC WHAT-IF", {
       marketId,
       currentFillProbability: prob,
       currentRequestedCapital: requestedCapital,

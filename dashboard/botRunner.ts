@@ -20,47 +20,20 @@ console.log("BOT RUNNER FILE LOADED");
 
 function logShadowProfileConfig(): void {
   const profiles = getEnabledProfiles();
-  console.log("[WORKER_STARTUP] SHADOW_PROFILE_CONFIG");
-  console.log("[DIAGNOSTICS] SHADOW PROFILE CONFIG", {
-    profileCount: profiles.length,
-    profiles: profiles.map((p) => ({
-      profileId: p.profileId,
-      label: p.label,
-      startingCapital: p.startingCapital,
-      maxCapitalPerTrade: p.maxCapitalPerTrade,
-      maxCapitalPerCluster: p.maxCapitalPerCluster,
-      maxCapitalPerMarket: p.maxCapitalPerMarket,
-      minConfidenceToTrade: p.minConfidenceToTrade,
-      maxHoldingTimeMs: p.maxHoldingTimeMs,
-    })),
-    timestamp: new Date().toISOString(),
-  });
+  const capStr = profiles.map((p) => `${p.profileId}:${p.startingCapital}`).join(",");
+  console.log("[WORKER_SUMMARY] SHADOW_CAPITALS profiles=" + capStr);
 }
 
-function logShadowPortfolioState(atStartup = false): void {
+function logShadowPortfolioState(): void {
   const states = getAllShadowProfiles();
-  if (atStartup) console.log("[WORKER_STARTUP] SHADOW_PORTFOLIO_STATE");
   if (states.length === 0) {
-    console.log("[DIAGNOSTICS] SHADOW PORTFOLIO STATE", {
-      message: "No profile states initialized yet (no evaluateOpportunity call)",
-      timestamp: new Date().toISOString(),
-    });
+    console.log("[WORKER_SUMMARY] SHADOW_PORTFOLIO profiles=(none)");
     return;
   }
-  console.log("[DIAGNOSTICS] SHADOW PORTFOLIO STATE", {
-    profiles: states.map((s) => ({
-      profileId: s.profileId,
-      label: s.label,
-      startingCapital: s.startingCapital,
-      currentEquity: s.currentEquity,
-      reservedCapital: s.reservedCapital,
-      availableCapital: s.availableCapital,
-      activeTrades: s.activeTrades.length,
-      closedTrades: s.closedTrades.length,
-      freeCapitalRatio: s.startingCapital > 0 ? s.availableCapital / s.startingCapital : 0,
-    })),
-    timestamp: new Date().toISOString(),
-  });
+  const parts = states.map((s) =>
+    `${s.profileId} start=${s.startingCapital} equity=${s.currentEquity} reserved=${s.reservedCapital} avail=${s.availableCapital} active=${s.activeTrades.length} closed=${s.closedTrades.length}`
+  );
+  console.log("[WORKER_SUMMARY] SHADOW_PORTFOLIO " + parts.join(" | "));
 }
 
 const CYCLE_INTERVAL_MS = 5_000;
@@ -116,51 +89,38 @@ async function runBot(): Promise<void> {
   console.log("ARBITRAGE WORKER ONLINE");
   logShadowProfileConfig();
   ensureShadowSimulation();
-  logShadowPortfolioState(true);
+  logShadowPortfolioState();
   startDiagnosticsSnapshot();
   console.log("[WORKER] Main loop starting");
 
   while (true) {
     try {
-      console.log("[WORKER] Loop iteration start");
       const markets = getAllMarkets();
-      console.log("[WORKER] MARKETS FETCHED:", markets.length);
-
+      let stdCount = 0;
+      let graphCount = 0;
       if (markets.length > 0) {
-        console.log("[WORKER] Before scan");
         const edges = scanMarkets(markets);
-        console.log("[WORKER] OPPORTUNITIES DETECTED:", edges.length);
-
         const ranked = rankOpportunities(edges);
-        console.log("[WORKER] OPPORTUNITIES RANKED:", ranked.length);
-
+        stdCount = ranked.length;
         if (ranked.length > 0) {
           runRankingComparisonDiagnostics(ranked as unknown as Record<string, unknown>[], "standard", 15);
         }
-
-        console.log("[WORKER] Before dispatch standard");
         for (const opp of ranked) {
           dispatchOpportunity(opp as unknown as Record<string, unknown>);
         }
       }
-
-      console.log("[WORKER] Fetching graph opportunities");
       const graphOpps = getGraphOpportunities();
-      console.log("[WORKER] GRAPH OPPORTUNITIES:", graphOpps.length);
-
+      graphCount = graphOpps.length;
       if (graphOpps.length > 0) {
         runRankingComparisonDiagnostics(graphOpps as unknown as Record<string, unknown>[], "graph", 15);
       }
-
-      console.log("[WORKER] Before dispatch graph");
       for (const opp of graphOpps) {
         dispatchOpportunity(opp as unknown as Record<string, unknown>);
       }
+      console.log("[WORKER] CYCLE markets=" + markets.length + " std=" + stdCount + " graph=" + graphCount);
     } catch (err) {
       console.error("[WORKER] LOOP ERROR:", err);
     }
-
-    console.log("[WORKER] Waiting", CYCLE_INTERVAL_MS, "ms until next cycle");
     await new Promise((r) => setTimeout(r, CYCLE_INTERVAL_MS));
   }
 }
