@@ -387,8 +387,8 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
         const otherCaps = [
           capacity.recommendedCapital,
           profile.maxCapitalPerTrade,
-          opportunity.liquidity * 0.1,
-          opportunity.liquidity * 0.08,
+          opp.liquidity * 0.1,
+          opp.liquidity * 0.08,
         ];
         const bindingCap = profileState.availableCapital <= Math.min(...otherCaps)
           ? "availableCapital"
@@ -404,7 +404,7 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
           bindingCap,
           capCapacity: capacity.recommendedCapital,
           capMaxTrade: profile.maxCapitalPerTrade,
-          capLiq8Pct: opportunity.liquidity * 0.08,
+          capLiq8Pct: opp.liquidity * 0.08,
         });
       }
       incrementExecutionCall();
