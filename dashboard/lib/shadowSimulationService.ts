@@ -41,6 +41,9 @@ const CYCLE_INTERVAL_MS = 10_000;
 const VERBOSE = process.env.WORKER_VERBOSE_LOGS === "1";
 const INITIAL_DELAY_MS = 6_000;
 
+/** Shadow-only: refuse to open trades with dust fills; audit showed avgFilledCapital e-12, 100% loss rate. */
+const MIN_FILLED_CAPITAL_USD = 0.5;
+
 let loopStarted = false;
 let lastUpdateMs = 0;
 let lastCycleOk = true;
@@ -207,6 +210,10 @@ function runCycle(): void {
               continue;
             }
             if (entryResult.filledCapital <= 0) continue;
+            if (entryResult.filledCapital < MIN_FILLED_CAPITAL_USD) {
+              recordRejection(profile.profileId, "fill_below_minimum");
+              continue;
+            }
 
             const tradeId = `sst-${profile.profileId}-${Date.now()}-${opened}`;
             const trade: ShadowTrade = {
@@ -452,6 +459,10 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
           reason: "filled_capital_zero",
         });
         if (VERBOSE) console.log("[DIAGNOSTICS] EARLY EXIT", { reason: "FILLED_CAPITAL_ZERO", marketId });
+        continue;
+      }
+      if (entryResult.filledCapital < MIN_FILLED_CAPITAL_USD) {
+        recordRejection(profile.profileId, "fill_below_minimum");
         continue;
       }
 
