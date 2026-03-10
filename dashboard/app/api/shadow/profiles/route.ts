@@ -1,26 +1,31 @@
 import { NextResponse } from "next/server";
 import { ensureShadowSimulation } from "@/lib/shadowSimulationService";
 import { getAllShadowProfiles } from "@/lib/shadowSimulationStore";
+import { getProfileById } from "@/lib/shadowSimulationProfiles";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
     ensureShadowSimulation();
-    const profiles = getAllShadowProfiles().map((p) => ({
-      profileId: p.profileId,
-      label: p.label,
-      startingCapital: p.startingCapital,
-      currentEquity: p.currentEquity,
-      availableCapital: p.availableCapital,
-      reservedCapital: p.reservedCapital,
-      realizedPnL: p.realizedPnL,
-      unrealizedPnL: p.unrealizedPnL,
-      maxDrawdown: p.maxDrawdown,
-      activeTrades: p.activeTrades.length,
-      closedTrades: p.closedTrades.length,
-      lastUpdate: p.lastUpdate,
-    }));
+    const profiles = getAllShadowProfiles().map((p) => {
+      const config = getProfileById(p.profileId);
+      return {
+        profileId: p.profileId,
+        label: p.label,
+        startingCapital: p.startingCapital,
+        maxHoldingTimeMs: config?.maxHoldingTimeMs ?? null,
+        currentEquity: p.currentEquity,
+        availableCapital: p.availableCapital,
+        reservedCapital: p.reservedCapital,
+        realizedPnL: p.realizedPnL,
+        unrealizedPnL: p.unrealizedPnL,
+        maxDrawdown: p.maxDrawdown,
+        activeTrades: p.activeTrades.length,
+        closedTrades: p.closedTrades.length,
+        lastUpdate: p.lastUpdate,
+      };
+    });
     return NextResponse.json({
       profiles,
       timestamp: new Date().toISOString(),
