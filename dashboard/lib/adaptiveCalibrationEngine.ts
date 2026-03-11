@@ -15,14 +15,23 @@ import { getProfileById } from "./shadowSimulationProfiles";
 const MIN_CLOSED_FOR_HOLD_REC = 30;
 const MIN_CLOSED_FOR_PAIR_REC = 50;
 const MIN_CLOSED_FOR_FILL_REC = 40;
+const MIN_CLOSED_FOR_EDGE_REC = 40;
+const MIN_CLOSED_FOR_PAIR_PENALTY_REC = 35;
 const MIN_PAIR_SAMPLE = 5;
 const MIN_TOTAL_CLOSED_FOR_ADAPTIVE = 20;
 const PAIR_LOSS_SHARE_FOR_REC = 0.4;
 const FILL_BUCKET_IMPROVEMENT_THRESHOLD = 0.003;
+const EDGE_DECILE_IMPROVEMENT_THRESHOLD = 0.002;
+const PAIR_AVG_PNL_FOR_PENALTY = -0.3;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-export type RecommendationType = "maxHoldingTimeMs" | "pairKeyExclusion" | "minFillRatioThreshold";
+export type RecommendationType =
+  | "maxHoldingTimeMs"
+  | "pairKeyExclusion"
+  | "minFillRatioThreshold"
+  | "minCapturableEdgeThreshold"
+  | "entryScorePenaltyByPair";
 
 export interface CalibrationSignal {
   profileId: string;
@@ -49,6 +58,14 @@ export interface AdaptiveProfileSpec {
   status: "proposed" | "spec_only";
   changes: Record<string, unknown>;
   fullConfig: ShadowProfileConfig;
+  /** Human-readable hypothesis this challenger tests */
+  hypothesis?: string;
+  /** Entry threshold (e.g. minCapturableEdgeToTrade) when applicable */
+  entryThreshold?: number;
+  /** Pair penalty config when applicable */
+  pairPenaltyConfig?: Record<string, number>;
+  /** How entry gating works */
+  expectedMechanism?: string;
 }
 
 export interface PromotionReadiness {
@@ -250,6 +267,105 @@ function recommendFillRatioThreshold(
   return recs;
 }
 
+/**
+ * 4. Min capturable edge threshold recommendation (entry calibration)
+ * When edge monotonicity is unhealthy: higher capturable-edge deciles less bad than lower.
+ * Recommend stricter minCapturableEdgeToTrade to filter marginal entries.
+ */
+function recommendMinCapturableEdgeThreshold(
+  audit: ClosedTradeAuditResult,
+  profileComparison: ProfileComparisonEntry[],
+  baseProfileIds: string[]
+): CalibrationRecommendation[] {
+  const recs: CalibrationRecommendation[] = [];
+  const totalClosed = audit.dataSufficiency.totalClosed;
+  if (totalClosed < MIN_CLOSED_FOR_EDGE_REC) return recs;
+  if (audit.causalReadout.edgeMonotonicityHealthy) return recs;
+
+  const deciles = audit.byCapturableEdgeDecile;
+  const decileKeys = Object.keys(deciles).sort();
+  if (decileKeys.length < 3) return recs;
+
+  let improvement = 0;
+  for (let i = 1; i < decileKeys.length; i++) {
+    const high = deciles[decileKeys[i]];
+    const low = deciles[decileKeys[i - 1]];
+    if (high && low && high.avgRealizedPnL > low.avgRealizedPnL + EDGE_DECILE_IMPROVEMENT_THRESHOLD) {
+      improvement = Math.max(improvement, high.avgRealizedPnL - low.avgRealizedPnL);
+    }
+  }
+  if (improvement < EDGE_DECILE_IMPROVEMENT_THRESHOLD) return recs;
+
+  for (const base of profileComparison.filter((p) => baseProfileIds.includes(p.profileId))) {
+    if (base.totalClosed < MIN_CLOSED_FOR_EDGE_REC) continue;
+
+    const cfg = getProfileById(base.profileId);
+    if (!cfg) continue;
+
+    const currentMin = cfg.minNetCapturableEdgeToTrade;
+    const recommended = Math.min(0.02, Math.max(currentMin * 1.5, currentMin + 0.005, 0.01));
+
+    const confSample = confidenceFromSampleSize(base.totalClosed, MIN_CLOSED_FOR_EDGE_REC);
+    const confEffect = confidenceFromEffectSize(improvement, EDGE_DECILE_IMPROVEMENT_THRESHOLD);
+    const confidence = Math.min(0.8, (confSample + confEffect) / 2);
+
+    recs.push({
+      profileId: base.profileId,
+      recommendationType: "minCapturableEdgeThreshold",
+      confidence,
+      currentValue: currentMin,
+      recommendedValue: recommended,
+      reason: `Edge monotonicity unhealthy; higher capturable-edge deciles show better outcomes. Stricter threshold may filter marginal entries.`,
+      supportingEvidenceSummary: `totalClosed=${base.totalClosed}, decileImprovement=${improvement.toFixed(4)}, recommendedThreshold=${recommended.toFixed(4)}`,
+    });
+  }
+  return recs;
+}
+
+/**
+ * 5. Entry score penalty by pair recommendation
+ * When some pairKeys consistently underperform but not enough for full exclusion.
+ * Apply penalty to entry qualification rather than excluding.
+ */
+function recommendEntryScorePenaltyByPair(
+  audit: ClosedTradeAuditResult,
+  profileComparison: ProfileComparisonEntry[],
+  baseProfileIds: string[]
+): CalibrationRecommendation[] {
+  const recs: CalibrationRecommendation[] = [];
+  const totalClosed = audit.dataSufficiency.totalClosed;
+  if (totalClosed < MIN_CLOSED_FOR_PAIR_PENALTY_REC) return recs;
+
+  const worstPairs = audit.worstPairs.filter(
+    (p) => p.tradeCount >= MIN_PAIR_SAMPLE && p.avgRealizedPnL < PAIR_AVG_PNL_FOR_PENALTY
+  );
+  if (worstPairs.length === 0) return recs;
+
+  const pairPenalties: Record<string, number> = {};
+  for (const p of worstPairs.slice(0, 5)) {
+    const penalty = Math.min(0.03, Math.max(0.005, -p.avgRealizedPnL * 0.02));
+    pairPenalties[p.pairKey] = penalty;
+  }
+
+  for (const base of profileComparison.filter((p) => baseProfileIds.includes(p.profileId))) {
+    if (base.totalClosed < MIN_CLOSED_FOR_PAIR_PENALTY_REC) continue;
+
+    const confSample = confidenceFromSampleSize(base.totalClosed, MIN_CLOSED_FOR_PAIR_PENALTY_REC);
+    const confidence = Math.min(0.75, confSample);
+
+    recs.push({
+      profileId: base.profileId,
+      recommendationType: "entryScorePenaltyByPair",
+      confidence,
+      currentValue: null,
+      recommendedValue: pairPenalties,
+      reason: `Top ${Object.keys(pairPenalties).length} pairKeys show avgRealizedPnL < ${PAIR_AVG_PNL_FOR_PENALTY}. Penalize entry for these pairs rather than full exclusion.`,
+      supportingEvidenceSummary: `pairPenalties=${JSON.stringify(pairPenalties)}, pairCount=${Object.keys(pairPenalties).length}`,
+    });
+  }
+  return recs;
+}
+
 // ─── Challenger spec generation ─────────────────────────────────────────────
 
 function buildChallengerFromRecommendation(
@@ -314,6 +430,52 @@ function buildChallengerFromRecommendation(
       status: "spec_only",
       changes: { minFillRatioToTrade: minFill },
       fullConfig,
+    };
+  }
+  if (rec.recommendationType === "minCapturableEdgeThreshold") {
+    const threshold = rec.recommendedValue as number;
+    const fullConfig: ShadowProfileConfig = {
+      ...baseConfig,
+      profileId: `${baseConfig.profileId}_adapt_edgegate_v1`,
+      label: `${baseConfig.label} (adapt edge gate)`,
+      enabled: false,
+      minCapturableEdgeToTrade: threshold,
+      baseProfileId: baseConfig.profileId,
+      isAdaptive: true,
+    };
+    return {
+      profileId: fullConfig.profileId,
+      baseProfileId: baseConfig.profileId,
+      label: fullConfig.label,
+      status: "proposed",
+      changes: { minCapturableEdgeToTrade: threshold },
+      fullConfig,
+      hypothesis: "Entry miscalibration: entering with marginal capturable edge leads to losses. Higher edge threshold may improve realized outcomes.",
+      entryThreshold: threshold,
+      expectedMechanism: "Reject entry if capturableEdgeAtEntry < minCapturableEdgeToTrade",
+    };
+  }
+  if (rec.recommendationType === "entryScorePenaltyByPair") {
+    const penalties = rec.recommendedValue as Record<string, number>;
+    const fullConfig: ShadowProfileConfig = {
+      ...baseConfig,
+      profileId: `${baseConfig.profileId}_adapt_pairpenalty_v1`,
+      label: `${baseConfig.label} (adapt pair penalty)`,
+      enabled: false,
+      entryPairPenalties: penalties,
+      baseProfileId: baseConfig.profileId,
+      isAdaptive: true,
+    };
+    return {
+      profileId: fullConfig.profileId,
+      baseProfileId: baseConfig.profileId,
+      label: fullConfig.label,
+      status: "spec_only",
+      changes: { entryPairPenalties: penalties },
+      fullConfig,
+      hypothesis: "Some pairKeys historically underperform. Penalize rather than exclude to test if softer filtering helps.",
+      pairPenaltyConfig: penalties,
+      expectedMechanism: "effectiveEdge = capturableEdgeAtEntry - penaltyForPair; reject if effectiveEdge < minNetCapturableEdgeToTrade",
     };
   }
   return null;
@@ -389,6 +551,8 @@ export function computeAdaptiveCalibration(audit: ClosedTradeAuditResult): Adapt
     recommendations.push(...recommendHoldingTime(audit, profileComparison, BASE_PROFILE_IDS));
     recommendations.push(...recommendPairExclusion(audit, profileComparison, BASE_PROFILE_IDS));
     recommendations.push(...recommendFillRatioThreshold(audit, profileComparison, BASE_PROFILE_IDS));
+    recommendations.push(...recommendMinCapturableEdgeThreshold(audit, profileComparison, BASE_PROFILE_IDS));
+    recommendations.push(...recommendEntryScorePenaltyByPair(audit, profileComparison, BASE_PROFILE_IDS));
   }
 
   const adaptiveChallengers = getAdaptiveChallengerSpecs(recommendations);

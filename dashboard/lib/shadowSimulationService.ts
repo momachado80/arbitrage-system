@@ -243,6 +243,7 @@ function runCycle(): void {
               exposureByMarket: freshExposure.exposureByMarket,
             };
 
+            const minEdge = profile.minCapturableEdgeToTrade ?? profile.minNetCapturableEdgeToTrade;
             const entryResult = simulateRealisticEntry(
               opp,
               capacity,
@@ -251,7 +252,7 @@ function runCycle(): void {
               {
                 latencyProfile: profile.latencyProfile,
                 impactConfig: { impactAlpha: profile.impactAlpha },
-                minCapturableEdgeToTrade: profile.minNetCapturableEdgeToTrade,
+                minCapturableEdgeToTrade: minEdge,
                 feeBuffer: profile.feeBuffer,
                 liquidityHaircut: profile.liquidityHaircut,
               }
@@ -277,6 +278,14 @@ function runCycle(): void {
             if (entryResult.filledCapital < MIN_FILLED_CAPITAL_USD) {
               recordRejection(profile.profileId, "fill_below_minimum");
               continue;
+            }
+            if (profile.entryPairPenalties && pairKey) {
+              const penalty = profile.entryPairPenalties[pairKey] ?? 0;
+              const effectiveEdge = entryResult.capturableEdgeBeforeImpact - penalty;
+              if (effectiveEdge < minEdge) {
+                recordRejection(profile.profileId, "entry_pair_penalty");
+                continue;
+              }
             }
             const requestedCapital = entryResult.requestedCapital ?? 0;
             const fillRatio =
@@ -529,10 +538,11 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
         });
       }
       incrementExecutionCall();
+      const minEdge = profile.minCapturableEdgeToTrade ?? profile.minNetCapturableEdgeToTrade;
       const entryResult = simulateRealisticEntry(opp, capacity, profileState, persistenceData, {
         latencyProfile: profile.latencyProfile,
         impactConfig: { impactAlpha: profile.impactAlpha },
-        minCapturableEdgeToTrade: profile.minNetCapturableEdgeToTrade,
+        minCapturableEdgeToTrade: minEdge,
         feeBuffer: profile.feeBuffer,
         liquidityHaircut: profile.liquidityHaircut,
       });
@@ -575,6 +585,14 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
       if (entryResult.filledCapital < MIN_FILLED_CAPITAL_USD) {
         recordRejection(profile.profileId, "fill_below_minimum");
         continue;
+      }
+      if (profile.entryPairPenalties && pairKey) {
+        const penalty = profile.entryPairPenalties[pairKey] ?? 0;
+        const effectiveEdge = entryResult.capturableEdgeBeforeImpact - penalty;
+        if (effectiveEdge < minEdge) {
+          recordRejection(profile.profileId, "entry_pair_penalty");
+          continue;
+        }
       }
       const requestedCapital = entryResult.requestedCapital ?? 0;
       const fillRatio = requestedCapital > 0 ? entryResult.filledCapital / requestedCapital : 1;

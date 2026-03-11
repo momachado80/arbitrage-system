@@ -27,6 +27,10 @@ export interface ShadowProfileConfig {
   minFillRatioToTrade?: number;
   baseProfileId?: string;
   isAdaptive?: boolean;
+  /** Entry calibration: stricter capturable-edge floor (overrides minNetCapturableEdgeToTrade) */
+  minCapturableEdgeToTrade?: number;
+  /** Entry calibration: penalty per pairKey (decimal), subtracted from capturable edge before threshold check */
+  entryPairPenalties?: Record<string, number>;
 }
 
 export const SHADOW_PROFILES: ShadowProfileConfig[] = [
