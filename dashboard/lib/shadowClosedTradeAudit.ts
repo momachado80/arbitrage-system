@@ -5,6 +5,7 @@
  */
 
 import type { ShadowTrade, ShadowProfileState } from "./shadowSimulationStore";
+import { getProfileById } from "./shadowSimulationProfiles";
 
 export interface ClosedTradeAuditEntry {
   tradeId: string;
@@ -24,6 +25,9 @@ export interface ClosedTradeAuditEntry {
   effectiveExitPrice: number;
   openedAt: string;
   closedAt: string;
+  /** Diagnostic: derived when requestedCapital available (prospective-only for historical) */
+  fillRatio?: number | null;
+  pairKey?: string | null;
 }
 
 export interface ProfileAuditSummary {
@@ -49,6 +53,64 @@ export interface ByBreakdown {
   byHoldingBucket: Record<string, { count: number; totalPnL: number; avgPnL: number }>;
 }
 
+export interface ByCapturableEdgeDecileEntry {
+  tradeCount: number;
+  avgRealizedPnL: number;
+  medianRealizedPnL: number;
+  winRate: number;
+  avgFilledCapital: number;
+  avgFillRatio: number;
+}
+
+export interface ByFillRatioBucketEntry {
+  tradeCount: number;
+  avgRealizedPnL: number;
+  medianRealizedPnL: number;
+  winRate: number;
+  avgCapturableEdgeAtEntry: number;
+}
+
+export interface WorstPairEntry {
+  pairKey: string;
+  tradeCount: number;
+  avgRealizedPnL: number;
+  medianRealizedPnL: number;
+  winRate: number;
+  avgCapturableEdgeAtEntry: number;
+  avgFillRatio: number;
+  dominantExitReason?: string;
+}
+
+export interface ExitReasonDiagnosticEntry {
+  tradeCount: number;
+  avgRealizedPnL: number;
+  medianRealizedPnL: number;
+  winRate: number;
+  avgHoldingTimeMs: number;
+  avgFillRatio: number;
+}
+
+export interface ProfileComparisonEntry {
+  profileId: string;
+  maxHoldingTimeMs: number;
+  totalClosed: number;
+  avgRealizedPnL: number;
+  medianRealizedPnL: number;
+  winRate: number;
+  avgHoldingTimeMs: number;
+  avgFilledCapital: number;
+  avgFillRatio: number;
+}
+
+export interface CausalReadout {
+  edgeMonotonicityHealthy: boolean;
+  fillQualityLikelyPrimaryDriver: boolean;
+  exitsLikelyPrimaryDriver: boolean;
+  pairSelectionLikelyPrimaryDriver: boolean;
+  enoughDataForCausalReadout: boolean;
+  leadingHypothesis: string;
+}
+
 export interface ClosedTradeAuditResult {
   timestamp: string;
   realizedPnLFormula: string;
@@ -71,6 +133,13 @@ export interface ClosedTradeAuditResult {
     minRequiredForTuning: number;
     sufficientForThresholdTuning: boolean;
   };
+  /** Audit aggregations for loss driver identification */
+  byCapturableEdgeDecile: Record<string, ByCapturableEdgeDecileEntry>;
+  byFillRatioBucket: Record<string, ByFillRatioBucketEntry>;
+  worstPairs: WorstPairEntry[];
+  exitReasonDiagnostics: Record<string, ExitReasonDiagnosticEntry>;
+  profileComparison: ProfileComparisonEntry[];
+  causalReadout: CausalReadout;
 }
 
 function median(arr: number[]): number {
@@ -87,6 +156,25 @@ function holdingBucket(ms: number): string {
   if (ms < 3_600_000) return "15-60min";
   if (ms < 300_000 * 5) return "60-300min";
   return ">300min";
+}
+
+/** Derive fillRatio only when requestedCapital is available; do not invent retroactive values */
+function getFillRatio(t: ShadowTrade): number | null {
+  if (t.fillRatio != null && typeof t.fillRatio === "number") return t.fillRatio;
+  const rc = t.requestedCapital;
+  const fc = t.filledCapital ?? 0;
+  if (rc != null && rc > 0) return fc / rc;
+  return null;
+}
+
+/** Derive pairKey from marketsInvolved when not stored */
+function getPairKey(t: ShadowTrade): string | null {
+  if (t.pairKey != null && t.pairKey !== "") return t.pairKey;
+  const m = t.marketsInvolved;
+  if (!m?.length) return null;
+  const ids = m.map((x) => x.marketId).filter(Boolean);
+  if (ids.length === 0) return null;
+  return [...ids].sort().join("+");
 }
 
 function toAuditEntry(t: ShadowTrade, profileId: string): ClosedTradeAuditEntry {
@@ -108,7 +196,25 @@ function toAuditEntry(t: ShadowTrade, profileId: string): ClosedTradeAuditEntry 
     effectiveExitPrice: t.effectiveExitPrice ?? 0,
     openedAt: t.openedAt ?? "",
     closedAt: t.closedAt ?? "",
+    fillRatio: getFillRatio(t),
+    pairKey: getPairKey(t),
   };
+}
+
+const FILL_RATIO_BUCKETS = ["0-0.1", "0.1-0.25", "0.25-0.5", "0.5-0.75", "0.75-1.0"] as const;
+
+function bucketByFillRatio(r: number | null): string | null {
+  if (r == null || r < 0) return null;
+  if (r <= 0.1) return "0-0.1";
+  if (r <= 0.25) return "0.1-0.25";
+  if (r <= 0.5) return "0.25-0.5";
+  if (r <= 0.75) return "0.5-0.75";
+  if (r <= 1.0) return "0.75-1.0";
+  return "0.75-1.0";
+}
+
+function decileKey(d: number): string {
+  return `d${d}`;
 }
 
 export function computeClosedTradeAudit(profiles: ShadowProfileState[]): ClosedTradeAuditResult {
@@ -201,10 +307,217 @@ export function computeClosedTradeAudit(profiles: ShadowProfileState[]): ClosedT
   const hasNegativeExpectancy = totalClosed > 0 && totalPnL / totalClosed < 0;
 
   const MIN_CLOSED_FOR_TUNING = 20;
+  const MIN_CLOSED_FOR_CAUSAL = 15;
   const dataSufficient = totalClosed >= MIN_CLOSED_FOR_TUNING;
   const dynamicSafestNextChange = dataSufficient
     ? "Add minRealizedEdgeThreshold: only open when capturableEdgeAtEntry exceeds a floor (e.g. 0.01) to filter marginal entries. Or tighten minNetCapturableEdgeToTrade slightly. Test on shadow profile first."
     : `Insufficient data for threshold tuning. Need ≥${MIN_CLOSED_FOR_TUNING} closed trades. Current: ${totalClosed}. Once sufficient, re-run audit.`;
+
+  // 1. byCapturableEdgeDecile
+  const byCapturableEdgeDecile: Record<string, ByCapturableEdgeDecileEntry> = {};
+  const withCapturable = allEntries.filter((e) => e.capturableEdgeAtEntry != null);
+  if (withCapturable.length >= 2) {
+    const sorted = [...withCapturable].sort((a, b) => a.capturableEdgeAtEntry - b.capturableEdgeAtEntry);
+    for (let d = 1; d <= 10; d++) {
+      const lo = Math.floor(((d - 1) / 10) * sorted.length);
+      const hi = Math.floor((d / 10) * sorted.length);
+      const slice = sorted.slice(lo, hi);
+      if (slice.length === 0) continue;
+      const pnls = slice.map((e) => e.realizedPnL);
+      const fillRatios = slice.map((e) => e.fillRatio ?? 0).filter((r) => r > 0);
+      byCapturableEdgeDecile[decileKey(d)] = {
+        tradeCount: slice.length,
+        avgRealizedPnL: pnls.reduce((s, x) => s + x, 0) / pnls.length,
+        medianRealizedPnL: median(pnls),
+        winRate: slice.filter((e) => e.realizedPnL > 0).length / slice.length,
+        avgFilledCapital: slice.reduce((s, e) => s + e.filledCapital, 0) / slice.length,
+        avgFillRatio: fillRatios.length ? fillRatios.reduce((a, b) => a + b, 0) / fillRatios.length : 0,
+      };
+    }
+  }
+
+  // 2. byFillRatioBucket
+  const byFillRatioBucket: Record<string, ByFillRatioBucketEntry> = {};
+  for (const b of FILL_RATIO_BUCKETS) {
+    byFillRatioBucket[b] = {
+      tradeCount: 0,
+      avgRealizedPnL: 0,
+      medianRealizedPnL: 0,
+      winRate: 0,
+      avgCapturableEdgeAtEntry: 0,
+    };
+  }
+  for (const e of allEntries) {
+    const b = bucketByFillRatio(e.fillRatio ?? null);
+    if (!b || !(b in byFillRatioBucket)) continue;
+    const bucket = byFillRatioBucket[b];
+    bucket.tradeCount++;
+    bucket.avgRealizedPnL += e.realizedPnL;
+    bucket.avgCapturableEdgeAtEntry += e.capturableEdgeAtEntry;
+  }
+  for (const b of FILL_RATIO_BUCKETS) {
+    const bucket = byFillRatioBucket[b];
+    if (bucket.tradeCount === 0) continue;
+    bucket.avgRealizedPnL /= bucket.tradeCount;
+    bucket.avgCapturableEdgeAtEntry /= bucket.tradeCount;
+    const slice = allEntries.filter((e) => bucketByFillRatio(e.fillRatio ?? null) === b);
+    bucket.medianRealizedPnL = median(slice.map((x) => x.realizedPnL));
+    bucket.winRate = slice.filter((x) => x.realizedPnL > 0).length / slice.length;
+  }
+
+  // 3. worstPairs
+  const byPair = new Map<string, typeof allEntries>();
+  for (const e of allEntries) {
+    const pk = e.pairKey ?? "";
+    if (!pk) continue;
+    const arr = byPair.get(pk) ?? [];
+    arr.push(e);
+    byPair.set(pk, arr);
+  }
+  const worstPairs: WorstPairEntry[] = Array.from(byPair.entries())
+    .map(([pairKey, arr]) => {
+      const pnls = arr.map((x) => x.realizedPnL);
+      const fillRatios = arr.map((x) => x.fillRatio ?? 0).filter((r) => r > 0);
+      const exitCounts: Record<string, number> = {};
+      for (const x of arr) {
+        const r = x.exitReason ?? "unknown";
+        exitCounts[r] = (exitCounts[r] ?? 0) + 1;
+      }
+      let dominantExitReason: string | undefined;
+      const maxCount = Math.max(...Object.values(exitCounts), 0);
+      for (const [r, c] of Object.entries(exitCounts)) {
+        if (c === maxCount) {
+          dominantExitReason = r;
+          break;
+        }
+      }
+      return {
+        pairKey,
+        tradeCount: arr.length,
+        avgRealizedPnL: pnls.reduce((a, b) => a + b, 0) / pnls.length,
+        medianRealizedPnL: median(pnls),
+        winRate: arr.filter((x) => x.realizedPnL > 0).length / arr.length,
+        avgCapturableEdgeAtEntry: arr.reduce((s, x) => s + x.capturableEdgeAtEntry, 0) / arr.length,
+        avgFillRatio: fillRatios.length ? fillRatios.reduce((a, b) => a + b, 0) / fillRatios.length : 0,
+        dominantExitReason,
+      };
+    })
+    .sort((a, b) => a.avgRealizedPnL - b.avgRealizedPnL)
+    .slice(0, 20);
+
+  // 4. exitReasonDiagnostics
+  const exitReasonDiagnostics: Record<string, ExitReasonDiagnosticEntry> = {};
+  const byExitForDiag = new Map<string, typeof allEntries>();
+  for (const e of allEntries) {
+    const r = e.exitReason ?? "unknown";
+    const arr = byExitForDiag.get(r) ?? [];
+    arr.push(e);
+    byExitForDiag.set(r, arr);
+  }
+  for (const [reason, arr] of Array.from(byExitForDiag)) {
+    const pnls = arr.map((x) => x.realizedPnL);
+    const fillRatios = arr.map((x) => x.fillRatio ?? 0).filter((r) => r > 0);
+    exitReasonDiagnostics[reason] = {
+      tradeCount: arr.length,
+      avgRealizedPnL: pnls.reduce((a, b) => a + b, 0) / pnls.length,
+      medianRealizedPnL: median(pnls),
+      winRate: arr.filter((x) => x.realizedPnL > 0).length / arr.length,
+      avgHoldingTimeMs: arr.reduce((s, x) => s + x.holdingTimeMs, 0) / arr.length,
+      avgFillRatio: fillRatios.length ? fillRatios.reduce((a, b) => a + b, 0) / fillRatios.length : 0,
+    };
+  }
+
+  // 5. profileComparison
+  const profileComparison: ProfileComparisonEntry[] = profiles.map((p) => {
+    const closed = p.closedTrades.filter((t) => t.status === "closed" && t.closedAt);
+    const entries = closed.map((t) => toAuditEntry(t, p.profileId));
+    const cfg = getProfileById(p.profileId);
+    const pnls = entries.map((e) => e.realizedPnL);
+    const fillRatios = entries.map((e) => e.fillRatio ?? 0).filter((r) => r > 0);
+    return {
+      profileId: p.profileId,
+      maxHoldingTimeMs: cfg?.maxHoldingTimeMs ?? 0,
+      totalClosed: closed.length,
+      avgRealizedPnL: closed.length ? entries.reduce((s, e) => s + e.realizedPnL, 0) / closed.length : 0,
+      medianRealizedPnL: median(pnls),
+      winRate: closed.length ? entries.filter((e) => e.realizedPnL > 0).length / closed.length : 0,
+      avgHoldingTimeMs: closed.length ? entries.reduce((s, e) => s + e.holdingTimeMs, 0) / closed.length : 0,
+      avgFilledCapital: closed.length ? entries.reduce((s, e) => s + e.filledCapital, 0) / closed.length : 0,
+      avgFillRatio: fillRatios.length ? fillRatios.reduce((a, b) => a + b, 0) / fillRatios.length : 0,
+    };
+  });
+
+  // 6. causalReadout
+  const enoughDataForCausalReadout = totalClosed >= MIN_CLOSED_FOR_CAUSAL;
+  let edgeMonotonicityHealthy = false;
+  let fillQualityLikelyPrimaryDriver = false;
+  let exitsLikelyPrimaryDriver = false;
+  let pairSelectionLikelyPrimaryDriver = false;
+  let leadingHypothesis = "Insufficient data for causal inference.";
+
+  if (enoughDataForCausalReadout) {
+    const decileKeys = Object.keys(byCapturableEdgeDecile).sort();
+    if (decileKeys.length >= 3) {
+      const avgPnls = decileKeys.map((k) => byCapturableEdgeDecile[k].avgRealizedPnL);
+      let monotonic = true;
+      for (let i = 1; i < avgPnls.length; i++) {
+        if (avgPnls[i] < avgPnls[i - 1] - 0.001) {
+          monotonic = false;
+          break;
+        }
+      }
+      edgeMonotonicityHealthy = monotonic;
+    }
+
+    const fillBucketsWithData = FILL_RATIO_BUCKETS.filter((b) => byFillRatioBucket[b].tradeCount >= 2);
+    if (fillBucketsWithData.length >= 2) {
+      const lowBucket = fillBucketsWithData[0];
+      const highBucket = fillBucketsWithData[fillBucketsWithData.length - 1];
+      const lowAvg = byFillRatioBucket[lowBucket].avgRealizedPnL;
+      const highAvg = byFillRatioBucket[highBucket].avgRealizedPnL;
+      fillQualityLikelyPrimaryDriver = highAvg - lowAvg > 0.005;
+    }
+
+    const exitReasons = Object.entries(exitReasonDiagnostics);
+    const totalLoss = allEntries.filter((e) => e.realizedPnL < 0).reduce((s, e) => s + e.realizedPnL, 0);
+    if (totalLoss < 0 && exitReasons.length >= 1) {
+      const worstExit = exitReasons
+        .filter(([, v]) => v.avgRealizedPnL < 0)
+        .sort((a, b) => a[1].avgRealizedPnL - b[1].avgRealizedPnL)[0];
+      if (worstExit && worstExit[1].tradeCount >= Math.ceil(totalClosed * 0.2)) {
+        const lossShare = worstExit[1].tradeCount * Math.abs(worstExit[1].avgRealizedPnL);
+        exitsLikelyPrimaryDriver = lossShare > Math.abs(totalLoss) * 0.4;
+      }
+    }
+
+    if (worstPairs.length >= 1 && totalLoss < 0) {
+      const topLossPairs = worstPairs.slice(0, 5);
+      const pairLossShare = topLossPairs.reduce(
+        (s, p) => s + p.tradeCount * Math.max(0, -p.avgRealizedPnL),
+        0
+      );
+      pairSelectionLikelyPrimaryDriver = pairLossShare > Math.abs(totalLoss) * 0.5;
+    }
+
+    const drivers: string[] = [];
+    if (!edgeMonotonicityHealthy) drivers.push("edge miscalibration at entry");
+    if (fillQualityLikelyPrimaryDriver) drivers.push("poor fill quality / adverse selection");
+    if (exitsLikelyPrimaryDriver) drivers.push("exit logic");
+    if (pairSelectionLikelyPrimaryDriver) drivers.push("structurally bad cross-market pairs");
+    leadingHypothesis =
+      drivers.length > 0
+        ? `Primary loss driver hypothesis: ${drivers.join("; ")}`
+        : "No single driver dominates; losses may be distributed across causes.";
+  }
+
+  const causalReadout: CausalReadout = {
+    edgeMonotonicityHealthy,
+    fillQualityLikelyPrimaryDriver,
+    exitsLikelyPrimaryDriver,
+    pairSelectionLikelyPrimaryDriver,
+    enoughDataForCausalReadout,
+    leadingHypothesis,
+  };
 
   return {
     timestamp: new Date().toISOString(),
@@ -235,5 +548,11 @@ export function computeClosedTradeAudit(profiles: ShadowProfileState[]): ClosedT
       minRequiredForTuning: MIN_CLOSED_FOR_TUNING,
       sufficientForThresholdTuning: dataSufficient,
     },
+    byCapturableEdgeDecile,
+    byFillRatioBucket,
+    worstPairs,
+    exitReasonDiagnostics,
+    profileComparison,
+    causalReadout,
   };
 }

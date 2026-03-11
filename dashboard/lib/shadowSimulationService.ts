@@ -49,6 +49,14 @@ let lastUpdateMs = 0;
 let lastCycleOk = true;
 let opportunitiesSeenLastCycle = 0;
 
+/** Normalized pair key for cross-market identification (sorted market ids joined with '+') */
+function makePairKey(marketsInvolved: Array<{ marketId: string; question?: string }>): string {
+  if (!marketsInvolved?.length) return "";
+  const ids = marketsInvolved.map((m) => m.marketId).filter(Boolean);
+  if (ids.length === 0) return "";
+  return [...ids].sort().join("+");
+}
+
 function estimateSpread(opp: { prices?: number[]; liquidity?: number; confidence?: number }): number {
   if (opp.prices && Array.isArray(opp.prices) && opp.prices.length >= 2) {
     const sorted = [...opp.prices].sort((a, b) => b - a);
@@ -216,6 +224,9 @@ function runCycle(): void {
             }
 
             const tradeId = `sst-${profile.profileId}-${Date.now()}-${opened}`;
+            const requestedCapital = entryResult.requestedCapital ?? 0;
+            const fillRatio =
+              requestedCapital > 0 ? entryResult.filledCapital / requestedCapital : undefined;
             const trade: ShadowTrade = {
               tradeId,
               opportunityId: opp.opportunityId,
@@ -230,6 +241,13 @@ function runCycle(): void {
               capturableEdgeAtEntry: entryResult.capturableEdgeBeforeImpact,
               effectiveEntryPrice: entryResult.effectiveEntryPrice,
               filledCapital: entryResult.filledCapital,
+              requestedCapital: requestedCapital || undefined,
+              fillRatio: fillRatio ?? null,
+              entryImpactBps:
+                entryResult.entrySlippage != null
+                  ? Math.round(entryResult.entrySlippage * 10000)
+                  : null,
+              pairKey: makePairKey(opp.marketsInvolved ?? []) || null,
               realizedPnL: 0,
               realizedReturn: 0,
               holdingTimeMs: 0,
@@ -279,6 +297,13 @@ function runCycle(): void {
                 impactConfig: { impactAlpha: profile.impactAlpha },
               });
 
+              const edgeAtExit = latestState?.edge;
+              const capturableAtEntry = t.capturableEdgeAtEntry ?? 0;
+              const entryToExitPriceMove =
+                t.effectiveEntryPrice != null && exitResult.effectiveExitPrice != null
+                  ? exitResult.effectiveExitPrice - t.effectiveEntryPrice
+                  : undefined;
+
               closeShadowTrade(profile.profileId, t.tradeId, {
                 closedAt: exitResult.exitLatencyMs > 0 ? new Date(now + exitResult.exitLatencyMs).toISOString() : new Date().toISOString(),
                 effectiveExitPrice: exitResult.effectiveExitPrice,
@@ -286,6 +311,20 @@ function runCycle(): void {
                 realizedReturn: exitResult.realizedReturn,
                 holdingTimeMs: holdingMs,
                 exitReason: exitResult.exitReason,
+                exitImpactBps:
+                  exitResult.exitSlippage != null
+                    ? Math.round(exitResult.exitSlippage * 10000)
+                    : null,
+                edgeAtExit: edgeAtExit ?? null,
+                edgeDecayDuringHold:
+                  edgeAtExit != null && typeof capturableAtEntry === "number"
+                    ? edgeAtExit - capturableAtEntry
+                    : null,
+                entryToExitPriceMove: entryToExitPriceMove ?? null,
+                closeContext: {
+                  exitReason: exitResult.exitReason,
+                  edgeAtExit: edgeAtExit ?? undefined,
+                },
               });
               closed++;
             }
@@ -466,6 +505,9 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
         continue;
       }
 
+      const requestedCapital = entryResult.requestedCapital ?? 0;
+      const fillRatio =
+        requestedCapital > 0 ? entryResult.filledCapital / requestedCapital : undefined;
       const trade: ShadowTrade = {
         tradeId: `sst-${profile.profileId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         opportunityId: opp.opportunityId,
@@ -480,6 +522,13 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
         capturableEdgeAtEntry: entryResult.capturableEdgeBeforeImpact,
         effectiveEntryPrice: entryResult.effectiveEntryPrice,
         filledCapital: entryResult.filledCapital,
+        requestedCapital: requestedCapital || undefined,
+        fillRatio: fillRatio ?? null,
+        entryImpactBps:
+          entryResult.entrySlippage != null
+            ? Math.round(entryResult.entrySlippage * 10000)
+            : null,
+        pairKey: makePairKey(opp.marketsInvolved ?? []) || null,
         realizedPnL: 0,
         realizedReturn: 0,
         holdingTimeMs: 0,

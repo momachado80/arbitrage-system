@@ -27,6 +27,18 @@ export interface ShadowTrade {
   holdingTimeMs: number;
   exitReason?: string;
   rejectionReason?: string;
+
+  /** Diagnostic fields for audit (prospective for new trades; historical trades leave null) */
+  fillRatio?: number | null;
+  entryImpactBps?: number | null;
+  exitImpactBps?: number | null;
+  entryPriceModel?: string | null;
+  exitPriceModel?: string | null;
+  pairKey?: string | null;
+  edgeAtExit?: number | null;
+  edgeDecayDuringHold?: number | null;
+  entryToExitPriceMove?: number | null;
+  closeContext?: { exitReason?: string; [k: string]: unknown } | null;
 }
 
 export interface ShadowProfileState {
