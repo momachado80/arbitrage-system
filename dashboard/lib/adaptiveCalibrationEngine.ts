@@ -264,6 +264,8 @@ function buildChallengerFromRecommendation(
       label: `${baseConfig.label} (adapt hold ${holdMs / 1000}s)`,
       maxHoldingTimeMs: holdMs,
       enabled: false,
+      baseProfileId: baseConfig.profileId,
+      isAdaptive: true,
     };
     return {
       profileId: spec.profileId,
@@ -276,34 +278,42 @@ function buildChallengerFromRecommendation(
   }
   if (rec.recommendationType === "pairKeyExclusion") {
     const excluded = rec.recommendedValue as string[];
-    const fullConfig = { ...baseConfig } as ShadowProfileConfig & { excludedPairKeys?: string[] };
-    fullConfig.profileId = `${baseConfig.profileId}_adapt_pairfilter_v1`;
-    fullConfig.label = `${baseConfig.label} (adapt pair filter)`;
-    fullConfig.enabled = false;
-    (fullConfig as unknown as Record<string, unknown>).excludedPairKeys = excluded;
+    const fullConfig: ShadowProfileConfig = {
+      ...baseConfig,
+      profileId: `${baseConfig.profileId}_adapt_pairfilter_v1`,
+      label: `${baseConfig.label} (adapt pair filter)`,
+      enabled: false,
+      excludedPairKeys: excluded,
+      baseProfileId: baseConfig.profileId,
+      isAdaptive: true,
+    };
     return {
       profileId: fullConfig.profileId,
       baseProfileId: baseConfig.profileId,
       label: fullConfig.label,
       status: "spec_only",
       changes: { excludedPairKeys: excluded },
-      fullConfig: fullConfig as ShadowProfileConfig,
+      fullConfig,
     };
   }
   if (rec.recommendationType === "minFillRatioThreshold") {
     const minFill = rec.recommendedValue as number;
-    const fullConfig = { ...baseConfig } as ShadowProfileConfig & { minFillRatioToTrade?: number };
-    fullConfig.profileId = `${baseConfig.profileId}_adapt_fillfilter_v1`;
-    fullConfig.label = `${baseConfig.label} (adapt min fill)`;
-    fullConfig.enabled = false;
-    (fullConfig as unknown as Record<string, unknown>).minFillRatioToTrade = minFill;
+    const fullConfig: ShadowProfileConfig = {
+      ...baseConfig,
+      profileId: `${baseConfig.profileId}_adapt_fillfilter_v1`,
+      label: `${baseConfig.label} (adapt min fill)`,
+      enabled: false,
+      minFillRatioToTrade: minFill,
+      baseProfileId: baseConfig.profileId,
+      isAdaptive: true,
+    };
     return {
       profileId: fullConfig.profileId,
       baseProfileId: baseConfig.profileId,
       label: fullConfig.label,
       status: "spec_only",
       changes: { minFillRatioToTrade: minFill },
-      fullConfig: fullConfig as ShadowProfileConfig,
+      fullConfig,
     };
   }
   return null;

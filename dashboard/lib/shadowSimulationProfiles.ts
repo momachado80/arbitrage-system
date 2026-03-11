@@ -22,6 +22,11 @@ export interface ShadowProfileConfig {
   impactAlpha: number;
   liquidityHaircut: number;
   enabled: boolean;
+  /** Adaptive challenger overrides — only for challenger profiles */
+  excludedPairKeys?: string[];
+  minFillRatioToTrade?: number;
+  baseProfileId?: string;
+  isAdaptive?: boolean;
 }
 
 export const SHADOW_PROFILES: ShadowProfileConfig[] = [

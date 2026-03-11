@@ -12,20 +12,32 @@ import { computeAdaptiveCalibration } from "@/lib/adaptiveCalibrationEngine";
 
 export const dynamic = "force-dynamic";
 
+function getEnabledChallengerIds(): Set<string> {
+  const raw = process.env.ENABLED_ADAPTIVE_CHALLENGERS ?? "";
+  return new Set(raw.split(",").map((s) => s.trim()).filter(Boolean));
+}
+
 export async function GET() {
   try {
     ensureShadowSimulation();
     const profiles = getAllShadowProfiles();
     const audit = computeClosedTradeAudit(profiles);
     const result = computeAdaptiveCalibration(audit);
+    const enabledIds = getEnabledChallengerIds();
+
+    const adaptiveChallengers = result.adaptiveChallengers.map((c) => ({
+      ...c,
+      enabledForExecution: enabledIds.has(c.profileId),
+    }));
 
     return NextResponse.json({
       status: result.status,
       generatedAt: result.generatedAt,
       enoughData: result.enoughData,
       recommendations: result.recommendations,
-      adaptiveChallengers: result.adaptiveChallengers,
+      adaptiveChallengers,
       promotionReadiness: result.promotionReadiness,
+      enabledChallengerIds: Array.from(enabledIds),
     });
   } catch (err) {
     console.error("[API /shadow/adaptive]", err);

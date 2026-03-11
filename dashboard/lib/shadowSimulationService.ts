@@ -17,6 +17,8 @@ import {
   getProfileById,
   type ShadowProfileConfig,
 } from "./shadowSimulationProfiles";
+import { computeClosedTradeAudit } from "./shadowClosedTradeAudit";
+import { computeAdaptiveCalibration } from "./adaptiveCalibrationEngine";
 import {
   ensureProfileState,
   addShadowTrade,
@@ -25,6 +27,7 @@ import {
   recordRejection,
   getShadowProfileState,
   getProfileExposure,
+  getAllShadowProfiles,
   type ShadowTrade,
 } from "./shadowSimulationStore";
 import { logTradeRejection, type TradeRejectionReason } from "./tradeRejectionLogger";
@@ -43,6 +46,50 @@ const INITIAL_DELAY_MS = 6_000;
 
 /** Shadow-only: refuse to open trades with dust fills; audit showed avgFilledCapital e-12, 100% loss rate. */
 const MIN_FILLED_CAPITAL_USD = 0.5;
+
+/** Registry of enabled adaptive challenger configs — populated by getProfilesForExecution */
+const challengerConfigRegistry = new Map<string, ShadowProfileConfig>();
+
+/**
+ * Parse ENABLED_ADAPTIVE_CHALLENGERS env (comma-separated profileIds).
+ * Only explicitly listed challenger profileIds may execute.
+ */
+function parseEnabledAdaptiveChallengers(): Set<string> {
+  const raw = process.env.ENABLED_ADAPTIVE_CHALLENGERS ?? "";
+  return new Set(raw.split(",").map((s) => s.trim()).filter(Boolean));
+}
+
+/**
+ * Returns baseline profiles + explicitly enabled adaptive challengers.
+ * Challengers are only included when they have a current spec from the adaptive layer.
+ */
+export function getProfilesForExecution(): ShadowProfileConfig[] {
+  const base = getEnabledProfiles();
+  const profiles = getAllShadowProfiles();
+  const audit = computeClosedTradeAudit(profiles);
+  const adaptive = computeAdaptiveCalibration(audit);
+  const enabledIds = parseEnabledAdaptiveChallengers();
+  const challengerConfigs = adaptive.adaptiveChallengers
+    .filter((c) => enabledIds.has(c.profileId))
+    .map((c) => c.fullConfig);
+
+  challengerConfigRegistry.clear();
+  for (const cfg of challengerConfigs) {
+    challengerConfigRegistry.set(cfg.profileId, cfg);
+  }
+  for (const cfg of challengerConfigs) {
+    ensureProfileState(cfg);
+  }
+
+  return [...base, ...challengerConfigs];
+}
+
+/**
+ * Get profile config by profileId — includes baseline profiles and enabled challengers.
+ */
+export function getProfileConfig(profileId: string): ShadowProfileConfig | undefined {
+  return getProfileById(profileId) ?? challengerConfigRegistry.get(profileId);
+}
 
 let loopStarted = false;
 let lastUpdateMs = 0;
@@ -153,7 +200,7 @@ function runCycle(): void {
       const capacityResults = estimateBatchCapacity(merged);
       const oppMap = new Map(merged.map((o, i) => [o.opportunityId, { opp: o, capacity: capacityResults[i] }]));
 
-      for (const profile of getEnabledProfiles()) {
+      for (const profile of getProfilesForExecution()) {
         try {
           const state = ensureProfileState(profile);
           const exposure = getProfileExposure(profile.profileId);
@@ -175,6 +222,15 @@ function runCycle(): void {
             if (capacity.recommendedCapital <= 0) continue;
             if (opp.confidence < profile.minConfidenceToTrade) continue;
             if (activeOppIds.has(opp.opportunityId)) continue;
+
+            const pairKey = makePairKey(opp.marketsInvolved ?? []);
+            if (
+              pairKey &&
+              profile.excludedPairKeys?.length &&
+              profile.excludedPairKeys.includes(pairKey)
+            ) {
+              continue;
+            }
 
             const freshExposure = getProfileExposure(profile.profileId);
             const freshState = getShadowProfileState(profile.profileId);
@@ -222,11 +278,18 @@ function runCycle(): void {
               recordRejection(profile.profileId, "fill_below_minimum");
               continue;
             }
-
-            const tradeId = `sst-${profile.profileId}-${Date.now()}-${opened}`;
             const requestedCapital = entryResult.requestedCapital ?? 0;
             const fillRatio =
-              requestedCapital > 0 ? entryResult.filledCapital / requestedCapital : undefined;
+              requestedCapital > 0 ? entryResult.filledCapital / requestedCapital : 1;
+            if (
+              profile.minFillRatioToTrade != null &&
+              fillRatio < profile.minFillRatioToTrade
+            ) {
+              recordRejection(profile.profileId, "fill_ratio_below_threshold");
+              continue;
+            }
+
+            const tradeId = `sst-${profile.profileId}-${Date.now()}-${opened}`;
             const trade: ShadowTrade = {
               tradeId,
               opportunityId: opp.opportunityId,
@@ -383,7 +446,7 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
     fill_rejected: "INSUFFICIENT_LIQUIDITY",
   };
 
-  const enabledProfiles = getEnabledProfiles();
+  const enabledProfiles = getProfilesForExecution();
   if (enabledProfiles.length === 0) {
     incrementEarlyExit("NO_ENABLED_PROFILES");
     if (VERBOSE) console.log("[DIAGNOSTICS] EARLY EXIT", { reason: "NO_ENABLED_PROFILES", marketId });
@@ -417,6 +480,15 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
         });
         if (VERBOSE) console.log("[DIAGNOSTICS] EARLY EXIT", { reason: "CONFIDENCE_BELOW_THRESHOLD", marketId });
         logTradeRejection({ timestamp: Date.now(), marketId, edgeBps, reason: "LATENCY_RISK" });
+        continue;
+      }
+      const pairKey = makePairKey(opp.marketsInvolved ?? []);
+      if (
+        pairKey &&
+        profile.excludedPairKeys?.length &&
+        profile.excludedPairKeys.includes(pairKey)
+      ) {
+        incrementEarlyExit("PAIR_EXCLUDED_BY_CHALLENGER");
         continue;
       }
       const freshExposure = getProfileExposure(profile.profileId);
@@ -504,10 +576,15 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
         recordRejection(profile.profileId, "fill_below_minimum");
         continue;
       }
-
       const requestedCapital = entryResult.requestedCapital ?? 0;
-      const fillRatio =
-        requestedCapital > 0 ? entryResult.filledCapital / requestedCapital : undefined;
+      const fillRatio = requestedCapital > 0 ? entryResult.filledCapital / requestedCapital : 1;
+      if (
+        profile.minFillRatioToTrade != null &&
+        fillRatio < profile.minFillRatioToTrade
+      ) {
+        recordRejection(profile.profileId, "fill_ratio_below_threshold");
+        continue;
+      }
       const trade: ShadowTrade = {
         tradeId: `sst-${profile.profileId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         opportunityId: opp.opportunityId,
@@ -575,7 +652,7 @@ export function getShadowSystemStatus(): {
   return {
     status: lastCycleOk ? "ok" : "degraded",
     lastUpdate: lastUpdateMs > 0 ? new Date(lastUpdateMs).toISOString() : null,
-    profilesRunning: getEnabledProfiles().map((p) => p.profileId),
+    profilesRunning: getProfilesForExecution().map((p) => p.profileId),
     opportunitiesSeenLastCycle,
     notes: "Realistic shadow simulation with latency, decay, impact",
   };

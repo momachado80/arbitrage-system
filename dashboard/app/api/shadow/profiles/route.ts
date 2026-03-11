@@ -1,15 +1,19 @@
 import { NextResponse } from "next/server";
-import { ensureShadowSimulation } from "@/lib/shadowSimulationService";
+import {
+  ensureShadowSimulation,
+  getProfilesForExecution,
+  getProfileConfig,
+} from "@/lib/shadowSimulationService";
 import { getAllShadowProfiles } from "@/lib/shadowSimulationStore";
-import { getProfileById } from "@/lib/shadowSimulationProfiles";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
     ensureShadowSimulation();
+    getProfilesForExecution();
     const profiles = getAllShadowProfiles().map((p) => {
-      const config = getProfileById(p.profileId);
+      const config = getProfileConfig(p.profileId);
       return {
         profileId: p.profileId,
         label: p.label,
@@ -24,6 +28,8 @@ export async function GET() {
         activeTrades: p.activeTrades.length,
         closedTrades: p.closedTrades.length,
         lastUpdate: p.lastUpdate,
+        isAdaptive: config?.isAdaptive ?? false,
+        baseProfileId: config?.baseProfileId ?? null,
       };
     });
     return NextResponse.json({
