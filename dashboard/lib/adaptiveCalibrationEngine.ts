@@ -33,6 +33,10 @@ const FILL_BUCKET_IMPROVEMENT_THRESHOLD = 0.003;
 const EDGE_DECILE_IMPROVEMENT_THRESHOLD = 0.002;
 const PAIR_AVG_PNL_FOR_PENALTY = -0.3;
 
+// ─── Edgegate v2: refinement when v1 showed directional improvement but stayed negative ───
+const MIN_CLOSED_FOR_EDGEGATE_V2 = 10;
+const EDGEGATE_V2_THRESHOLD_UPLIFT = 0.003;
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export type RecommendationType =
@@ -40,6 +44,7 @@ export type RecommendationType =
   | "pairKeyExclusion"
   | "minFillRatioThreshold"
   | "minCapturableEdgeThreshold"
+  | "minCapturableEdgeThresholdV2"
   | "entryScorePenaltyByPair";
 
 export interface CalibrationSignal {
@@ -488,6 +493,54 @@ function recommendEntryScorePenaltyByPair(
   return recs;
 }
 
+/**
+ * 6. Edgegate v2 recommendation (refinement of v1)
+ * When edgegate_v1 showed directional improvement vs base (shadow_1000) but remained negative,
+ * recommend v2 with stricter threshold = v1 + uplift. Experimentation only, not promotion.
+ */
+function recommendEdgegateV2(
+  audit: ClosedTradeAuditResult,
+  profileComparison: ProfileComparisonEntry[]
+): CalibrationRecommendation[] {
+  const recs: CalibrationRecommendation[] = [];
+  if (!audit.causalReadout.enoughDataForCausalReadout) return recs;
+
+  const base = profileComparison.find((p) => p.profileId === "shadow_1000");
+  const v1 = profileComparison.find((p) => p.profileId === "shadow_1000_adapt_edgegate_v1");
+  if (!base || !v1 || v1.totalClosed < MIN_CLOSED_FOR_EDGEGATE_V2) return recs;
+
+  const directionalImprovement = v1.avgRealizedPnL > base.avgRealizedPnL;
+  const stillNegative = v1.avgRealizedPnL < 0;
+  if (!directionalImprovement || !stillNegative) return recs;
+
+  const cfg = getProfileById("shadow_1000");
+  if (!cfg) return recs;
+
+  const baseMin = cfg.minNetCapturableEdgeToTrade ?? 0.007;
+  const v1Threshold = Math.min(
+    0.02,
+    Math.max(baseMin * 1.5, baseMin + 0.005, 0.01)
+  );
+  const v2Threshold = Math.min(0.02, v1Threshold + EDGEGATE_V2_THRESHOLD_UPLIFT);
+
+  const confSample = confidenceFromSampleSize(v1.totalClosed, MIN_CLOSED_FOR_EDGEGATE_V2);
+  const confidence = Math.min(0.55, confSample * 0.9);
+
+  recs.push({
+    profileId: "shadow_1000",
+    recommendationType: "minCapturableEdgeThresholdV2",
+    confidence,
+    currentValue: v1Threshold,
+    recommendedValue: v2Threshold,
+    reason: `Edgegate v1 showed directional improvement vs shadow_1000 (${v1.avgRealizedPnL.toFixed(4)} > ${base.avgRealizedPnL.toFixed(4)}) but remained negative. V2 tests stricter threshold (${v2Threshold.toFixed(4)}) to continue refinement.`,
+    supportingEvidenceSummary: `v1AvgPnL=${v1.avgRealizedPnL.toFixed(4)}, baseAvgPnL=${base.avgRealizedPnL.toFixed(4)}, v1Threshold=${v1Threshold.toFixed(4)}, v2Threshold=${v2Threshold.toFixed(4)}`,
+    forExperimentationOnly: true,
+    experimentationRationale: "Edgegate v1 showed directional improvement; v2 tests stricter entry gate as next iteration.",
+    promotionEligible: false,
+  });
+  return recs;
+}
+
 // ─── Challenger spec generation ─────────────────────────────────────────────
 
 function buildChallengerFromRecommendation(
@@ -559,7 +612,7 @@ function buildChallengerFromRecommendation(
     const fullConfig: ShadowProfileConfig = {
       ...baseConfig,
       profileId: `${baseConfig.profileId}_adapt_edgegate_v1`,
-      label: `${baseConfig.label} (adapt edge gate)`,
+      label: `${baseConfig.label} (adapt edge gate v1)`,
       enabled: false,
       minCapturableEdgeToTrade: threshold,
       baseProfileId: baseConfig.profileId,
@@ -577,6 +630,31 @@ function buildChallengerFromRecommendation(
       expectedMechanism: "Reject entry if capturableEdgeAtEntry < minCapturableEdgeToTrade",
       whyGenerated: rec.experimentationRationale,
       forExperimentationOnly: rec.forExperimentationOnly ?? false,
+    };
+  }
+  if (rec.recommendationType === "minCapturableEdgeThresholdV2") {
+    const threshold = rec.recommendedValue as number;
+    const fullConfig: ShadowProfileConfig = {
+      ...baseConfig,
+      profileId: `${baseConfig.profileId}_adapt_edgegate_v2`,
+      label: `${baseConfig.label} (adapt edge gate v2)`,
+      enabled: false,
+      minCapturableEdgeToTrade: threshold,
+      baseProfileId: baseConfig.profileId,
+      isAdaptive: true,
+    };
+    return {
+      profileId: fullConfig.profileId,
+      baseProfileId: baseConfig.profileId,
+      label: fullConfig.label,
+      status: "spec_only",
+      changes: { minCapturableEdgeToTrade: threshold },
+      fullConfig,
+      hypothesis: "Edgegate v1 showed directional improvement; v2 tests stricter threshold (v1 + 0.003) to continue entry-calibration refinement.",
+      entryThreshold: threshold,
+      expectedMechanism: "Reject entry if capturableEdgeAtEntry < minCapturableEdgeToTrade",
+      whyGenerated: rec.experimentationRationale,
+      forExperimentationOnly: true,
     };
   }
   if (rec.recommendationType === "entryScorePenaltyByPair") {
@@ -690,6 +768,7 @@ export function computeAdaptiveCalibration(audit: ClosedTradeAuditResult): Adapt
     recommendations.push(...recommendPairExclusion(audit, profileComparison, BASE_PROFILE_IDS));
     recommendations.push(...recommendFillRatioThreshold(audit, profileComparison, BASE_PROFILE_IDS));
     recommendations.push(...recommendMinCapturableEdgeThreshold(audit, profileComparison, BASE_PROFILE_IDS));
+    recommendations.push(...recommendEdgegateV2(audit, profileComparison));
     recommendations.push(...recommendEntryScorePenaltyByPair(audit, profileComparison, BASE_PROFILE_IDS));
   }
 
