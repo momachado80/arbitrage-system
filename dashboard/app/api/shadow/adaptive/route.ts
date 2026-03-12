@@ -43,10 +43,7 @@ export async function GET() {
       promotionThresholdsMet: result.promotionThresholdsMet,
       whyChallengersGenerated: result.whyChallengersGenerated,
       persistence: {
-        persistedHistoryAvailable: persistenceStatus.persistedHistoryAvailable,
-        persistedClosedTradesCount: persistenceStatus.persistedClosedTradesCount,
-        rehydratedAt: persistenceStatus.rehydratedAt,
-        persistenceMode: persistenceStatus.persistenceMode,
+        ...persistenceStatus,
       },
     });
   } catch (err) {

@@ -34,10 +34,7 @@ export async function GET() {
       opportunitiesSeenLastCycle: status.opportunitiesSeenLastCycle,
       rejectionCountsByProfile,
       persistence: {
-        persistedHistoryAvailable: persistenceStatus.persistedHistoryAvailable,
-        persistedClosedTradesCount: persistenceStatus.persistedClosedTradesCount,
-        rehydratedAt: persistenceStatus.rehydratedAt,
-        persistenceMode: persistenceStatus.persistenceMode,
+        ...persistenceStatus,
       },
       upstreamDiagnostics: {
         marketsTracked: marketStats.marketsTracked,

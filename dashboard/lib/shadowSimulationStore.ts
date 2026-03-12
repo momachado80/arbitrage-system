@@ -132,20 +132,37 @@ export function ensureProfileState(config: ShadowProfileConfig): ShadowProfileSt
 }
 
 export interface PersistenceStatus {
-  persistedHistoryAvailable: boolean;
-  persistedClosedTradesCount: number;
-  rehydratedAt: string | null;
   persistenceMode: "file";
   persistencePath: string;
+  /** True only if the persistence file exists at the resolved path */
+  persistenceFileExists: boolean;
+  /** True only if persisted history was actually loaded and count > 0 */
+  persistedHistoryAvailable: boolean;
+  /** Number of closed trades loaded from persistence during rehydration */
+  persistedClosedTradesCount: number;
+  /** Number of closed trades currently in memory across all profiles */
+  inMemoryClosedTradesCount: number;
+  /** Timestamp when rehydration last ran */
+  rehydratedAt: string | null;
 }
 
 export function getPersistenceStatus(): PersistenceStatus {
+  const fileExists = isPersistenceAvailable();
+  const inMemoryCount = Array.from(profileStates.values()).reduce(
+    (s, state) =>
+      s +
+      state.closedTrades.filter((t) => t.status === "closed" && t.closedAt)
+        .length,
+    0
+  );
   return {
-    persistedHistoryAvailable: isPersistenceAvailable(),
-    persistedClosedTradesCount: rehydratedClosedTradesCount,
-    rehydratedAt,
     persistenceMode: "file",
     persistencePath: getPersistencePath(),
+    persistenceFileExists: fileExists,
+    persistedHistoryAvailable: rehydratedClosedTradesCount > 0,
+    persistedClosedTradesCount: rehydratedClosedTradesCount,
+    inMemoryClosedTradesCount: inMemoryCount,
+    rehydratedAt,
   };
 }
 
