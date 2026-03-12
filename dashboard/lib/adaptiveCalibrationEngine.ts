@@ -45,7 +45,8 @@ export type RecommendationType =
   | "minFillRatioThreshold"
   | "minCapturableEdgeThreshold"
   | "minCapturableEdgeThresholdV2"
-  | "entryScorePenaltyByPair";
+  | "entryScorePenaltyByPair"
+  | "maxCapitalPerTrade";
 
 export interface CalibrationSignal {
   profileId: string;
@@ -84,6 +85,8 @@ export interface AdaptiveProfileSpec {
   entryThreshold?: number;
   /** Pair penalty config when applicable */
   pairPenaltyConfig?: Record<string, number>;
+  /** maxCapitalPerTrade override when applicable */
+  maxCapitalPerTradeOverride?: number;
   /** How entry gating works */
   expectedMechanism?: string;
   /** Why this spec was generated even when promotionReadiness is false (experimentation) */
@@ -452,6 +455,7 @@ function recommendEntryScorePenaltyByPair(
   }
 
   // ─── Experimentation path (lower bar: worth testing) ───
+  // Use top 3 toxic pairs only: small, conservative set per post-mortem (edgegate v1).
   const worstPairsExp = audit.worstPairs.filter(
     (p) =>
       p.tradeCount >= MIN_PAIR_SAMPLE_EXPERIMENT &&
@@ -462,7 +466,7 @@ function recommendEntryScorePenaltyByPair(
     worstPairsExp.length > 0
   ) {
     const pairPenalties: Record<string, number> = {};
-    for (const p of worstPairsExp.slice(0, 5)) {
+    for (const p of worstPairsExp.slice(0, 3)) {
       const penalty = Math.min(0.03, Math.max(0.005, -p.avgRealizedPnL * 0.02));
       pairPenalties[p.pairKey] = penalty;
     }
@@ -539,6 +543,49 @@ function recommendEdgegateV2(
     promotionEligible: false,
   });
   return recs;
+}
+
+/**
+ * 7. Max capital per trade recommendation (sizing isolation)
+ * When edgegate v1 and pairpenalty v1 both showed larger avgFilledCapital and worse PnL than baseline.
+ * Test: reduce maxCapitalPerTrade to limit capital concentration per trade.
+ * Single-variable experiment: no entry/exit/hold changes.
+ */
+const CAPITAL_PER_TRADE_REDUCTION_RATIO = 0.5; // 50% of baseline
+const BASELINE_SHADOW_1000_MAX_CAPITAL_PER_TRADE = 150;
+
+function recommendMaxCapitalPerTrade(
+  audit: ClosedTradeAuditResult,
+  profileComparison: ProfileComparisonEntry[],
+  baseProfileIds: string[]
+): CalibrationRecommendation[] {
+  if (audit.dataSufficiency.totalClosed < MIN_TOTAL_CLOSED_FOR_ADAPTIVE) return [];
+  const base = profileComparison.find((p) => p.profileId === "shadow_1000");
+  if (!base || !baseProfileIds.includes("shadow_1000")) return [];
+
+  const cfg = getProfileById("shadow_1000");
+  if (!cfg) return [];
+
+  const recommended = Math.round(
+    (cfg.maxCapitalPerTrade ?? BASELINE_SHADOW_1000_MAX_CAPITAL_PER_TRADE) * CAPITAL_PER_TRADE_REDUCTION_RATIO
+  );
+  // Ensure meaningful reduction and minimum viable cap
+  const capped = Math.max(25, Math.min(recommended, cfg.maxCapitalPerTrade - 25));
+
+  return [
+    {
+      profileId: "shadow_1000",
+      recommendationType: "maxCapitalPerTrade",
+      confidence: 0.6,
+      currentValue: cfg.maxCapitalPerTrade,
+      recommendedValue: capped,
+      reason: "Edgegate v1 and pairpenalty v1 both showed larger avgFilledCapital and worse PnL. Hypothesis: capital concentration amplifies losses. Test reduced maxCapitalPerTrade as single-variable experiment.",
+      supportingEvidenceSummary: `baselineMaxCap=${cfg.maxCapitalPerTrade}, challengerMaxCap=${capped}`,
+      forExperimentationOnly: true,
+      experimentationRationale: "Post-mortem: both entry-filtering challengers underperformed with larger filled capital. Sizing reduction isolates capital-concentration hypothesis.",
+      promotionEligible: false,
+    },
+  ];
 }
 
 // ─── Challenger spec generation ─────────────────────────────────────────────
@@ -657,6 +704,31 @@ function buildChallengerFromRecommendation(
       forExperimentationOnly: true,
     };
   }
+  if (rec.recommendationType === "maxCapitalPerTrade") {
+    const maxCap = rec.recommendedValue as number;
+    const fullConfig: ShadowProfileConfig = {
+      ...baseConfig,
+      profileId: `${baseConfig.profileId}_adapt_captrade_v1`,
+      label: `${baseConfig.label} (adapt cap per trade v1)`,
+      enabled: false,
+      maxCapitalPerTrade: maxCap,
+      baseProfileId: baseConfig.profileId,
+      isAdaptive: true,
+    };
+    return {
+      profileId: fullConfig.profileId,
+      baseProfileId: baseConfig.profileId,
+      label: fullConfig.label,
+      status: "spec_only",
+      changes: { maxCapitalPerTrade: maxCap },
+      fullConfig,
+      hypothesis: "Post-mortem: edgegate v1 and pairpenalty v1 both showed larger avgFilledCapital and worse PnL. Hypothesis: capital concentration amplifies losses. Single-variable test: reduce maxCapitalPerTrade only.",
+      maxCapitalPerTradeOverride: maxCap,
+      expectedMechanism: "Cap requested capital per trade at maxCapitalPerTrade; no changes to entry, exit, hold, or fill logic.",
+      whyGenerated: rec.experimentationRationale,
+      forExperimentationOnly: true,
+    };
+  }
   if (rec.recommendationType === "entryScorePenaltyByPair") {
     const penalties = rec.recommendedValue as Record<string, number>;
     const fullConfig: ShadowProfileConfig = {
@@ -675,7 +747,7 @@ function buildChallengerFromRecommendation(
       status: "spec_only",
       changes: { entryPairPenalties: penalties },
       fullConfig,
-      hypothesis: "Some pairKeys historically underperform. Penalize rather than exclude to test if softer filtering helps.",
+      hypothesis: "Post-mortem: edgegate v1 failed; global edge threshold concentrated capital into toxic trades. Pair-aware penalties target worst pairs (poor realized PnL + meaningful count) without changing sizing or exit logic.",
       pairPenaltyConfig: penalties,
       expectedMechanism: "effectiveEdge = capturableEdgeAtEntry - penaltyForPair; reject if effectiveEdge < minNetCapturableEdgeToTrade",
       whyGenerated: rec.experimentationRationale,
@@ -770,6 +842,7 @@ export function computeAdaptiveCalibration(audit: ClosedTradeAuditResult): Adapt
     recommendations.push(...recommendMinCapturableEdgeThreshold(audit, profileComparison, BASE_PROFILE_IDS));
     recommendations.push(...recommendEdgegateV2(audit, profileComparison));
     recommendations.push(...recommendEntryScorePenaltyByPair(audit, profileComparison, BASE_PROFILE_IDS));
+    recommendations.push(...recommendMaxCapitalPerTrade(audit, profileComparison, BASE_PROFILE_IDS));
   }
 
   const adaptiveChallengers = getAdaptiveChallengerSpecs(recommendations);

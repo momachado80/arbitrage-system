@@ -67,7 +67,7 @@ function parseEnabledAdaptiveChallengers(): Set<string> {
 export function getProfilesForExecution(): ShadowProfileConfig[] {
   const base = getEnabledProfiles();
   const profiles = getAllShadowProfiles();
-  const audit = computeClosedTradeAudit(profiles);
+  const audit = computeClosedTradeAudit(profiles, getProfileConfig);
   const adaptive = computeAdaptiveCalibration(audit);
   const enabledIds = parseEnabledAdaptiveChallengers();
   const challengerConfigs = adaptive.adaptiveChallengers

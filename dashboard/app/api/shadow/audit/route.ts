@@ -4,7 +4,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { ensureShadowSimulation, getShadowSystemStatus } from "@/lib/shadowSimulationService";
+import { ensureShadowSimulation, getShadowSystemStatus, getProfileConfig, getProfilesForExecution } from "@/lib/shadowSimulationService";
 import { getAllShadowProfiles, getRejectionCountsByProfile, getPersistenceStatus } from "@/lib/shadowSimulationStore";
 import { computeClosedTradeAudit } from "@/lib/shadowClosedTradeAudit";
 import { getProfileById } from "@/lib/shadowSimulationProfiles";
@@ -16,15 +16,16 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     ensureShadowSimulation();
+    getProfilesForExecution(); // Materialize enabled challengers before audit (ensureProfileState for challengers)
     const profiles = getAllShadowProfiles();
-    const audit = computeClosedTradeAudit(profiles);
+    const audit = computeClosedTradeAudit(profiles, getProfileConfig);
     const status = getShadowSystemStatus();
     const rejectionCountsByProfile = getRejectionCountsByProfile();
     const marketStats = getServiceStats();
     const graphStats = getGraphScanStats();
     const maxHoldingTimeMsByProfile: Record<string, number> = {};
     for (const p of profiles) {
-      const cfg = getProfileById(p.profileId);
+      const cfg = getProfileById(p.profileId) ?? getProfileConfig(p.profileId);
       if (cfg) maxHoldingTimeMsByProfile[p.profileId] = cfg.maxHoldingTimeMs;
     }
     const persistenceStatus = getPersistenceStatus();

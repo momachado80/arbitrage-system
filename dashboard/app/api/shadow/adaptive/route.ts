@@ -5,7 +5,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { ensureShadowSimulation } from "@/lib/shadowSimulationService";
+import { ensureShadowSimulation, getProfileConfig, getProfilesForExecution } from "@/lib/shadowSimulationService";
 import { getAllShadowProfiles, getPersistenceStatus } from "@/lib/shadowSimulationStore";
 import { computeClosedTradeAudit } from "@/lib/shadowClosedTradeAudit";
 import { computeAdaptiveCalibration } from "@/lib/adaptiveCalibrationEngine";
@@ -20,8 +20,9 @@ function getEnabledChallengerIds(): Set<string> {
 export async function GET() {
   try {
     ensureShadowSimulation();
+    getProfilesForExecution(); // Materialize enabled challengers before audit (ensureProfileState)
     const profiles = getAllShadowProfiles();
-    const audit = computeClosedTradeAudit(profiles);
+    const audit = computeClosedTradeAudit(profiles, getProfileConfig);
     const result = computeAdaptiveCalibration(audit);
     const enabledIds = getEnabledChallengerIds();
 

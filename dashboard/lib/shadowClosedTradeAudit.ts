@@ -217,7 +217,12 @@ function decileKey(d: number): string {
   return `d${d}`;
 }
 
-export function computeClosedTradeAudit(profiles: ShadowProfileState[]): ClosedTradeAuditResult {
+export type ProfileConfigResolver = (profileId: string) => { maxHoldingTimeMs?: number } | undefined;
+
+export function computeClosedTradeAudit(
+  profiles: ShadowProfileState[],
+  configResolver?: ProfileConfigResolver
+): ClosedTradeAuditResult {
   const allEntries: ClosedTradeAuditEntry[] = [];
   const profileSummaries: ProfileAuditSummary[] = [];
   const byProfile: Record<string, ByBreakdown> = {};
@@ -431,7 +436,8 @@ export function computeClosedTradeAudit(profiles: ShadowProfileState[]): ClosedT
   const profileComparison: ProfileComparisonEntry[] = profiles.map((p) => {
     const closed = p.closedTrades.filter((t) => t.status === "closed" && t.closedAt);
     const entries = closed.map((t) => toAuditEntry(t, p.profileId));
-    const cfg = getProfileById(p.profileId);
+    const baseCfg = getProfileById(p.profileId);
+    const cfg = baseCfg ?? configResolver?.(p.profileId);
     const pnls = entries.map((e) => e.realizedPnL);
     const fillRatios = entries.map((e) => e.fillRatio ?? 0).filter((r) => r > 0);
     return {
