@@ -28,6 +28,7 @@ import {
   getShadowProfileState,
   getProfileExposure,
   getAllShadowProfiles,
+  rehydrateFromPersistence,
   type ShadowTrade,
 } from "./shadowSimulationStore";
 import { logTradeRejection, type TradeRejectionReason } from "./tradeRejectionLogger";
@@ -649,6 +650,7 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
 export function ensureShadowSimulation(): void {
   if (loopStarted) return;
   loopStarted = true;
+  rehydrateFromPersistence();
   ensureMarketDataRunning();
   ensureGraphScanning();
   for (const p of getEnabledProfiles()) {

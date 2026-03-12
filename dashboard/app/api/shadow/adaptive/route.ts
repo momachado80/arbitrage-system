@@ -6,7 +6,7 @@
 
 import { NextResponse } from "next/server";
 import { ensureShadowSimulation } from "@/lib/shadowSimulationService";
-import { getAllShadowProfiles } from "@/lib/shadowSimulationStore";
+import { getAllShadowProfiles, getPersistenceStatus } from "@/lib/shadowSimulationStore";
 import { computeClosedTradeAudit } from "@/lib/shadowClosedTradeAudit";
 import { computeAdaptiveCalibration } from "@/lib/adaptiveCalibrationEngine";
 
@@ -30,6 +30,7 @@ export async function GET() {
       enabledForExecution: enabledIds.has(c.profileId),
     }));
 
+    const persistenceStatus = getPersistenceStatus();
     return NextResponse.json({
       status: result.status,
       generatedAt: result.generatedAt,
@@ -41,6 +42,12 @@ export async function GET() {
       experimentationThresholdsMet: result.experimentationThresholdsMet,
       promotionThresholdsMet: result.promotionThresholdsMet,
       whyChallengersGenerated: result.whyChallengersGenerated,
+      persistence: {
+        persistedHistoryAvailable: persistenceStatus.persistedHistoryAvailable,
+        persistedClosedTradesCount: persistenceStatus.persistedClosedTradesCount,
+        rehydratedAt: persistenceStatus.rehydratedAt,
+        persistenceMode: persistenceStatus.persistenceMode,
+      },
     });
   } catch (err) {
     console.error("[API /shadow/adaptive]", err);

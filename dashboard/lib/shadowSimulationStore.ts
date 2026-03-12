@@ -1,10 +1,18 @@
 /**
  * Shadow Simulation Store — per-profile portfolio state, trades, analytics.
  * Bounded in memory; isolated per profile.
+ * Persists closed trades to durable storage for rehydration after redeploys.
  */
 
 import type { PaperSourceType, PaperOpportunityType } from "./paperTypes";
 import type { ShadowProfileConfig } from "./shadowSimulationProfiles";
+import {
+  persistClosedTrades,
+  restoreClosedTrades,
+  isPersistenceAvailable,
+  getPersistencePath,
+} from "./shadowClosedTradePersistence";
+import { getProfileById, SHADOW_PROFILES } from "./shadowSimulationProfiles";
 
 export interface ShadowTrade {
   tradeId: string;
@@ -90,6 +98,9 @@ const rejectionCounts = new Map<string, Map<string, number>>();
 
 const profileStates = new Map<string, ShadowProfileState>();
 
+let rehydratedAt: string | null = null;
+let rehydratedClosedTradesCount = 0;
+
 function initProfileState(config: ShadowProfileConfig): ShadowProfileState {
   return {
     profileId: config.profileId,
@@ -118,6 +129,99 @@ export function ensureProfileState(config: ShadowProfileConfig): ShadowProfileSt
     profileStates.set(config.profileId, state);
   }
   return state;
+}
+
+export interface PersistenceStatus {
+  persistedHistoryAvailable: boolean;
+  persistedClosedTradesCount: number;
+  rehydratedAt: string | null;
+  persistenceMode: "file";
+  persistencePath: string;
+}
+
+export function getPersistenceStatus(): PersistenceStatus {
+  return {
+    persistedHistoryAvailable: isPersistenceAvailable(),
+    persistedClosedTradesCount: rehydratedClosedTradesCount,
+    rehydratedAt,
+    persistenceMode: "file",
+    persistencePath: getPersistencePath(),
+  };
+}
+
+/**
+ * Load persisted closed trades into in-memory store. Called once at startup.
+ * Only restores for profiles with known config (SHADOW_PROFILES).
+ */
+export function rehydrateFromPersistence(): void {
+  if (rehydratedAt) return;
+
+  const snapshot = restoreClosedTrades();
+  if (!snapshot?.byProfile || Object.keys(snapshot.byProfile).length === 0) {
+    rehydratedAt = new Date().toISOString();
+    return;
+  }
+
+  let totalRestored = 0;
+  for (const config of SHADOW_PROFILES) {
+    const trades = snapshot.byProfile[config.profileId];
+    if (!trades?.length) continue;
+
+    const valid = trades.filter(
+      (t): t is ShadowTrade => !!(t?.tradeId && t?.status === "closed" && t?.closedAt)
+    );
+    if (valid.length === 0) continue;
+
+    const sorted = [...valid].sort(
+      (a, b) =>
+        new Date(a.closedAt!).getTime() - new Date(b.closedAt!).getTime()
+    );
+    const deduped = sorted.filter(
+      (t, i, arr) => i === 0 || arr[i - 1].tradeId !== t.tradeId
+    );
+    const toRestore = deduped.slice(-MAX_CLOSED_PER_PROFILE);
+
+    const state = ensureProfileState(config);
+    state.closedTrades = toRestore;
+    state.realizedPnL = toRestore.reduce((s, t) => s + (t.realizedPnL ?? 0), 0);
+    state.currentEquity = state.startingCapital + state.realizedPnL + state.unrealizedPnL;
+    state.availableCapital = Math.max(0, state.currentEquity - state.reservedCapital);
+
+    let peak = state.startingCapital;
+    const curve: Array<{ ts: string; equity: number; cumulativePnL: number }> = [
+      { ts: new Date().toISOString(), equity: state.startingCapital, cumulativePnL: 0 },
+    ];
+    let cum = 0;
+    for (const t of toRestore) {
+      cum += t.realizedPnL ?? 0;
+      const equity = state.startingCapital + cum;
+      peak = Math.max(peak, equity);
+      curve.push({
+        ts: t.closedAt!,
+        equity,
+        cumulativePnL: cum,
+      });
+    }
+    state.peakEquity = peak;
+    state.maxDrawdown =
+      peak > 0 ? (peak - Math.min(peak, state.currentEquity)) / peak : 0;
+    state.equityCurve =
+      curve.length > MAX_EQUITY_CURVE_POINTS
+        ? curve.slice(-MAX_EQUITY_CURVE_POINTS)
+        : curve;
+    state.lastUpdate = new Date().toISOString();
+
+    totalRestored += toRestore.length;
+  }
+
+  rehydratedAt = new Date().toISOString();
+  rehydratedClosedTradesCount = totalRestored;
+
+  if (totalRestored > 0) {
+    console.log(
+      `[ShadowStore] Rehydrated ${totalRestored} closed trades into ${Object.keys(snapshot.byProfile).length} profiles`
+    );
+  }
 }
 
 export function getShadowProfileState(profileId: string): ShadowProfileState | null {
@@ -209,6 +313,15 @@ export function closeShadowTrade(
       state.equityCurve = state.equityCurve.slice(-MAX_EQUITY_CURVE_POINTS);
     }
     state.lastUpdate = new Date().toISOString();
+
+    const byProfile: Record<string, ShadowTrade[]> = {};
+    for (const [, s] of Array.from(profileStates.entries())) {
+      const closed = s.closedTrades.filter(
+        (t: ShadowTrade) => t.status === "closed" && t.closedAt
+      );
+      if (closed.length > 0) byProfile[s.profileId] = closed;
+    }
+    persistClosedTrades(byProfile);
   } catch {
     // non-fatal
   }
