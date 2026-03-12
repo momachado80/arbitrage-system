@@ -38,6 +38,9 @@ export async function GET() {
       adaptiveChallengers,
       promotionReadiness: result.promotionReadiness,
       enabledChallengerIds: Array.from(enabledIds),
+      experimentationThresholdsMet: result.experimentationThresholdsMet,
+      promotionThresholdsMet: result.promotionThresholdsMet,
+      whyChallengersGenerated: result.whyChallengersGenerated,
     });
   } catch (err) {
     console.error("[API /shadow/adaptive]", err);
