@@ -75,14 +75,31 @@ export function getProfilesForExecution(): ShadowProfileConfig[] {
     .map((c) => c.fullConfig);
 
   challengerConfigRegistry.clear();
+  const allChallengerConfigs: ShadowProfileConfig[] = [];
   for (const cfg of challengerConfigs) {
     challengerConfigRegistry.set(cfg.profileId, cfg);
+    allChallengerConfigs.push(cfg);
   }
   for (const cfg of challengerConfigs) {
     ensureProfileState(cfg);
   }
 
-  return [...base, ...challengerConfigs];
+  // Materialization fix: ensure enabled challengers that inherit from another adaptive
+  // challenger (baseProfileId = shadow_1000_adapt_captrade_v1) get state when the base
+  // has no state. Without this, entryfloor would not appear in getAllShadowProfiles().
+  const materializedIds = new Set(getAllShadowProfiles().map((p) => p.profileId));
+  for (const id of enabledIds) {
+    if (!materializedIds.has(id)) {
+      const spec = adaptive.adaptiveChallengers.find((c) => c.profileId === id);
+      if (spec?.fullConfig) {
+        challengerConfigRegistry.set(id, spec.fullConfig);
+        ensureProfileState(spec.fullConfig);
+        allChallengerConfigs.push(spec.fullConfig);
+      }
+    }
+  }
+
+  return [...base, ...allChallengerConfigs];
 }
 
 /**

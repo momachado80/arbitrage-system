@@ -46,7 +46,8 @@ export type RecommendationType =
   | "minCapturableEdgeThreshold"
   | "minCapturableEdgeThresholdV2"
   | "entryScorePenaltyByPair"
-  | "maxCapitalPerTrade";
+  | "maxCapitalPerTrade"
+  | "entryFloorOnCaptrade";
 
 export interface CalibrationSignal {
   profileId: string;
@@ -87,6 +88,8 @@ export interface AdaptiveProfileSpec {
   pairPenaltyConfig?: Record<string, number>;
   /** maxCapitalPerTrade override when applicable */
   maxCapitalPerTradeOverride?: number;
+  /** minNetCapturableEdgeToTrade / entry floor override when applicable */
+  entryFloorOverride?: number;
   /** How entry gating works */
   expectedMechanism?: string;
   /** Why this spec was generated even when promotionReadiness is false (experimentation) */
@@ -588,6 +591,48 @@ function recommendMaxCapitalPerTrade(
   ];
 }
 
+/** Conservative entry floor increment on top of captrade (not aggressive edgegate). */
+const ENTRY_FLOOR_INCREMENT = 0.002;
+const CAPTRADE_MAX_CAPITAL_PER_TRADE = 75;
+
+/**
+ * 8. Entry floor on captrade (single variable on top of captrade v1)
+ * When captrade v1 improved over baseline, test adding a small entry-floor bump.
+ * Inherits maxCapitalPerTrade=75; adds only minCapturableEdgeToTrade increase.
+ */
+function recommendEntryFloorOnCaptrade(
+  audit: ClosedTradeAuditResult,
+  profileComparison: ProfileComparisonEntry[]
+): CalibrationRecommendation[] {
+  const captrade = profileComparison.find((p) => p.profileId === "shadow_1000_adapt_captrade_v1");
+  const base = profileComparison.find((p) => p.profileId === "shadow_1000");
+  if (!captrade || !base || captrade.totalClosed < 50) return [];
+
+  const improvement = captrade.avgRealizedPnL > base.avgRealizedPnL;
+  if (!improvement) return [];
+
+  const cfg = getProfileById("shadow_1000");
+  if (!cfg) return [];
+
+  const currentFloor = cfg.minNetCapturableEdgeToTrade ?? 0.007;
+  const newFloor = Math.min(0.015, currentFloor + ENTRY_FLOOR_INCREMENT);
+
+  return [
+    {
+      profileId: "shadow_1000",
+      recommendationType: "entryFloorOnCaptrade",
+      confidence: 0.65,
+      currentValue: currentFloor,
+      recommendedValue: newFloor,
+      reason: `Captrade v1 improved avgRealizedPnL (${captrade.avgRealizedPnL.toFixed(4)} vs ${base.avgRealizedPnL.toFixed(4)}). Conservative entry-floor bump may reduce marginal entries further.`,
+      supportingEvidenceSummary: `captradeAvgPnL=${captrade.avgRealizedPnL.toFixed(4)}, baseAvgPnL=${base.avgRealizedPnL.toFixed(4)}, newFloor=${newFloor}`,
+      forExperimentationOnly: true,
+      experimentationRationale: "Captrade v1 succeeded; single-variable test: add small entry floor on top.",
+      promotionEligible: false,
+    },
+  ];
+}
+
 // ─── Challenger spec generation ─────────────────────────────────────────────
 
 function buildChallengerFromRecommendation(
@@ -729,6 +774,41 @@ function buildChallengerFromRecommendation(
       forExperimentationOnly: true,
     };
   }
+  if (rec.recommendationType === "entryFloorOnCaptrade") {
+    const entryFloor = rec.recommendedValue as number;
+    // Base = shadow_1000_adapt_captrade_v1 (shadow_1000 + maxCapitalPerTrade 75)
+    const captradeBase: ShadowProfileConfig = {
+      ...baseConfig,
+      profileId: "shadow_1000_adapt_captrade_v1",
+      label: `${baseConfig.label} (adapt cap per trade v1)`,
+      maxCapitalPerTrade: CAPTRADE_MAX_CAPITAL_PER_TRADE,
+      baseProfileId: baseConfig.profileId,
+      isAdaptive: true,
+    };
+    const fullConfig: ShadowProfileConfig = {
+      ...captradeBase,
+      profileId: "shadow_1000_adapt_captrade_entryfloor_v1",
+      label: `${baseConfig.label} (adapt cap per trade + entry floor v1)`,
+      minNetCapturableEdgeToTrade: entryFloor,
+      baseProfileId: "shadow_1000_adapt_captrade_v1",
+    };
+    return {
+      profileId: fullConfig.profileId,
+      baseProfileId: "shadow_1000_adapt_captrade_v1",
+      label: fullConfig.label,
+      status: "spec_only",
+      changes: { minNetCapturableEdgeToTrade: entryFloor },
+      fullConfig,
+      hypothesis:
+        "After captrade reduced capital concentration and improved PnL, a conservative entry-floor bump may filter marginal entries and reduce losses further. Single variable: minNetCapturableEdgeToTrade only.",
+      entryFloorOverride: entryFloor,
+      maxCapitalPerTradeOverride: CAPTRADE_MAX_CAPITAL_PER_TRADE,
+      expectedMechanism:
+        "Reject entry if capturableEdgeAtEntry < minNetCapturableEdgeToTrade. Inherits maxCapitalPerTrade=75. No changes to hold time, pair penalties, fill, or exit logic.",
+      whyGenerated: rec.experimentationRationale,
+      forExperimentationOnly: true,
+    };
+  }
   if (rec.recommendationType === "entryScorePenaltyByPair") {
     const penalties = rec.recommendedValue as Record<string, number>;
     const fullConfig: ShadowProfileConfig = {
@@ -757,6 +837,44 @@ function buildChallengerFromRecommendation(
   return null;
 }
 
+/** Seeded entryfloor challenger — always available for experiment when enoughData. */
+function buildEntryFloorChallengerSeed(): AdaptiveProfileSpec | null {
+  const baseConfig = getProfileById("shadow_1000");
+  if (!baseConfig) return null;
+
+  const entryFloor = 0.009;
+  const captradeBase: ShadowProfileConfig = {
+    ...baseConfig,
+    profileId: "shadow_1000_adapt_captrade_v1",
+    label: `${baseConfig.label} (adapt cap per trade v1)`,
+    maxCapitalPerTrade: CAPTRADE_MAX_CAPITAL_PER_TRADE,
+    baseProfileId: baseConfig.profileId,
+    isAdaptive: true,
+  };
+  const fullConfig: ShadowProfileConfig = {
+    ...captradeBase,
+    profileId: "shadow_1000_adapt_captrade_entryfloor_v1",
+    label: `${baseConfig.label} (adapt cap per trade + entry floor v1)`,
+    minNetCapturableEdgeToTrade: entryFloor,
+    baseProfileId: "shadow_1000_adapt_captrade_v1",
+  };
+  return {
+    profileId: fullConfig.profileId,
+    baseProfileId: "shadow_1000_adapt_captrade_v1",
+    label: fullConfig.label,
+    status: "spec_only",
+    changes: { minNetCapturableEdgeToTrade: entryFloor },
+    fullConfig,
+    hypothesis:
+      "After captrade reduced capital concentration and improved PnL, a conservative entry-floor bump may filter marginal entries and reduce losses further. Single variable: minNetCapturableEdgeToTrade only.",
+    entryFloorOverride: entryFloor,
+    maxCapitalPerTradeOverride: CAPTRADE_MAX_CAPITAL_PER_TRADE,
+    expectedMechanism:
+      "Reject entry if capturableEdgeAtEntry < minNetCapturableEdgeToTrade. Inherits maxCapitalPerTrade=75. No changes to hold time, pair penalties, fill, or exit logic.",
+    forExperimentationOnly: true,
+  };
+}
+
 function getAdaptiveChallengerSpecs(recommendations: CalibrationRecommendation[]): AdaptiveProfileSpec[] {
   const seen = new Set<string>();
   const specs: AdaptiveProfileSpec[] = [];
@@ -768,6 +886,11 @@ function getAdaptiveChallengerSpecs(recommendations: CalibrationRecommendation[]
       seen.add(spec.profileId);
       specs.push(spec);
     }
+  }
+  const seed = buildEntryFloorChallengerSeed();
+  if (seed && !seen.has(seed.profileId)) {
+    seen.add(seed.profileId);
+    specs.push(seed);
   }
   return specs;
 }
@@ -843,6 +966,7 @@ export function computeAdaptiveCalibration(audit: ClosedTradeAuditResult): Adapt
     recommendations.push(...recommendEdgegateV2(audit, profileComparison));
     recommendations.push(...recommendEntryScorePenaltyByPair(audit, profileComparison, BASE_PROFILE_IDS));
     recommendations.push(...recommendMaxCapitalPerTrade(audit, profileComparison, BASE_PROFILE_IDS));
+    recommendations.push(...recommendEntryFloorOnCaptrade(audit, profileComparison));
   }
 
   const adaptiveChallengers = getAdaptiveChallengerSpecs(recommendations);
