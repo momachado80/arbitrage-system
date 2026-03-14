@@ -8,7 +8,10 @@ import { NextResponse } from "next/server";
 import { ensureShadowSimulation, getProfileConfig, getProfilesForExecution } from "@/lib/shadowSimulationService";
 import { getAllShadowProfiles, getPersistenceStatus } from "@/lib/shadowSimulationStore";
 import { computeClosedTradeAudit } from "@/lib/shadowClosedTradeAudit";
-import { computeAdaptiveCalibration } from "@/lib/adaptiveCalibrationEngine";
+import {
+  computeAdaptiveCalibration,
+  buildSyntheticChallengerSpecForActivation,
+} from "@/lib/adaptiveCalibrationEngine";
 
 export const dynamic = "force-dynamic";
 
@@ -26,10 +29,27 @@ export async function GET() {
     const result = computeAdaptiveCalibration(audit);
     const enabledIds = getEnabledChallengerIds();
 
-    const adaptiveChallengers = result.adaptiveChallengers.map((c) => ({
-      ...c,
-      enabledForExecution: enabledIds.has(c.profileId),
-    }));
+    // Include synthetic specs for challengers explicitly enabled but not in adaptiveChallengers
+    // (e.g. when recommendation conditions are not met; ensures activation path works)
+    const challengerIdsInResult = new Set(result.adaptiveChallengers.map((c) => c.profileId));
+    const syntheticSpecs: typeof result.adaptiveChallengers = [];
+    for (const id of Array.from(enabledIds)) {
+      if (!challengerIdsInResult.has(id)) {
+        const spec = buildSyntheticChallengerSpecForActivation(id);
+        if (spec) syntheticSpecs.push(spec);
+      }
+    }
+
+    const adaptiveChallengers = [
+      ...result.adaptiveChallengers.map((c) => ({
+        ...c,
+        enabledForExecution: enabledIds.has(c.profileId),
+      })),
+      ...syntheticSpecs.map((c) => ({
+        ...c,
+        enabledForExecution: true,
+      })),
+    ];
 
     const persistenceStatus = getPersistenceStatus();
     return NextResponse.json({

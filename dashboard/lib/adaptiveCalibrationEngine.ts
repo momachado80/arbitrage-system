@@ -837,6 +837,79 @@ function buildChallengerFromRecommendation(
   return null;
 }
 
+/**
+ * Build synthetic spec for known challengers when explicitly enabled via ENABLED_ADAPTIVE_CHALLENGERS
+ * but not present in adaptiveChallengers (e.g. recommendation conditions not met).
+ * Ensures activation path works even when adaptive layer does not generate the spec.
+ */
+export function buildSyntheticChallengerSpecForActivation(profileId: string): AdaptiveProfileSpec | null {
+  if (profileId === "shadow_1000_adapt_edgegate_v1") {
+    const baseConfig = getProfileById("shadow_1000");
+    if (!baseConfig) return null;
+    const baseMin = baseConfig.minNetCapturableEdgeToTrade ?? 0.007;
+    const threshold = Math.min(0.02, Math.max(baseMin * 1.5, baseMin + 0.005, 0.01));
+    const fullConfig: ShadowProfileConfig = {
+      ...baseConfig,
+      profileId: "shadow_1000_adapt_edgegate_v1",
+      label: `${baseConfig.label} (adapt edge gate v1)`,
+      enabled: false,
+      minCapturableEdgeToTrade: threshold,
+      baseProfileId: "shadow_1000",
+      isAdaptive: true,
+    };
+    return {
+      profileId: fullConfig.profileId,
+      baseProfileId: "shadow_1000",
+      label: fullConfig.label,
+      status: "proposed",
+      changes: { minCapturableEdgeToTrade: threshold },
+      fullConfig,
+      hypothesis: "Entry miscalibration: entering with marginal capturable edge leads to losses. Higher edge threshold may improve realized outcomes.",
+      entryThreshold: threshold,
+      expectedMechanism: "Reject entry if capturableEdgeAtEntry < minCapturableEdgeToTrade",
+      whyGenerated: "Explicitly enabled via ENABLED_ADAPTIVE_CHALLENGERS; synthetic spec for activation.",
+      forExperimentationOnly: true,
+    };
+  }
+  if (profileId === "shadow_1000_adapt_captrade_entryfloor_v1") {
+    const baseConfig = getProfileById("shadow_1000");
+    if (!baseConfig) return null;
+    const entryFloor = 0.009;
+    const captradeBase: ShadowProfileConfig = {
+      ...baseConfig,
+      profileId: "shadow_1000_adapt_captrade_v1",
+      label: `${baseConfig.label} (adapt cap per trade v1)`,
+      maxCapitalPerTrade: CAPTRADE_MAX_CAPITAL_PER_TRADE,
+      baseProfileId: baseConfig.profileId,
+      isAdaptive: true,
+    };
+    const fullConfig: ShadowProfileConfig = {
+      ...captradeBase,
+      profileId: "shadow_1000_adapt_captrade_entryfloor_v1",
+      label: `${baseConfig.label} (adapt cap per trade + entry floor v1)`,
+      minNetCapturableEdgeToTrade: entryFloor,
+      baseProfileId: "shadow_1000_adapt_captrade_v1",
+    };
+    return {
+      profileId: fullConfig.profileId,
+      baseProfileId: "shadow_1000_adapt_captrade_v1",
+      label: fullConfig.label,
+      status: "spec_only",
+      changes: { minNetCapturableEdgeToTrade: entryFloor },
+      fullConfig,
+      hypothesis:
+        "After captrade reduced capital concentration and improved PnL, a conservative entry-floor bump may filter marginal entries and reduce losses further. Single variable: minNetCapturableEdgeToTrade only.",
+      entryFloorOverride: entryFloor,
+      maxCapitalPerTradeOverride: CAPTRADE_MAX_CAPITAL_PER_TRADE,
+      expectedMechanism:
+        "Reject entry if capturableEdgeAtEntry < minNetCapturableEdgeToTrade. Inherits maxCapitalPerTrade=75.",
+      whyGenerated: "Explicitly enabled via ENABLED_ADAPTIVE_CHALLENGERS; synthetic spec for activation.",
+      forExperimentationOnly: true,
+    };
+  }
+  return null;
+}
+
 /** Seeded entryfloor challenger — always available for experiment when enoughData. */
 function buildEntryFloorChallengerSeed(): AdaptiveProfileSpec | null {
   const baseConfig = getProfileById("shadow_1000");

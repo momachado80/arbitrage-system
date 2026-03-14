@@ -18,7 +18,10 @@ import {
   type ShadowProfileConfig,
 } from "./shadowSimulationProfiles";
 import { computeClosedTradeAudit } from "./shadowClosedTradeAudit";
-import { computeAdaptiveCalibration } from "./adaptiveCalibrationEngine";
+import {
+  computeAdaptiveCalibration,
+  buildSyntheticChallengerSpecForActivation,
+} from "./adaptiveCalibrationEngine";
 import {
   ensureProfileState,
   addShadowTrade,
@@ -87,10 +90,14 @@ export function getProfilesForExecution(): ShadowProfileConfig[] {
   // Materialization fix: ensure enabled challengers that inherit from another adaptive
   // challenger (baseProfileId = shadow_1000_adapt_captrade_v1) get state when the base
   // has no state. Without this, entryfloor would not appear in getAllShadowProfiles().
+  // Also: challengers explicitly enabled but NOT in adaptiveChallengers (e.g. recommendation
+  // conditions not met) get a synthetic spec so activation works regardless.
   const materializedIds = new Set(getAllShadowProfiles().map((p) => p.profileId));
-  for (const id of enabledIds) {
+  for (const id of Array.from(enabledIds)) {
     if (!materializedIds.has(id)) {
-      const spec = adaptive.adaptiveChallengers.find((c) => c.profileId === id);
+      const spec =
+        adaptive.adaptiveChallengers.find((c) => c.profileId === id) ??
+        buildSyntheticChallengerSpecForActivation(id);
       if (spec?.fullConfig) {
         challengerConfigRegistry.set(id, spec.fullConfig);
         ensureProfileState(spec.fullConfig);
