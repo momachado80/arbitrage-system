@@ -15,7 +15,7 @@ import {
 } from "@/lib/experimentLedger";
 import { getSeededHistoricalEntries } from "@/lib/experimentLedgerSeed";
 import {
-  getExperimentRecommendations,
+  getDecisionEngineResult,
   getBlockedExperiments,
 } from "@/lib/experimentDecisionEngine";
 import { computeExperimentReadout } from "@/lib/experimentReadoutHelper";
@@ -47,7 +47,7 @@ export async function GET() {
     const adaptiveChallengerIds = adaptiveResult.adaptiveChallengers.map((c) => c.profileId);
     const ledgerEntries = getExperimentLedgerEntries();
 
-    const recommendations = getExperimentRecommendations(
+    const decisionResult = getDecisionEngineResult(
       ledgerEntries,
       enabledIds,
       adaptiveChallengerIds
@@ -87,8 +87,20 @@ export async function GET() {
         currentWinnerBranch: enabledIds.length > 0 ? enabledIds[0] : null,
       },
       blockedExperiments: blocked,
-      recommendedNextExperiments: recommendations.filter((r) => !r.blocked),
-      blockedOrRedundantExperiments: recommendations.filter((r) => r.blocked),
+      recommendedNextExperiments: decisionResult.recommendedNextExperiments,
+      blockedOrRedundantExperiments: decisionResult.recommendations.filter((r) => r.blocked),
+      availableButNotRecommendedExperiments: decisionResult.availableButNotRecommendedExperiments,
+      blockedByRecentEvidence: decisionResult.blockedByRecentEvidence,
+      supersededExperiments: decisionResult.supersededExperiments,
+      currentWinnerBranch: decisionResult.currentWinnerBranch,
+      winnerBranchReason: decisionResult.winnerBranchReason,
+      recommendationRationale: decisionResult.recommendationRationale,
+      residualBottleneckHypothesis: decisionResult.residualBottleneckHypothesis,
+      recommendationConfidence: decisionResult.recommendationConfidence,
+      branchComparisons: decisionResult.branchComparisons,
+      recommendationWithWhyNotRecommended: decisionResult.recommendations
+        .filter((r) => r.whyNotRecommended)
+        .map((r) => ({ challengerProfileId: r.challengerProfileId, whyNotRecommended: r.whyNotRecommended })),
       readout: {
         directionOfImprovement: readout.directionOfImprovement,
         flowImpactAssessment: readout.flowImpactAssessment,

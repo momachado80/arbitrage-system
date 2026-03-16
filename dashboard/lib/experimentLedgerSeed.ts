@@ -50,7 +50,7 @@ export function getSeededHistoricalEntries(): ExperimentLedgerEntry[] {
       endTimestamp: now,
       decision: "failed",
       decisionReason: "Top-level pair penalty as fix underperformed.",
-      notes: "Backfilled from project history. Top-level experiment failed.",
+      notes: "Backfilled. Top-level pairpenalty failed. Layered version on winner may be distinct experiment.",
     },
     {
       experimentId: "exp-captrade_v1",
@@ -64,7 +64,7 @@ export function getSeededHistoricalEntries(): ExperimentLedgerEntry[] {
       startTimestamp: "2024-01-01T00:00:00.000Z",
       decision: "successful",
       decisionReason: "Viable line; improved over baseline.",
-      notes: "Backfilled. Current winner candidate branch.",
+      notes: "Backfilled. captrade_v1 outperformed baseline in multiple reads. Current strongest known line.",
     },
     {
       experimentId: "exp-entryfloor_v1",
@@ -78,8 +78,8 @@ export function getSeededHistoricalEntries(): ExperimentLedgerEntry[] {
       startTimestamp: "2024-01-01T00:00:00.000Z",
       endTimestamp: now,
       decision: "inconclusive",
-      decisionReason: "Refinement on captrade; currently active as winning branch candidate.",
-      notes: "Backfilled. May be weakened; layered pair penalty is next refinement to test.",
+      decisionReason: "Refinement weakened the captrade branch in recent evidence.",
+      notes: "Backfilled. entryfloor_v1 weakened the captrade branch in recent evidence. Do not recommend as top next step.",
     },
     {
       experimentId: "exp-entryfloor_pairpenalty_v1",
@@ -93,7 +93,7 @@ export function getSeededHistoricalEntries(): ExperimentLedgerEntry[] {
       startTimestamp: now,
       decision: undefined,
       decisionReason: undefined,
-      notes: "Available for controlled activation. Not yet active. Distinct from top-level pairpenalty.",
+      notes: "Available for controlled activation. Distinct from top-level pairpenalty. Base (entryfloor) weakened; not top recommendation until base improves.",
     },
   ];
 }
