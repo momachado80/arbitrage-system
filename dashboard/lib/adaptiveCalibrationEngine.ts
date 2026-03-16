@@ -948,6 +948,51 @@ function buildEntryFloorChallengerSeed(): AdaptiveProfileSpec | null {
   };
 }
 
+/**
+ * Entryfloor + pair penalty challenger: layers pair penalties on top of entryfloor.
+ * Single experimental variable: entryPairPenalties. Base = shadow_1000_adapt_captrade_entryfloor_v1.
+ * Only built when we have pair penalty recommendations (from shadow_1000 entryScorePenaltyByPair).
+ */
+function buildEntryFloorPairPenaltyChallengerSeed(
+  recommendations: CalibrationRecommendation[]
+): AdaptiveProfileSpec | null {
+  const pairPenaltyRec = recommendations.find(
+    (r) => r.recommendationType === "entryScorePenaltyByPair" && r.profileId === "shadow_1000"
+  );
+  if (!pairPenaltyRec || typeof pairPenaltyRec.recommendedValue !== "object") return null;
+
+  const penalties = pairPenaltyRec.recommendedValue as Record<string, number>;
+  if (!penalties || Object.keys(penalties).length === 0) return null;
+
+  const entryfloorSeed = buildEntryFloorChallengerSeed();
+  if (!entryfloorSeed?.fullConfig) return null;
+
+  const baseConfig = entryfloorSeed.fullConfig;
+  const fullConfig: ShadowProfileConfig = {
+    ...baseConfig,
+    profileId: "shadow_1000_adapt_captrade_entryfloor_pairpenalty_v1",
+    label: "Shadow 5000 USD (test) (adapt captrade + entry floor + pair penalty v1)",
+    entryPairPenalties: penalties,
+    baseProfileId: "shadow_1000_adapt_captrade_entryfloor_v1",
+  };
+
+  return {
+    profileId: fullConfig.profileId,
+    baseProfileId: "shadow_1000_adapt_captrade_entryfloor_v1",
+    label: fullConfig.label,
+    status: "spec_only",
+    changes: { entryPairPenalties: penalties },
+    fullConfig,
+    hypothesis:
+      "Single-variable experiment: layer pair penalties on top of winning branch (captrade + entry floor). Tests whether pair-aware penalties improve outcomes when combined with entry floor.",
+    pairPenaltyConfig: penalties,
+    expectedMechanism:
+      "effectiveEdge = capturableEdgeAtEntry - penaltyForPair; reject if effectiveEdge < minNetCapturableEdgeToTrade. Inherits maxCapitalPerTrade=75, entry floor 0.009.",
+    whyGenerated: "Layered on shadow_1000_adapt_captrade_entryfloor_v1; pair penalties from audit worstPairs.",
+    forExperimentationOnly: true,
+  };
+}
+
 function getAdaptiveChallengerSpecs(recommendations: CalibrationRecommendation[]): AdaptiveProfileSpec[] {
   const seen = new Set<string>();
   const specs: AdaptiveProfileSpec[] = [];
@@ -964,6 +1009,11 @@ function getAdaptiveChallengerSpecs(recommendations: CalibrationRecommendation[]
   if (seed && !seen.has(seed.profileId)) {
     seen.add(seed.profileId);
     specs.push(seed);
+  }
+  const entryfloorPairPenaltySeed = buildEntryFloorPairPenaltyChallengerSeed(recommendations);
+  if (entryfloorPairPenaltySeed && !seen.has(entryfloorPairPenaltySeed.profileId)) {
+    seen.add(entryfloorPairPenaltySeed.profileId);
+    specs.push(entryfloorPairPenaltySeed);
   }
   return specs;
 }
