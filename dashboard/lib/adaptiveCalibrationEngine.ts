@@ -907,6 +907,38 @@ export function buildSyntheticChallengerSpecForActivation(profileId: string): Ad
       forExperimentationOnly: true,
     };
   }
+  if (profileId === "shadow_1000_adapt_captrade_exitrefine_v1") {
+    const baseConfig = getProfileById("shadow_1000");
+    if (!baseConfig) return null;
+    const captradeBase: ShadowProfileConfig = {
+      ...baseConfig,
+      profileId: "shadow_1000_adapt_captrade_v1",
+      label: `${baseConfig.label} (adapt cap per trade v1)`,
+      maxCapitalPerTrade: CAPTRADE_MAX_CAPITAL_PER_TRADE,
+      baseProfileId: baseConfig.profileId,
+      isAdaptive: true,
+    };
+    const holdMs = 60_000;
+    const fullConfig: ShadowProfileConfig = {
+      ...captradeBase,
+      profileId: "shadow_1000_adapt_captrade_exitrefine_v1",
+      label: "Shadow 5000 USD (test) (adapt captrade + exit refinement v1)",
+      maxHoldingTimeMs: holdMs,
+      baseProfileId: "shadow_1000_adapt_captrade_v1",
+    };
+    return {
+      profileId: fullConfig.profileId,
+      baseProfileId: "shadow_1000_adapt_captrade_v1",
+      label: fullConfig.label,
+      status: "spec_only",
+      changes: { maxHoldingTimeMs: holdMs },
+      fullConfig,
+      hypothesis: "Exit refinement on captrade winner. Shorter max hold.",
+      expectedMechanism: "Exit at 60s. Inherits maxCapitalPerTrade=75.",
+      whyGenerated: "Explicitly enabled via ENABLED_ADAPTIVE_CHALLENGERS; synthetic spec for activation.",
+      forExperimentationOnly: true,
+    };
+  }
   return null;
 }
 
@@ -993,6 +1025,45 @@ function buildEntryFloorPairPenaltyChallengerSeed(
   };
 }
 
+/** Exit refinement challenger: shorter max hold on top of captrade. Single variable: maxHoldingTimeMs. */
+const EXITREFINE_HOLD_MS = 60_000;
+
+function buildExitRefineChallengerSeed(): AdaptiveProfileSpec | null {
+  const baseConfig = getProfileById("shadow_1000");
+  if (!baseConfig) return null;
+
+  const captradeBase: ShadowProfileConfig = {
+    ...baseConfig,
+    profileId: "shadow_1000_adapt_captrade_v1",
+    label: `${baseConfig.label} (adapt cap per trade v1)`,
+    maxCapitalPerTrade: CAPTRADE_MAX_CAPITAL_PER_TRADE,
+    baseProfileId: baseConfig.profileId,
+    isAdaptive: true,
+  };
+  const fullConfig: ShadowProfileConfig = {
+    ...captradeBase,
+    profileId: "shadow_1000_adapt_captrade_exitrefine_v1",
+    label: "Shadow 5000 USD (test) (adapt captrade + exit refinement v1)",
+    maxHoldingTimeMs: EXITREFINE_HOLD_MS,
+    baseProfileId: "shadow_1000_adapt_captrade_v1",
+  };
+
+  return {
+    profileId: fullConfig.profileId,
+    baseProfileId: "shadow_1000_adapt_captrade_v1",
+    label: fullConfig.label,
+    status: "spec_only",
+    changes: { maxHoldingTimeMs: EXITREFINE_HOLD_MS },
+    fullConfig,
+    hypothesis:
+      "Causal readouts point to exits as residual bottleneck. Single-variable experiment: shorter max hold (60s) on winning branch to test exit-timing impact.",
+    expectedMechanism:
+      "Exit by max_holding_time at 60s instead of 300s. Inherits maxCapitalPerTrade=75. No entry, sizing, or pair penalty changes.",
+    whyGenerated: "Prepared for controlled activation. Exit refinement on captrade winner.",
+    forExperimentationOnly: true,
+  };
+}
+
 function getAdaptiveChallengerSpecs(recommendations: CalibrationRecommendation[]): AdaptiveProfileSpec[] {
   const seen = new Set<string>();
   const specs: AdaptiveProfileSpec[] = [];
@@ -1014,6 +1085,11 @@ function getAdaptiveChallengerSpecs(recommendations: CalibrationRecommendation[]
   if (entryfloorPairPenaltySeed && !seen.has(entryfloorPairPenaltySeed.profileId)) {
     seen.add(entryfloorPairPenaltySeed.profileId);
     specs.push(entryfloorPairPenaltySeed);
+  }
+  const exitRefineSeed = buildExitRefineChallengerSeed();
+  if (exitRefineSeed && !seen.has(exitRefineSeed.profileId)) {
+    seen.add(exitRefineSeed.profileId);
+    specs.push(exitRefineSeed);
   }
   return specs;
 }

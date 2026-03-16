@@ -93,6 +93,16 @@ export const EXPERIMENT_FAMILIES: ExperimentFamilyDefinition[] = [
     eligibleForRecommendation: false,
     allowedForAutomatedActivation: false,
   },
+  {
+    familyId: "exit_refinement",
+    label: "Exit refinement on captrade (shorter max hold)",
+    allowedBaseProfiles: ["shadow_1000_adapt_captrade_v1"],
+    isolatedVariable: "maxHoldingTimeMs",
+    safetyConstraints: ["single-variable on top of captrade", "inherits maxCapitalPerTrade=75", "exit timing only"],
+    eligibleForRecommendation: true,
+    allowedForAutomatedActivation: false,
+    challengerPattern: "shadow_1000_adapt_captrade_exitrefine_v1",
+  },
 ];
 
 export function getFamilyByChallengerId(challengerProfileId: string): ExperimentFamilyDefinition | undefined {

@@ -95,5 +95,19 @@ export function getSeededHistoricalEntries(): ExperimentLedgerEntry[] {
       decisionReason: undefined,
       notes: "Available for controlled activation. Distinct from top-level pairpenalty. Base (entryfloor) weakened; not top recommendation until base improves.",
     },
+    {
+      experimentId: "exp-exitrefine_v1",
+      challengerProfileId: "shadow_1000_adapt_captrade_exitrefine_v1",
+      familyId: "exit_refinement",
+      baseProfileId: "shadow_1000_adapt_captrade_v1",
+      hypothesis: "Exit refinement on captrade winner; shorter max hold (60s).",
+      isolatedVariable: "maxHoldingTimeMs",
+      activationMode: "manual",
+      status: "available",
+      startTimestamp: now,
+      decision: undefined,
+      decisionReason: undefined,
+      notes: "Prepared for controlled activation. Exit-focused refinement on winning branch. Not yet active.",
+    },
   ];
 }
