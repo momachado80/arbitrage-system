@@ -76,8 +76,15 @@ async function fetchPage(offset: number): Promise<PolymarketRawMarket[]> {
     headers: { Accept: "application/json" },
   });
   if (!res.ok) throw new Error(`Gamma API ${res.status}`);
-  return res.json();
+  const body = await res.text();
+  try {
+    return JSON.parse(body) as PolymarketRawMarket[];
+  } catch (e) {
+    throw new Error(`Gamma API invalid JSON: ${e instanceof Error ? e.message : "parse error"}`);
+  }
 }
+
+const TOTAL_FETCH_TIMEOUT_MS = 90_000;
 
 export async function fetchAllMarkets(): Promise<NormalizedMarket[]> {
   const now = Date.now();
@@ -87,21 +94,27 @@ export async function fetchAllMarkets(): Promise<NormalizedMarket[]> {
 
   const t0 = Date.now();
   const all: NormalizedMarket[] = [];
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error(`fetchAllMarkets timeout ${TOTAL_FETCH_TIMEOUT_MS}ms`)), TOTAL_FETCH_TIMEOUT_MS)
+  );
 
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const raw = await fetchPage(page * PAGE_LIMIT);
-    for (const r of raw) {
-      const m = normalize(r);
-      if (m && !m.closed && m.active) all.push(m);
+  const fetchPromise = (async () => {
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const raw = await fetchPage(page * PAGE_LIMIT);
+      for (const r of raw) {
+        const m = normalize(r);
+        if (m && !m.closed && m.active) all.push(m);
+      }
+      if (raw.length < PAGE_LIMIT) break;
     }
-    if (raw.length < PAGE_LIMIT) break;
-  }
+    return all;
+  })();
 
-  cache = all;
+  const result = await Promise.race([fetchPromise, timeoutPromise]);
+  cache = result;
   cacheTs = Date.now();
-  const elapsed = Date.now() - t0;
-  console.log(`[PolymarketClient] Fetched ${all.length} markets in ${elapsed}ms`);
-  return all;
+  console.log(`[PolymarketClient] Fetched ${result.length} markets in ${Date.now() - t0}ms`);
+  return result;
 }
 
 export function getCachedMarkets(): NormalizedMarket[] {

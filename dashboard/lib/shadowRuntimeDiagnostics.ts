@@ -90,10 +90,17 @@ export interface ShadowRuntimeDiagnostics {
   intervalMs: number;
   runtimeEnvironmentSummary: Record<string, string | number | boolean>;
   generatedAt: string;
+  bootstrapOperationalTroubleshooting?: {
+    bootstrapPhase: string;
+    refreshStuckMs: number;
+    lockStuck: boolean;
+    schedulerRegisteredButBlocked: boolean;
+    timeoutOperationalOccurred: boolean;
+  };
 }
 
 function deriveLoopBlockReason(
-  marketStats: { isRefreshing?: boolean; refreshAttemptedCount?: number; refreshSuccessCount?: number; refreshFailureCount?: number }
+  marketStats: { isRefreshing?: boolean; refreshAttemptedCount?: number; refreshSuccessCount?: number; refreshFailureCount?: number; refreshStuckMs?: number }
 ): string | null {
   if (shadowLoopStarted) return null;
   if (!serviceBootCompleted) return "shadow_boot_not_completed";
@@ -103,7 +110,10 @@ function deriveLoopBlockReason(
   const failure = marketStats.refreshFailureCount ?? 0;
   if (attempted === 0) return "market_refresh_never_called";
   if (success + failure < attempted && marketStats.isRefreshing) return "market_refresh_pending";
-  if (success + failure < attempted) return "market_refresh_hung";
+  if (success + failure < attempted) {
+    const stuck = marketStats.refreshStuckMs ?? 0;
+    return stuck > 15000 ? `market_refresh_hung_${Math.round(stuck / 1000)}s` : "market_refresh_hung";
+  }
   return "awaiting_first_cycle_or_cycle_not_yet_invoked";
 }
 
@@ -119,6 +129,8 @@ export function getShadowRuntimeDiagnostics(
     refreshFailureCount?: number;
     lastRefreshError?: string | null;
     isRefreshing?: boolean;
+    bootstrapPhase?: string;
+    refreshStuckMs?: number;
   },
   scheduler: { registered: boolean; intervalMs: number }
 ): ShadowRuntimeDiagnostics {
@@ -130,6 +142,8 @@ export function getShadowRuntimeDiagnostics(
   const bootstrapFailed = marketStats.marketBootstrapFailed ?? false;
   const bootstrapStatus: "pending" | "completed" | "failed" =
     bootstrapCompleted ? "completed" : bootstrapFailed ? "failed" : "pending";
+  const stuckMs = marketStats.refreshStuckMs ?? 0;
+  const lockStuck = refreshPending && stuckMs > 20000;
 
   return {
     serviceBootAttempted,
@@ -163,5 +177,12 @@ export function getShadowRuntimeDiagnostics(
       hasRailwayDomain: typeof process.env.RAILWAY_PUBLIC_DOMAIN === "string",
     },
     generatedAt: new Date().toISOString(),
+    bootstrapOperationalTroubleshooting: {
+      bootstrapPhase: marketStats.bootstrapPhase ?? "idle",
+      refreshStuckMs: stuckMs,
+      lockStuck,
+      schedulerRegisteredButBlocked: !!scheduler.registered && !shadowLoopStarted && refreshPending,
+      timeoutOperationalOccurred: (marketStats.lastRefreshError ?? "").includes("timeout"),
+    },
   };
 }

@@ -622,6 +622,7 @@ function runCycle(): void {
     })
     .catch((err) => {
       lastCycleOk = false;
+      recordShadowLoopCompleted();
       recordStandardFetch(0, err instanceof Error ? err.message : String(err));
       console.warn("[ShadowSim] cycle failed:", err?.message ?? err);
     });

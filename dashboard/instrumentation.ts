@@ -5,6 +5,8 @@
  * fetch para localhost que ficava pendente ou falhava.
  */
 
+const SHADOW_LOOP_DEFER_MS = 5_000;
+
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     const { recordInstrumentationRan } = await import("./lib/shadowRuntimeDiagnostics");
@@ -14,9 +16,11 @@ export async function register(): Promise<void> {
     const { ensureShadowSimulation } = await import("./lib/shadowSimulationService");
     const { ensureRunning: ensureMarketDataRunning } = await import("./lib/marketDataService");
 
-    startExecutionWorker();
     ensureMarketDataRunning();
-    ensureShadowSimulation();
-    console.log("[BOOT] Shadow simulation bootstrap complete (non-blocking)");
+    startExecutionWorker();
+    setTimeout(() => {
+      ensureShadowSimulation();
+      console.log("[BOOT] Shadow simulation bootstrap complete");
+    }, SHADOW_LOOP_DEFER_MS);
   }
 }

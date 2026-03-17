@@ -66,16 +66,9 @@ export async function GET() {
     const entryThresholdFlowDiagnostics = getEntryThresholdFlowDiagnostics(profiles.map((p) => p.profileId));
     const shadowRuntimeDiagnostics = getShadowRuntimeDiagnostics(
       {
-        marketBootstrapAttempted: marketStats.marketBootstrapAttempted,
-        marketBootstrapCompleted: marketStats.marketBootstrapCompleted,
-        marketBootstrapFailed: marketStats.marketBootstrapFailed,
-        marketBootstrapErrorMessage: marketStats.marketBootstrapErrorMessage,
-        lastMarketBootstrapAt: marketStats.lastMarketBootstrapAt,
-        refreshAttemptedCount: marketStats.refreshAttemptedCount,
-        refreshSuccessCount: marketStats.refreshSuccessCount,
-        refreshFailureCount: marketStats.refreshFailureCount,
-        lastRefreshError: marketStats.lastRefreshError,
-        isRefreshing: marketStats.isRefreshing,
+        ...marketStats,
+        bootstrapPhase: marketStats.bootstrapPhase,
+        refreshStuckMs: marketStats.refreshStuckMs,
       },
       { registered: true, intervalMs: 10_000 }
     );
@@ -88,6 +81,7 @@ export async function GET() {
     }
     const rt = shadowRuntimeDiagnostics;
     const ms = marketSourceDiagnostics;
+    const ops = rt.bootstrapOperationalTroubleshooting;
 
     const operationalTruth = {
       /** 1. Boot da aplicação terminou? */
@@ -127,6 +121,10 @@ export async function GET() {
         rt.shadowLoopStarted &&
         rt.shadowLoopHeartbeatCount > 0 &&
         (ms.standardMarketsCount > 0 || ms.graphMarketsCount > 0),
+      /** Troubleshooting operacional */
+      bootstrapPhase: ops?.bootstrapPhase,
+      refreshStuckMs: ops?.refreshStuckMs,
+      lockStuck: ops?.lockStuck,
     };
 
     const allAuditEntries = buildClosedTradeAuditEntries(profiles, (pid) => {

@@ -1,3 +1,8 @@
+/**
+ * Market Data Service — bootstrap e refresh de mercados.
+ * Instrumentação explícita; cleanup obrigatório de locks; timeouts defensivos.
+ */
+
 import {
   fetchAllMarkets,
   getCachedMarkets,
@@ -6,6 +11,7 @@ import {
 
 const REFRESH_INTERVAL_MS = 5_000;
 const REFRESH_TIMEOUT_MS = 12_000;
+const STALE_REFRESH_MS = REFRESH_TIMEOUT_MS * 2;
 
 let markets: NormalizedMarket[] = [];
 let lastRefresh = 0;
@@ -14,16 +20,20 @@ let loopStarted = false;
 let fetchCount = 0;
 let lastError: string | null = null;
 
-// Bootstrap and refresh diagnostics (for shadowRuntimeDiagnostics / marketSourceDiagnostics)
+// Instrumentação explícita
 let bootstrapAttempted = false;
 let bootstrapCompleted = false;
 let bootstrapFailed = false;
 let bootstrapErrorMessage: string | null = null;
 let lastBootstrapAt: string | null = null;
+let bootstrapPhase: "idle" | "refresh_started" | "fetch_completed" | "fetch_failed" = "idle";
 let refreshAttemptedCount = 0;
 let refreshSuccessCount = 0;
 let refreshFailureCount = 0;
 let lastRefreshError: string | null = null;
+let refreshStartedAt: number | null = null;
+let lastRefreshCompletedAt: string | null = null;
+let lastRefreshFailedAt: string | null = null;
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
@@ -35,16 +45,35 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 }
 
 async function refresh(): Promise<void> {
-  if (refreshing) return;
+  if (refreshing) {
+    const stuckMs = refreshStartedAt != null ? Date.now() - refreshStartedAt : 0;
+    if (stuckMs > STALE_REFRESH_MS) {
+      console.error(`[MarketDataService] STALE REFRESH (${stuckMs}ms) — force cleanup`);
+      refreshing = false;
+      refreshFailureCount++;
+      if (!bootstrapCompleted && bootstrapAttempted) {
+        bootstrapFailed = true;
+        bootstrapErrorMessage = `refresh hung ${stuckMs}ms`;
+      }
+      lastRefreshError = `stale_refresh_${stuckMs}ms`;
+      lastRefreshFailedAt = new Date().toISOString();
+    }
+    return;
+  }
   refreshing = true;
+  refreshStartedAt = Date.now();
   refreshAttemptedCount++;
+  bootstrapPhase = "refresh_started";
+
   try {
     markets = await withTimeout(fetchAllMarkets(), REFRESH_TIMEOUT_MS, "market refresh");
+    bootstrapPhase = "fetch_completed";
     lastRefresh = Date.now();
     fetchCount++;
     lastError = null;
     lastRefreshError = null;
     refreshSuccessCount++;
+    lastRefreshCompletedAt = new Date().toISOString();
     if (!bootstrapCompleted && markets.length > 0) {
       bootstrapCompleted = true;
       bootstrapFailed = false;
@@ -56,9 +85,11 @@ async function refresh(): Promise<void> {
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown error";
+    bootstrapPhase = "fetch_failed";
     lastError = msg;
     lastRefreshError = msg;
     refreshFailureCount++;
+    lastRefreshFailedAt = new Date().toISOString();
     if (!bootstrapCompleted && bootstrapAttempted) {
       bootstrapFailed = true;
       bootstrapErrorMessage = msg;
@@ -68,6 +99,7 @@ async function refresh(): Promise<void> {
     if (cached.length > 0) markets = cached;
   } finally {
     refreshing = false;
+    refreshStartedAt = null;
   }
 }
 
@@ -76,7 +108,7 @@ function startLoop(): void {
   loopStarted = true;
   bootstrapAttempted = true;
   lastBootstrapAt = new Date().toISOString();
-  console.log("[MarketDataService] Background refresh loop started");
+  console.log("[MarketDataService] Bootstrap started");
   refresh();
   setInterval(refresh, REFRESH_INTERVAL_MS);
 }
@@ -96,6 +128,7 @@ export function getMarketById(id: string): NormalizedMarket | undefined {
 }
 
 export function getServiceStats() {
+  const stuckMs = refreshStartedAt != null ? Date.now() - refreshStartedAt : 0;
   return {
     marketsTracked: markets.length,
     lastRefreshMs: lastRefresh,
@@ -111,5 +144,10 @@ export function getServiceStats() {
     refreshSuccessCount,
     refreshFailureCount,
     lastRefreshError,
+    bootstrapPhase,
+    refreshStartedAt,
+    refreshStuckMs: stuckMs,
+    lastRefreshCompletedAt,
+    lastRefreshFailedAt,
   };
 }
