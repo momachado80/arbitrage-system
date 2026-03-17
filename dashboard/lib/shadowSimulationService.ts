@@ -32,6 +32,7 @@ import {
   getProfileExposure,
   getAllShadowProfiles,
   rehydrateFromPersistence,
+  annotateBaselineTradeChallengerRejection,
   type ShadowTrade,
 } from "./shadowSimulationStore";
 import { logTradeRejection, type TradeRejectionReason } from "./tradeRejectionLogger";
@@ -83,6 +84,10 @@ import {
   recordRejectedByFillBucketMismatch,
   recordPassedAllNarrowFilters,
 } from "./narrowChallengerDiagnostics";
+import {
+  recordEntryChallengerDecision,
+  BASELINE_PROFILE_ID,
+} from "./entryChallengerDiagnostics";
 import type { NormalizedPaperOpportunity } from "./paperTypes";
 import type { PersistenceData } from "./edgeDecayModel";
 
@@ -403,6 +408,21 @@ function runCycle(): void {
                 entryResult.rejectionReason,
                 entryResult.capturableEdgeBeforeImpact
               );
+              const earlyFillRatio =
+                (entryResult.requestedCapital ?? 0) > 0
+                  ? (entryResult.filledCapital ?? 0) / (entryResult.requestedCapital ?? 1)
+                  : undefined;
+              recordEntryChallengerDecision(
+                profile.profileId,
+                opp.opportunityId,
+                cycleBucket,
+                false,
+                entryResult.rejectionReason,
+                entryResult.capturableEdgeBeforeImpact,
+                entryResult.observedEdge,
+                earlyFillRatio,
+                pairKey ?? undefined
+              );
               const reasonMap: Record<string, import("./tradeRejectionLogger").TradeRejectionReason> = {
                 insufficient_capital_or_exposure_limit: "TRADE_SIZE_TOO_SMALL",
                 net_edge_below_threshold: "EDGE_BELOW_THRESHOLD",
@@ -427,6 +447,15 @@ function runCycle(): void {
                 "filled_capital_zero",
                 entryResult.capturableEdgeBeforeImpact
               );
+              recordEntryChallengerDecision(
+                profile.profileId,
+                opp.opportunityId,
+                cycleBucket,
+                false,
+                "filled_capital_zero",
+                entryResult.capturableEdgeBeforeImpact,
+                entryResult.observedEdge
+              );
               continue;
             }
             if (entryResult.filledCapital < MIN_FILLED_CAPITAL_USD) {
@@ -439,6 +468,15 @@ function runCycle(): void {
                 false,
                 "fill_below_minimum",
                 entryResult.capturableEdgeBeforeImpact
+              );
+              recordEntryChallengerDecision(
+                profile.profileId,
+                opp.opportunityId,
+                cycleBucket,
+                false,
+                "fill_below_minimum",
+                entryResult.capturableEdgeBeforeImpact,
+                entryResult.observedEdge
               );
               continue;
             }
@@ -455,6 +493,21 @@ function runCycle(): void {
                   false,
                   "entry_pair_penalty",
                   entryResult.capturableEdgeBeforeImpact
+                );
+                const preFillRatio =
+                  (entryResult.requestedCapital ?? 0) > 0
+                    ? (entryResult.filledCapital ?? 0) / (entryResult.requestedCapital ?? 1)
+                    : undefined;
+                recordEntryChallengerDecision(
+                  profile.profileId,
+                  opp.opportunityId,
+                  cycleBucket,
+                  false,
+                  "entry_pair_penalty",
+                  entryResult.capturableEdgeBeforeImpact,
+                  entryResult.observedEdge,
+                  preFillRatio,
+                  pairKey
                 );
                 continue;
               }
@@ -479,7 +532,142 @@ function runCycle(): void {
                 "fill_ratio_below_threshold",
                 entryResult.capturableEdgeBeforeImpact
               );
+              recordEntryChallengerDecision(
+                profile.profileId,
+                opp.opportunityId,
+                cycleBucket,
+                false,
+                "fill_ratio_below_threshold",
+                entryResult.capturableEdgeBeforeImpact,
+                entryResult.observedEdge,
+                fillRatio ?? undefined,
+                pairKey ?? undefined
+              );
               continue;
+            }
+
+            /** Narrow challenger: só abre quando TODOS os filtros narrow forem satisfeitos */
+            if (profile.narrowChallengerTarget) {
+              recordOpportunitiesSeen(profile.profileId);
+              const pairOk = isPairMatch(pairKey ?? null, profile.narrowChallengerTarget.pairKey);
+              if (!pairOk) {
+                recordRejectedByPairMismatch(profile.profileId);
+                recordRejection(profile.profileId, "narrow_pair_mismatch");
+                recordEntryDecision(
+                  profile.profileId,
+                  opp.opportunityId,
+                  cycleBucket,
+                  false,
+                  "narrow_pair_mismatch",
+                  entryResult.capturableEdgeBeforeImpact
+                );
+                continue;
+              }
+              const edgeOk = isEdgeBucketMatch(
+                entryResult.capturableEdgeBeforeImpact ?? 0,
+                profile.narrowChallengerTarget.capturableEdgeBucket
+              );
+              if (!edgeOk) {
+                recordRejectedByEdgeBucketMismatch(profile.profileId);
+                recordRejection(profile.profileId, "narrow_edge_bucket_mismatch");
+                recordEntryDecision(
+                  profile.profileId,
+                  opp.opportunityId,
+                  cycleBucket,
+                  false,
+                  "narrow_edge_bucket_mismatch",
+                  entryResult.capturableEdgeBeforeImpact
+                );
+                continue;
+              }
+              const fillOk = isFillBucketMatch(fillRatio, profile.narrowChallengerTarget.fillRatioBucket);
+              if (!fillOk) {
+                recordRejectedByFillBucketMismatch(profile.profileId);
+                recordRejection(profile.profileId, "narrow_fill_bucket_mismatch");
+                recordEntryDecision(
+                  profile.profileId,
+                  opp.opportunityId,
+                  cycleBucket,
+                  false,
+                  "narrow_fill_bucket_mismatch",
+                  entryResult.capturableEdgeBeforeImpact
+                );
+                continue;
+              }
+              recordPassedAllNarrowFilters(profile.profileId);
+            }
+
+            /** Entry capfloor challenger: só abre se capturableEdge >= 0.03 */
+            if (profile.entryCapfloorMinCapturableEdge != null) {
+              const cap = entryResult.capturableEdgeBeforeImpact ?? 0;
+              if (cap < profile.entryCapfloorMinCapturableEdge) {
+                recordRejection(profile.profileId, "entry_capfloor");
+                recordEntryDecision(
+                  profile.profileId,
+                  opp.opportunityId,
+                  cycleBucket,
+                  false,
+                  "entry_capfloor",
+                  entryResult.capturableEdgeBeforeImpact
+                );
+                const degRatio =
+                  (entryResult.capturableEdgeBeforeImpact ?? 0) /
+                  Math.max(0.0001, entryResult.observedEdge ?? opp.edge ?? 0);
+                recordEntryChallengerDecision(
+                  profile.profileId,
+                  opp.opportunityId,
+                  cycleBucket,
+                  false,
+                  "entry_capfloor",
+                  entryResult.capturableEdgeBeforeImpact,
+                  entryResult.observedEdge,
+                  fillRatio ?? undefined,
+                  pairKey ?? undefined,
+                  degRatio
+                );
+                annotateBaselineTradeChallengerRejection(
+                  BASELINE_PROFILE_ID,
+                  opp.opportunityId,
+                  "capfloorFilteredSameCycle"
+                );
+                continue;
+              }
+            }
+
+            /** Entry degratio challenger: só abre se capturable/observed >= 0.22 */
+            if (profile.entryDegRatioMin != null) {
+              const observed = entryResult.observedEdge ?? opp.edge ?? 0;
+              const degRatio =
+                (entryResult.capturableEdgeBeforeImpact ?? 0) / Math.max(0.0001, observed);
+              if (degRatio < profile.entryDegRatioMin) {
+                recordRejection(profile.profileId, "entry_degratio");
+                recordEntryDecision(
+                  profile.profileId,
+                  opp.opportunityId,
+                  cycleBucket,
+                  false,
+                  "entry_degratio",
+                  entryResult.capturableEdgeBeforeImpact
+                );
+                recordEntryChallengerDecision(
+                  profile.profileId,
+                  opp.opportunityId,
+                  cycleBucket,
+                  false,
+                  "entry_degratio",
+                  entryResult.capturableEdgeBeforeImpact,
+                  observed,
+                  fillRatio ?? undefined,
+                  pairKey ?? undefined,
+                  degRatio
+                );
+                annotateBaselineTradeChallengerRejection(
+                  BASELINE_PROFILE_ID,
+                  opp.opportunityId,
+                  "degratioFilteredSameCycle"
+                );
+                continue;
+              }
             }
 
             recordEntryDecision(
@@ -490,7 +678,23 @@ function runCycle(): void {
               undefined,
               entryResult.capturableEdgeBeforeImpact
             );
+            const degRatioForRecord =
+              (entryResult.capturableEdgeBeforeImpact ?? 0) /
+              Math.max(0.0001, entryResult.observedEdge ?? opp.edge ?? 0);
+            recordEntryChallengerDecision(
+              profile.profileId,
+              opp.opportunityId,
+              cycleBucket,
+              true,
+              undefined,
+              entryResult.capturableEdgeBeforeImpact,
+              entryResult.observedEdge,
+              fillRatio ?? undefined,
+              pairKey ?? undefined,
+              degRatioForRecord
+            );
             const tradeId = `sst-${profile.profileId}-${Date.now()}-${opened}`;
+            const narrowTarget = profile.narrowChallengerTarget;
             const trade: ShadowTrade = {
               tradeId,
               opportunityId: opp.opportunityId,
@@ -515,6 +719,15 @@ function runCycle(): void {
               realizedPnL: 0,
               realizedReturn: 0,
               holdingTimeMs: 0,
+              ...(narrowTarget
+                ? {
+                    narrowTargetPairKeyAtOpen: narrowTarget.pairKey,
+                    narrowTargetEdgeBucketAtOpen: narrowTarget.capturableEdgeBucket,
+                    narrowTargetFillBucketAtOpen: narrowTarget.fillRatioBucket,
+                    narrowFilterMatchAtOpen: true,
+                    narrowTargetVersion: "v1",
+                  }
+                : {}),
             };
 
             addShadowTrade(profile.profileId, trade, profile);
@@ -830,7 +1043,7 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
           recordRejectedByPairMismatch(profile.profileId);
           continue;
         }
-        if (!isEdgeBucketMatch(entryResult.capturableEdgeBeforeImpact, target.capturableEdgeBucket)) {
+        if (!isEdgeBucketMatch(entryResult.capturableEdgeBeforeImpact ?? 0, target.capturableEdgeBucket)) {
           recordRejection(profile.profileId, "narrow_edge_bucket_mismatch");
           recordRejectedByEdgeBucketMismatch(profile.profileId);
           continue;
@@ -842,6 +1055,24 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
         }
         recordPassedAllNarrowFilters(profile.profileId);
       }
+      // Entry capfloor challenger: só abre se capturableEdge >= 0.03
+      if (profile.entryCapfloorMinCapturableEdge != null) {
+        const cap = entryResult.capturableEdgeBeforeImpact ?? 0;
+        if (cap < profile.entryCapfloorMinCapturableEdge) {
+          recordRejection(profile.profileId, "entry_capfloor");
+          continue;
+        }
+      }
+      // Entry degratio challenger: só abre se capturable/observed >= 0.22
+      if (profile.entryDegRatioMin != null) {
+        const observed = entryResult.observedEdge ?? opp.edge ?? 0;
+        const degRatio = (entryResult.capturableEdgeBeforeImpact ?? 0) / Math.max(0.0001, observed);
+        if (degRatio < profile.entryDegRatioMin) {
+          recordRejection(profile.profileId, "entry_degratio");
+          continue;
+        }
+      }
+      const narrowTarget = profile.narrowChallengerTarget;
       const trade: ShadowTrade = {
         tradeId: `sst-${profile.profileId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         opportunityId: opp.opportunityId,
@@ -866,6 +1097,15 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
         realizedPnL: 0,
         realizedReturn: 0,
         holdingTimeMs: 0,
+        ...(narrowTarget
+          ? {
+              narrowTargetPairKeyAtOpen: narrowTarget.pairKey,
+              narrowTargetEdgeBucketAtOpen: narrowTarget.capturableEdgeBucket,
+              narrowTargetFillBucketAtOpen: narrowTarget.fillRatioBucket,
+              narrowFilterMatchAtOpen: true,
+              narrowTargetVersion: "v1",
+            }
+          : {}),
       };
       addShadowTrade(profile.profileId, trade, profile);
       incrementShadowTradeOpened();

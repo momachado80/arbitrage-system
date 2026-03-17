@@ -28,6 +28,13 @@ import {
   getNarrowChallengerDiagnostics,
   getNarrowChallengerComparison,
 } from "@/lib/narrowChallengerDiagnostics";
+import {
+  getEntryChallengerDiagnostics,
+  getEntryChallengerComparisonDiagnostics,
+  getFilteredOpportunityCounterfactual,
+  getEntryChallengerMetricsSummary,
+  BASELINE_PROFILE_ID,
+} from "@/lib/entryChallengerDiagnostics";
 
 export const dynamic = "force-dynamic";
 
@@ -150,6 +157,38 @@ export async function GET() {
     );
     const narrowChallengerComparison = getNarrowChallengerComparison(profiles, narrowChallengerDiagnostics);
 
+    const profilesForEntry = profiles.map((p) => ({
+      profileId: p.profileId,
+      closedTrades: p.closedTrades,
+      activeTrades: p.activeTrades,
+    }));
+    const entryChallengerDiagnostics = getEntryChallengerDiagnostics(
+      profilesForEntry,
+      rejectionCountsByProfile
+    );
+    const entryChallengerComparisonDiagnostics = getEntryChallengerComparisonDiagnostics();
+    const baselineProfile = profiles.find((p) => p.profileId === BASELINE_PROFILE_ID);
+    const baselineClosedForCounterfactual =
+      baselineProfile?.closedTrades?.filter((t) => t.status === "closed" && t.closedAt) ?? [];
+    const filteredOpportunityCounterfactual = getFilteredOpportunityCounterfactual(
+      baselineClosedForCounterfactual.map((t) => ({
+        opportunityId: t.opportunityId,
+        realizedPnL: t.realizedPnL ?? 0,
+        pairKey: t.pairKey,
+        capfloorFilteredSameCycle: t.capfloorFilteredSameCycle,
+        degratioFilteredSameCycle: t.degratioFilteredSameCycle,
+      }))
+    );
+    const baselineTotalPnL = baselineClosedForCounterfactual.reduce(
+      (s, t) => s + (t.realizedPnL ?? 0),
+      0
+    );
+    const entryChallengerMetricsSummary = getEntryChallengerMetricsSummary(
+      filteredOpportunityCounterfactual,
+      baselineTotalPnL,
+      entryChallengerDiagnostics
+    );
+
     return NextResponse.json({
       ...audit,
       maxHoldingTimeMsByProfile,
@@ -168,6 +207,10 @@ export async function GET() {
       structuralPersistenceValidation,
       narrowChallengerDiagnostics,
       narrowChallengerComparison,
+      entryChallengerDiagnostics,
+      entryChallengerComparisonDiagnostics,
+      filteredOpportunityCounterfactual,
+      entryChallengerMetricsSummary,
       persistence: {
         ...persistenceStatus,
       },

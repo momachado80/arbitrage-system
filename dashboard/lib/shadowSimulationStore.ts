@@ -47,6 +47,17 @@ export interface ShadowTrade {
   edgeDecayDuringHold?: number | null;
   entryToExitPriceMove?: number | null;
   closeContext?: { exitReason?: string; [k: string]: unknown } | null;
+
+  /** Narrow challenger: persistido no open para audit filtrar apenas narrowFilterMatchAtOpen=true */
+  narrowTargetPairKeyAtOpen?: string | null;
+  narrowTargetEdgeBucketAtOpen?: string | null;
+  narrowTargetFillBucketAtOpen?: string | null;
+  narrowFilterMatchAtOpen?: boolean;
+  narrowTargetVersion?: string | null;
+
+  /** Entry challenger counterfactual: baseline abriu mas challenger filtrou no mesmo ciclo */
+  capfloorFilteredSameCycle?: boolean;
+  degratioFilteredSameCycle?: boolean;
 }
 
 export interface ShadowProfileState {
@@ -459,6 +470,21 @@ export function getProfileExposure(profileId: string): {
     exposureByCluster: { ...state.exposureByCluster },
     exposureByMarket: { ...state.exposureByMarket },
   };
+}
+
+/** Anota trade baseline como "challenger filtrou no mesmo ciclo" para counterfactual no audit */
+export function annotateBaselineTradeChallengerRejection(
+  baselineProfileId: string,
+  opportunityId: string,
+  field: "capfloorFilteredSameCycle" | "degratioFilteredSameCycle"
+): void {
+  const state = profileStates.get(baselineProfileId);
+  if (!state) return;
+  const t = state.activeTrades.find((x) => x.opportunityId === opportunityId);
+  if (t) {
+    if (field === "capfloorFilteredSameCycle") t.capfloorFilteredSameCycle = true;
+    else t.degratioFilteredSameCycle = true;
+  }
 }
 
 export function updateProfileExposure(

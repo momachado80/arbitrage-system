@@ -110,22 +110,26 @@ export function getNarrowChallengerDiagnostics(
   const c = ensureProfile(NARROW_PROFILE_ID);
 
   const closed = (profile?.closedTrades ?? []).filter((t) => t.status === "closed" && t.closedAt);
+  /** Performance oficial do narrow: apenas trades com narrowFilterMatchAtOpen === true */
+  const closedOfficial = closed.filter((t) => t.narrowFilterMatchAtOpen === true);
   const openedCount = closed.length + (profile?.activeTrades?.length ?? 0);
 
-  const pnls = closed.map((t) => t.realizedPnL);
+  const pnls = closedOfficial.map((t) => t.realizedPnL);
   const avgPnL = pnls.length ? pnls.reduce((a, b) => a + b, 0) / pnls.length : 0;
   const totalPnL = pnls.reduce((a, b) => a + b, 0);
-  const avgCapturable = closed.length
-    ? closed.reduce((s, t) => s + (t.capturableEdgeAtEntry ?? 0), 0) / closed.length
+  const avgCapturable = closedOfficial.length
+    ? closedOfficial.reduce((s, t) => s + (t.capturableEdgeAtEntry ?? 0), 0) / closedOfficial.length
     : 0;
-  const fillRatios = closed.map((t) =>
+  const fillRatios = closedOfficial.map((t) =>
     t.fillRatio != null && typeof t.fillRatio === "number"
       ? t.fillRatio
       : (t.requestedCapital != null && t.requestedCapital > 0 ? t.filledCapital / t.requestedCapital : 1)
   );
   const avgFill = fillRatios.length ? fillRatios.reduce((a, b) => a + b, 0) / fillRatios.length : 0;
 
-  const narrowEntries = allAuditEntries.filter((e) => e.profileId === NARROW_PROFILE_ID);
+  const narrowEntries = allAuditEntries.filter(
+    (e) => e.profileId === NARROW_PROFILE_ID && e.narrowFilterMatchAtOpen === true
+  );
   const newEntries = narrowEntries.filter((e) => !rehydratedIds.has(e.tradeId));
   const sorted = [...newEntries].sort(
     (a, b) => new Date(a.closedAt).getTime() - new Date(b.closedAt).getTime()
@@ -173,7 +177,7 @@ export function getNarrowChallengerDiagnostics(
     rejectedByFillBucketMismatch: c.rejectedByFillBucketMismatch,
     passedAllNarrowFilters: c.passedAllNarrowFilters,
     openedTradeCount: openedCount,
-    closedTradeCount: closed.length,
+    closedTradeCount: closedOfficial.length,
     avgRealizedPnL: avgPnL,
     medianRealizedPnL: median(pnls),
     totalRealizedPnL: totalPnL,
@@ -224,7 +228,10 @@ export function getNarrowChallengerComparison(
   if (!narrowDiagnostics) return null;
 
   const baselineClosed = baseline?.closedTrades ?? [];
-  const challengerClosed = challenger?.closedTrades ?? [];
+  const challengerClosed =
+    narrowDiagnostics != null
+      ? (challenger?.closedTrades ?? []).filter((t) => t.narrowFilterMatchAtOpen === true)
+      : (challenger?.closedTrades ?? []);
 
   const baselineAvgPnL =
     baselineClosed.length > 0

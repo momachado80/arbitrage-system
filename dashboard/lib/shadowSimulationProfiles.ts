@@ -37,6 +37,10 @@ export interface ShadowProfileConfig {
     capturableEdgeBucket: "2-5%";
     fillRatioBucket: "0.25-0.5";
   };
+  /** Entry capfloor challenger: só abre se capturableEdgeAtEntry >= este valor (ex: 0.03) */
+  entryCapfloorMinCapturableEdge?: number;
+  /** Entry degratio challenger: só abre se capturable/observed >= este valor (ex: 0.22) */
+  entryDegRatioMin?: number;
 }
 
 export const SHADOW_PROFILES: ShadowProfileConfig[] = [
@@ -147,6 +151,44 @@ export const SHADOW_PROFILES: ShadowProfileConfig[] = [
     impactAlpha: 1.3,
     liquidityHaircut: 0.6,
     enabled: true,
+  },
+  {
+    profileId: "shadow_1000_entry_capfloor_v1",
+    label: "Entry capfloor capturable>=3% (v1)",
+    startingCapital: 5000,
+    latencyProfile: "normal",
+    maxCapitalPerTrade: 150,
+    maxCapitalPerCluster: 400,
+    maxCapitalPerMarket: 200,
+    minConfidenceToTrade: 0.2,
+    minNetCapturableEdgeToTrade: 0.007,
+    maxHoldingTimeMs: 300_000,
+    stopLossPct: 0.03,
+    takeProfitPct: 0.05,
+    feeBuffer: 0.002,
+    impactAlpha: 1.3,
+    liquidityHaircut: 0.6,
+    enabled: true,
+    entryCapfloorMinCapturableEdge: 0.03,
+  },
+  {
+    profileId: "shadow_1000_entry_degratio_v1",
+    label: "Entry degratio capturable/observed>=0.22 (v1)",
+    startingCapital: 5000,
+    latencyProfile: "normal",
+    maxCapitalPerTrade: 150,
+    maxCapitalPerCluster: 400,
+    maxCapitalPerMarket: 200,
+    minConfidenceToTrade: 0.2,
+    minNetCapturableEdgeToTrade: 0.007,
+    maxHoldingTimeMs: 300_000,
+    stopLossPct: 0.03,
+    takeProfitPct: 0.05,
+    feeBuffer: 0.002,
+    impactAlpha: 1.3,
+    liquidityHaircut: 0.6,
+    enabled: true,
+    entryDegRatioMin: 0.22,
   },
   {
     profileId: "shadow_1000_narrow_562794_567561_edge2to5_fill25to50_v1",

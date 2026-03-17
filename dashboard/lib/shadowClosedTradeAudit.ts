@@ -28,6 +28,11 @@ export interface ClosedTradeAuditEntry {
   /** Diagnostic: derived when requestedCapital available (prospective-only for historical) */
   fillRatio?: number | null;
   pairKey?: string | null;
+  /** Narrow challenger: true = trade abriu com filtros narrow satisfeitos; audit usa só estes para performance oficial */
+  narrowFilterMatchAtOpen?: boolean;
+  /** Entry challenger counterfactual: baseline abriu mas challenger filtrou no mesmo ciclo */
+  capfloorFilteredSameCycle?: boolean;
+  degratioFilteredSameCycle?: boolean;
 }
 
 export interface ProfileAuditSummary {
@@ -227,6 +232,9 @@ function toAuditEntry(t: ShadowTrade, profileId: string): ClosedTradeAuditEntry 
     closedAt: t.closedAt ?? "",
     fillRatio: getFillRatio(t),
     pairKey: getPairKey(t),
+    narrowFilterMatchAtOpen: t.narrowFilterMatchAtOpen,
+    capfloorFilteredSameCycle: t.capfloorFilteredSameCycle,
+    degratioFilteredSameCycle: t.degratioFilteredSameCycle,
   };
 }
 
