@@ -275,6 +275,7 @@ function getPersistenceData(): PersistenceData | null {
 }
 
 function runCycle(): void {
+  recordShadowLoopStarted();
   const t0 = Date.now();
   const cycleBucket = Math.floor(t0 / SELECTION_CYCLE_BUCKET_MS);
   Promise.all([fetchStandardOpportunities(), Promise.resolve(fetchGraphOpportunities())])
@@ -282,7 +283,6 @@ function runCycle(): void {
       const merged = [...graphOpps, ...stdOpps];
       recordMerged(merged.length);
       opportunitiesSeenLastCycle = merged.length;
-      recordShadowLoopStarted();
       const profiles = getProfilesForExecution();
       recordCycleCompleted(merged.length, profiles.length);
       const persistenceData = getPersistenceData();

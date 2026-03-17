@@ -5,6 +5,7 @@ import {
 } from "./polymarketClient";
 
 const REFRESH_INTERVAL_MS = 5_000;
+const REFRESH_TIMEOUT_MS = 12_000;
 
 let markets: NormalizedMarket[] = [];
 let lastRefresh = 0;
@@ -24,12 +25,21 @@ let refreshSuccessCount = 0;
 let refreshFailureCount = 0;
 let lastRefreshError: string | null = null;
 
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
 async function refresh(): Promise<void> {
   if (refreshing) return;
   refreshing = true;
   refreshAttemptedCount++;
   try {
-    markets = await fetchAllMarkets();
+    markets = await withTimeout(fetchAllMarkets(), REFRESH_TIMEOUT_MS, "market refresh");
     lastRefresh = Date.now();
     fetchCount++;
     lastError = null;
@@ -40,6 +50,9 @@ async function refresh(): Promise<void> {
       bootstrapFailed = false;
       bootstrapErrorMessage = null;
       lastBootstrapAt = new Date().toISOString();
+    } else if (!bootstrapCompleted && bootstrapAttempted && markets.length === 0) {
+      bootstrapFailed = true;
+      bootstrapErrorMessage = "no markets returned";
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown error";
