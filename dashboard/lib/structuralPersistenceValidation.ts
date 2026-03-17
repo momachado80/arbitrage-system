@@ -1,6 +1,6 @@
 /**
- * Structural Persistence Validation — validação prospectiva obrigatória para subsets estruturais.
- * Nenhum subset é elegível a narrow challenger sem prova de persistência fora da janela de descoberta.
+ * Structural Persistence Validation — validação prospectiva em camadas de granularidade.
+ * Testa persistência primeiro em níveis coarse, depois intermediate, depois fine.
  * Não cria challenger; não altera execução ou thresholds.
  */
 
@@ -8,13 +8,18 @@ import type { ClosedTradeAuditEntry } from "./shadowClosedTradeAudit";
 import { SAMPLE_GATE_CONFIG } from "./structuralResearchV2";
 import type { SubsetMetrics } from "./structuralResearchV2";
 
-/** Gates para persistência: amostra mínima em cada janela */
-export const PERSISTENCE_GATE_CONFIG = {
-  minDiscoverySample: 5,
-  minValidationSample: 5,
-  /** Degradação material: validation avgPnL < discovery avgPnL - este valor por trade */
+export type GranularityLevel = "coarse" | "intermediate" | "fine";
+
+/** Gates por granularidade: coarse mais permissivo, fine mais exigente */
+export const PERSISTENCE_GATE_BY_LEVEL = {
+  coarse: { minDiscoverySample: 5, minValidationSample: 5 },
+  intermediate: { minDiscoverySample: 5, minValidationSample: 5 },
+  fine: { minDiscoverySample: 8, minValidationSample: 8 },
+} as const;
+
+/** Thresholds compartilhados */
+export const PERSISTENCE_THRESHOLDS = {
   materialDegradationThresholdPerTrade: 0.01,
-  /** Colapso: discovery era menos destrutivo (avgPnL > -0.02) e validation avgPnL < -0.05 */
   collapseValidationFloor: -0.05,
   collapseDiscoveryCeiling: -0.02,
 } as const;
@@ -71,11 +76,9 @@ function computeMetrics(entries: ClosedTradeAuditEntry[]): SubsetMetrics {
   };
 }
 
-export type SubsetLevel = "pair" | "pair_x_edge" | "pair_x_fill" | "pair_x_edge_x_fill";
-
 export interface PersistenceSubsetResult {
   subsetKey: string;
-  level: SubsetLevel;
+  granularity: GranularityLevel;
   discoveryMetrics: SubsetMetrics;
   validationMetrics: SubsetMetrics;
   deltaAvgPnL: number;
@@ -83,39 +86,44 @@ export interface PersistenceSubsetResult {
   maintainedLessDestructive: boolean;
   degradedMaterially: boolean;
   collapsed: boolean;
-  surviving: boolean;
-  rejectedForLowSample: boolean;
-  rejectedForNoPersistence: boolean;
+  persistentLeastBad: boolean;
   discoverySampleSufficient: boolean;
   validationSampleSufficient: boolean;
   eligibleForNarrowChallenger: boolean;
+}
+
+export interface PersistenceLevelBlock {
+  granularity: GranularityLevel;
+  definition: string;
+  gateConfig: { minDiscoverySample: number; minValidationSample: number };
+  eligibleSubsets: PersistenceSubsetResult[];
+  rejectedForLowSample: string[];
+  persistentLeastBad: string[];
+  degradedSubsets: string[];
+  collapsedSubsets: string[];
+  eligibleForNarrowChallenger: string[];
 }
 
 export interface StructuralPersistenceValidation {
   methodologySummary: string;
   discoveryWindowDefinition: string;
   validationWindowDefinition: string;
-  sampleGateConfig: typeof PERSISTENCE_GATE_CONFIG;
   newTradesCount: number;
   discoveryCount: number;
   validationCount: number;
-  eligibleSubsets: PersistenceSubsetResult[];
-  rejectedForLowSample: string[];
-  rejectedForNoPersistence: string[];
-  degradedSubsets: string[];
-  survivingSubsets: string[];
-  collapsedSubsets: string[];
+  coarsePersistence: PersistenceLevelBlock;
+  intermediatePersistence: PersistenceLevelBlock;
+  finePersistence: PersistenceLevelBlock;
   persistenceScoreExplanation: string;
   dataScope: "new_only";
 }
 
-function assignToSubsets(
+function assignCoarse(
   entries: ClosedTradeAuditEntry[]
-): Map<string, ClosedTradeAuditEntry[]>[] {
+): { byPair: Map<string, ClosedTradeAuditEntry[]>; byEdge: Map<string, ClosedTradeAuditEntry[]>; byFill: Map<string, ClosedTradeAuditEntry[]> } {
   const byPair = new Map<string, ClosedTradeAuditEntry[]>();
-  const byPairEdge = new Map<string, ClosedTradeAuditEntry[]>();
-  const byPairFill = new Map<string, ClosedTradeAuditEntry[]>();
-  const byPairEdgeFill = new Map<string, ClosedTradeAuditEntry[]>();
+  const byEdge = new Map<string, ClosedTradeAuditEntry[]>();
+  const byFill = new Map<string, ClosedTradeAuditEntry[]>();
 
   const push = (map: Map<string, ClosedTradeAuditEntry[]>, key: string, e: ClosedTradeAuditEntry) => {
     const arr = map.get(key) ?? [];
@@ -128,11 +136,132 @@ function assignToSubsets(
     const eb = edgeBucket(e.capturableEdgeAtEntry ?? 0);
     const fb = fillBucket(e.fillRatio);
     push(byPair, pk, e);
+    push(byEdge, eb, e);
+    push(byFill, fb, e);
+  }
+  return { byPair, byEdge, byFill };
+}
+
+function assignIntermediate(
+  entries: ClosedTradeAuditEntry[]
+): { byPairEdge: Map<string, ClosedTradeAuditEntry[]>; byPairFill: Map<string, ClosedTradeAuditEntry[]> } {
+  const byPairEdge = new Map<string, ClosedTradeAuditEntry[]>();
+  const byPairFill = new Map<string, ClosedTradeAuditEntry[]>();
+
+  const push = (map: Map<string, ClosedTradeAuditEntry[]>, key: string, e: ClosedTradeAuditEntry) => {
+    const arr = map.get(key) ?? [];
+    arr.push(e);
+    map.set(key, arr);
+  };
+
+  for (const e of entries) {
+    const pk = e.pairKey ?? "_no_pair";
+    const eb = edgeBucket(e.capturableEdgeAtEntry ?? 0);
+    const fb = fillBucket(e.fillRatio);
     push(byPairEdge, `${pk}|${eb}`, e);
     push(byPairFill, `${pk}|${fb}`, e);
-    push(byPairEdgeFill, `${pk}|${eb}|${fb}`, e);
   }
-  return [byPair, byPairEdge, byPairFill, byPairEdgeFill];
+  return { byPairEdge, byPairFill };
+}
+
+function assignFine(entries: ClosedTradeAuditEntry[]): Map<string, ClosedTradeAuditEntry[]> {
+  const byPairEdgeFill = new Map<string, ClosedTradeAuditEntry[]>();
+  for (const e of entries) {
+    const pk = e.pairKey ?? "_no_pair";
+    const eb = edgeBucket(e.capturableEdgeAtEntry ?? 0);
+    const fb = fillBucket(e.fillRatio);
+    const key = `${pk}|${eb}|${fb}`;
+    const arr = byPairEdgeFill.get(key) ?? [];
+    arr.push(e);
+    byPairEdgeFill.set(key, arr);
+  }
+  return byPairEdgeFill;
+}
+
+function runLevelPersistence(
+  discMap: Map<string, ClosedTradeAuditEntry[]>,
+  valMap: Map<string, ClosedTradeAuditEntry[]>,
+  granularity: GranularityLevel,
+  definition: string,
+  globalDiscoveryAvg: number
+): PersistenceLevelBlock {
+  const gate = PERSISTENCE_GATE_BY_LEVEL[granularity];
+  const thresh = PERSISTENCE_THRESHOLDS;
+
+  const eligible: PersistenceSubsetResult[] = [];
+  const rejectedLow: string[] = [];
+  const persistentLeastBadList: string[] = [];
+  const degradedList: string[] = [];
+  const collapsedList: string[] = [];
+  const eligibleNarrowList: string[] = [];
+
+  const allKeys = new Set<string>();
+  for (const k of Array.from(discMap.keys())) allKeys.add(k);
+  for (const k of Array.from(valMap.keys())) allKeys.add(k);
+
+  for (const key of Array.from(allKeys)) {
+    const fullKey = `${granularity}:${key}`;
+    const discEntries = discMap.get(key) ?? [];
+    const valEntries = valMap.get(key) ?? [];
+    const discM = computeMetrics(discEntries);
+    const valM = computeMetrics(valEntries);
+
+    const discoverySampleSufficient = discM.tradeCount >= gate.minDiscoverySample;
+    const validationSampleSufficient = valM.tradeCount >= gate.minValidationSample;
+    const rejectedForLowSample = !discoverySampleSufficient || !validationSampleSufficient;
+
+    if (rejectedForLowSample) {
+      rejectedLow.push(fullKey);
+      continue;
+    }
+
+    const materialDegradation =
+      valM.avgRealizedPnL < discM.avgRealizedPnL - thresh.materialDegradationThresholdPerTrade;
+    const collapsedCheck =
+      discM.avgRealizedPnL > thresh.collapseDiscoveryCeiling &&
+      valM.avgRealizedPnL < thresh.collapseValidationFloor;
+    const maintainedLessDestructive = !materialDegradation && !collapsedCheck;
+    const persistentLeastBad = maintainedLessDestructive;
+    const qualityDifferentiated = discM.avgRealizedPnL > globalDiscoveryAvg;
+    const eligibleForNarrowChallenger =
+      persistentLeastBad &&
+      discM.tradeCount >= SAMPLE_GATE_CONFIG.minForExploratoryRanking &&
+      qualityDifferentiated;
+
+    const result: PersistenceSubsetResult = {
+      subsetKey: key,
+      granularity,
+      discoveryMetrics: discM,
+      validationMetrics: valM,
+      deltaAvgPnL: valM.avgRealizedPnL - discM.avgRealizedPnL,
+      deltaWinRate: valM.winRate - discM.winRate,
+      maintainedLessDestructive,
+      degradedMaterially: materialDegradation,
+      collapsed: collapsedCheck,
+      persistentLeastBad,
+      discoverySampleSufficient,
+      validationSampleSufficient,
+      eligibleForNarrowChallenger,
+    };
+
+    eligible.push(result);
+    if (persistentLeastBad) persistentLeastBadList.push(fullKey);
+    if (materialDegradation) degradedList.push(fullKey);
+    if (collapsedCheck) collapsedList.push(fullKey);
+    if (eligibleForNarrowChallenger) eligibleNarrowList.push(fullKey);
+  }
+
+  return {
+    granularity,
+    definition,
+    gateConfig: gate,
+    eligibleSubsets: eligible,
+    rejectedForLowSample: rejectedLow,
+    persistentLeastBad: persistentLeastBadList,
+    degradedSubsets: degradedList,
+    collapsedSubsets: collapsedList,
+    eligibleForNarrowChallenger: eligibleNarrowList,
+  };
 }
 
 export function runStructuralPersistenceValidation(
@@ -147,116 +276,129 @@ export function runStructuralPersistenceValidation(
   const discoveryEntries = sorted.slice(0, mid);
   const validationEntries = sorted.slice(mid);
 
-  const gate = PERSISTENCE_GATE_CONFIG;
-  const rejectedLow: string[] = [];
-  const rejectedNoPersist: string[] = [];
-  const degraded: string[] = [];
-  const surviving: string[] = [];
-  const collapsed: string[] = [];
-  const eligible: PersistenceSubsetResult[] = [];
+  const globalDiscM = computeMetrics(discoveryEntries);
+  const globalDiscoveryAvg = globalDiscM.avgRealizedPnL;
 
-  const levels: SubsetLevel[] = ["pair", "pair_x_edge", "pair_x_fill", "pair_x_edge_x_fill"];
-  const [discByPair, discByPairEdge, discByPairFill, discByPairEdgeFill] = assignToSubsets(discoveryEntries);
-  const [valByPair, valByPairEdge, valByPairFill, valByPairEdgeFill] = assignToSubsets(validationEntries);
+  const coarseDisc = assignCoarse(discoveryEntries);
+  const coarseVal = assignCoarse(validationEntries);
+  const intermediateDisc = assignIntermediate(discoveryEntries);
+  const intermediateVal = assignIntermediate(validationEntries);
+  const fineDisc = assignFine(discoveryEntries);
+  const fineVal = assignFine(validationEntries);
 
-  const maps = [
-    { disc: discByPair, val: valByPair, level: "pair" as SubsetLevel },
-    { disc: discByPairEdge, val: valByPairEdge, level: "pair_x_edge" as SubsetLevel },
-    { disc: discByPairFill, val: valByPairFill, level: "pair_x_fill" as SubsetLevel },
-    { disc: discByPairEdgeFill, val: valByPairEdgeFill, level: "pair_x_edge_x_fill" as SubsetLevel },
-  ];
+  const coarsePersistence = ((): PersistenceLevelBlock => {
+    const pairBlock = runLevelPersistence(
+      coarseDisc.byPair,
+      coarseVal.byPair,
+      "coarse",
+      "pair (by pairKey)",
+      globalDiscoveryAvg
+    );
+    const edgeBlock = runLevelPersistence(
+      coarseDisc.byEdge,
+      coarseVal.byEdge,
+      "coarse",
+      "edgeBucket (by capturable edge bucket)",
+      globalDiscoveryAvg
+    );
+    const fillBlock = runLevelPersistence(
+      coarseDisc.byFill,
+      coarseVal.byFill,
+      "coarse",
+      "fillBucket (by fill ratio bucket)",
+      globalDiscoveryAvg
+    );
+    return {
+      granularity: "coarse",
+      definition: "pair, edgeBucket, fillBucket (single dimension)",
+      gateConfig: PERSISTENCE_GATE_BY_LEVEL.coarse,
+      eligibleSubsets: [
+        ...pairBlock.eligibleSubsets,
+        ...edgeBlock.eligibleSubsets,
+        ...fillBlock.eligibleSubsets,
+      ],
+      rejectedForLowSample: [
+        ...pairBlock.rejectedForLowSample,
+        ...edgeBlock.rejectedForLowSample,
+        ...fillBlock.rejectedForLowSample,
+      ],
+      persistentLeastBad: [
+        ...pairBlock.persistentLeastBad,
+        ...edgeBlock.persistentLeastBad,
+        ...fillBlock.persistentLeastBad,
+      ],
+      degradedSubsets: [...pairBlock.degradedSubsets, ...edgeBlock.degradedSubsets, ...fillBlock.degradedSubsets],
+      collapsedSubsets: [...pairBlock.collapsedSubsets, ...edgeBlock.collapsedSubsets, ...fillBlock.collapsedSubsets],
+      eligibleForNarrowChallenger: [
+        ...pairBlock.eligibleForNarrowChallenger,
+        ...edgeBlock.eligibleForNarrowChallenger,
+        ...fillBlock.eligibleForNarrowChallenger,
+      ],
+    };
+  })();
 
-  const seen = new Set<string>();
+  const intermediatePersistence = ((): PersistenceLevelBlock => {
+    const pairEdgeBlock = runLevelPersistence(
+      intermediateDisc.byPairEdge,
+      intermediateVal.byPairEdge,
+      "intermediate",
+      "pair×edge",
+      globalDiscoveryAvg
+    );
+    const pairFillBlock = runLevelPersistence(
+      intermediateDisc.byPairFill,
+      intermediateVal.byPairFill,
+      "intermediate",
+      "pair×fill",
+      globalDiscoveryAvg
+    );
+    return {
+      granularity: "intermediate",
+      definition: "pair×edge, pair×fill",
+      gateConfig: PERSISTENCE_GATE_BY_LEVEL.intermediate,
+      eligibleSubsets: [...pairEdgeBlock.eligibleSubsets, ...pairFillBlock.eligibleSubsets],
+      rejectedForLowSample: [
+        ...pairEdgeBlock.rejectedForLowSample,
+        ...pairFillBlock.rejectedForLowSample,
+      ],
+      persistentLeastBad: [
+        ...pairEdgeBlock.persistentLeastBad,
+        ...pairFillBlock.persistentLeastBad,
+      ],
+      degradedSubsets: [...pairEdgeBlock.degradedSubsets, ...pairFillBlock.degradedSubsets],
+      collapsedSubsets: [...pairEdgeBlock.collapsedSubsets, ...pairFillBlock.collapsedSubsets],
+      eligibleForNarrowChallenger: [
+        ...pairEdgeBlock.eligibleForNarrowChallenger,
+        ...pairFillBlock.eligibleForNarrowChallenger,
+      ],
+    };
+  })();
 
-  for (const { disc, val, level } of maps) {
-    const allKeys = new Set<string>();
-    for (const k of Array.from(disc.keys())) allKeys.add(k);
-    for (const k of Array.from(val.keys())) allKeys.add(k);
-    for (const key of Array.from(allKeys)) {
-      const fullKey = `${level}:${key}`;
-      if (seen.has(fullKey)) continue;
-      seen.add(fullKey);
-
-      const discEntries = disc.get(key) ?? [];
-      const valEntries = val.get(key) ?? [];
-      const discM = computeMetrics(discEntries);
-      const valM = computeMetrics(valEntries);
-
-      const discoverySampleSufficient = discM.tradeCount >= gate.minDiscoverySample;
-      const validationSampleSufficient = valM.tradeCount >= gate.minValidationSample;
-      const rejectedForLowSample = !discoverySampleSufficient || !validationSampleSufficient;
-      if (rejectedForLowSample) {
-        if (!discoverySampleSufficient) rejectedLow.push(fullKey);
-        else if (!validationSampleSufficient) rejectedLow.push(fullKey);
-        continue;
-      }
-
-      const deltaAvgPnL = valM.avgRealizedPnL - discM.avgRealizedPnL;
-      const deltaWinRate = valM.winRate - discM.winRate;
-      const materialDegradation =
-        valM.avgRealizedPnL < discM.avgRealizedPnL - gate.materialDegradationThresholdPerTrade;
-      const collapsedCheck =
-        discM.avgRealizedPnL > gate.collapseDiscoveryCeiling &&
-        valM.avgRealizedPnL < gate.collapseValidationFloor;
-      const maintainedLessDestructive = !materialDegradation && !collapsedCheck;
-      const degradedMaterially = materialDegradation;
-      const collapsed_flag = collapsedCheck;
-      const surviving_flag = maintainedLessDestructive && discM.avgRealizedPnL > -0.1;
-      const rejectedForNoPersistence = !maintainedLessDestructive;
-      const eligibleForNarrowChallenger =
-        discoverySampleSufficient &&
-        validationSampleSufficient &&
-        maintainedLessDestructive &&
-        discM.tradeCount >= SAMPLE_GATE_CONFIG.minForExploratoryRanking;
-
-      if (rejectedForNoPersistence) rejectedNoPersist.push(fullKey);
-      if (degradedMaterially) degraded.push(fullKey);
-      if (collapsed_flag) collapsed.push(fullKey);
-      if (surviving_flag) surviving.push(fullKey);
-
-      eligible.push({
-        subsetKey: key,
-        level,
-        discoveryMetrics: discM,
-        validationMetrics: valM,
-        deltaAvgPnL,
-        deltaWinRate,
-        maintainedLessDestructive,
-        degradedMaterially,
-        collapsed: collapsed_flag,
-        surviving: surviving_flag,
-        rejectedForLowSample: false,
-        rejectedForNoPersistence,
-        discoverySampleSufficient,
-        validationSampleSufficient,
-        eligibleForNarrowChallenger,
-      });
-    }
-  }
+  const finePersistence = runLevelPersistence(
+    fineDisc,
+    fineVal,
+    "fine",
+    "pair×edge×fill",
+    globalDiscoveryAvg
+  );
 
   return {
     methodologySummary:
-      "Prospective validation: new trades split 50/50 by closedAt. First half = discovery, second half = validation. " +
-      "Subset must have minDiscoverySample and minValidationSample in each window. " +
-      "Maintained = validation not materially worse than discovery. Degraded = validation avgPnL dropped > threshold. " +
-      "Collapsed = discovery was less destructive, validation reversed. Surviving = maintained and discovery avgPnL > -0.1. " +
-      "Eligible for narrow challenger = discovery+validation sufficient, maintained, discovery rank ok.",
+      "Persistence validation in granularity layers. Coarse = pair, edgeBucket, fillBucket. Intermediate = pair×edge, pair×fill. Fine = pair×edge×fill. " +
+      "Each level has its own sample gates (coarse/intermediate 5/5, fine 8/8). " +
+      "persistentLeastBad = maintained less destructive behavior across windows. " +
+      "eligibleForNarrowChallenger = persistent + discovery avgPnL > global + n>=10.",
     discoveryWindowDefinition: "First 50% of new trades by closedAt (chronological order)",
     validationWindowDefinition: "Last 50% of new trades by closedAt (chronological order)",
-    sampleGateConfig: gate,
     newTradesCount: newEntries.length,
     discoveryCount: discoveryEntries.length,
     validationCount: validationEntries.length,
-    eligibleSubsets: eligible,
-    rejectedForLowSample: Array.from(new Set(rejectedLow)),
-    rejectedForNoPersistence: rejectedNoPersist,
-    degradedSubsets: degraded,
-    survivingSubsets: surviving,
-    collapsedSubsets: collapsed,
+    coarsePersistence,
+    intermediatePersistence,
+    finePersistence,
     persistenceScoreExplanation:
-      "maintainedLessDestructive: validation avgPnL not materially worse. degradedMaterially: validation dropped > 0.01/trade vs discovery. " +
-      "collapsed: discovery avgPnL > -0.02, validation < -0.05. surviving: maintained and discovery avgPnL > -0.1. " +
-      "eligibleForNarrowChallenger: sufficient sample in both windows, maintained, discovery n>=10.",
+      "persistentLeastBad: validation not materially worse than discovery. degraded: validation avgPnL dropped > 0.01/trade. " +
+      "collapsed: discovery avgPnL > -0.02, validation < -0.05. eligibleForNarrowChallenger: persistent + discovery > global avg + n>=10.",
     dataScope: "new_only",
   };
 }
