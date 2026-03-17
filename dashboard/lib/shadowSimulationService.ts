@@ -52,6 +52,7 @@ import {
   recordRejectedByOther,
   recordReachedFillGuardDecision,
 } from "./fillGuardDiagnostics";
+import { recordThresholdDecision } from "./entryThresholdCausalDiagnostics";
 import type { NormalizedPaperOpportunity } from "./paperTypes";
 import type { PersistenceData } from "./edgeDecayModel";
 
@@ -313,6 +314,19 @@ function runCycle(): void {
                 feeBuffer: profile.feeBuffer,
                 liquidityHaircut: profile.liquidityHaircut,
               }
+            );
+
+            const thresholdPassed = entryResult.rejectionReason !== "net_edge_below_threshold";
+            const metricCompared = entryResult.netEdgeAfterImpact ?? entryResult.capturableEdgeBeforeImpact ?? 0;
+            recordThresholdDecision(
+              profile.profileId,
+              opp.opportunityId,
+              pairKey ?? "",
+              metricCompared,
+              minEdge,
+              thresholdPassed ? "accepted" : "rejected",
+              thresholdPassed ? undefined : entryResult.rejectionReason,
+              cycleBucket
             );
 
             if (entryResult.rejectionReason) {
@@ -666,6 +680,20 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
         liquidityHaircut: profile.liquidityHaircut,
       });
       if (VERBOSE) console.log("EXECUTION ENGINE RESULT", entryResult);
+
+      const evalCycleBucket = Math.floor(Date.now() / SELECTION_CYCLE_BUCKET_MS) * SELECTION_CYCLE_BUCKET_MS;
+      const thresholdPassedEval = entryResult.rejectionReason !== "net_edge_below_threshold";
+      const metricComparedEval = entryResult.netEdgeAfterImpact ?? entryResult.capturableEdgeBeforeImpact ?? 0;
+      recordThresholdDecision(
+        profile.profileId,
+        opp.opportunityId,
+        pairKey ?? "",
+        metricComparedEval,
+        minEdge,
+        thresholdPassedEval ? "accepted" : "rejected",
+        thresholdPassedEval ? undefined : entryResult.rejectionReason,
+        evalCycleBucket
+      );
 
       if (entryResult.rejectionReason) {
         const engineReason =

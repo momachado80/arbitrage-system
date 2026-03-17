@@ -9,6 +9,7 @@ import { getAllShadowProfiles, getRejectionCountsByProfile, getPersistenceStatus
 import { computeClosedTradeAudit } from "@/lib/shadowClosedTradeAudit";
 import { getSelectionDiagnostics } from "@/lib/shadowSelectionDiagnostics";
 import { getFillGuardDiagnostics } from "@/lib/fillGuardDiagnostics";
+import { getEntryThresholdCausalDiagnostics } from "@/lib/entryThresholdCausalDiagnostics";
 import { getProfileById } from "@/lib/shadowSimulationProfiles";
 import { getServiceStats } from "@/lib/marketDataService";
 import { getGraphScanStats } from "@/lib/graphScanService";
@@ -40,6 +41,16 @@ export async function GET() {
       rejectionCountsByProfile
     );
     const fillGuardDiagnostics = getFillGuardDiagnostics(profiles);
+    const entryThresholdCausalDiagnostics = getEntryThresholdCausalDiagnostics((pid) => {
+      const cfg = getProfileById(pid) ?? getProfileConfig(pid);
+      return cfg as { minNetCapturableEdgeToTrade?: number; minCapturableEdgeToTrade?: number } | undefined;
+    });
+    const effectiveEntryThresholdByProfile: Record<string, number> = {};
+    for (const p of profiles) {
+      const cfg = getProfileById(p.profileId) ?? getProfileConfig(p.profileId);
+      const v = cfg?.minCapturableEdgeToTrade ?? cfg?.minNetCapturableEdgeToTrade;
+      if (typeof v === "number") effectiveEntryThresholdByProfile[p.profileId] = v;
+    }
     return NextResponse.json({
       ...audit,
       maxHoldingTimeMsByProfile,
@@ -47,6 +58,8 @@ export async function GET() {
       rejectionCountsByProfile,
       selectionDiagnostics,
       fillGuardDiagnostics,
+      entryThresholdCausalDiagnostics,
+      effectiveEntryThresholdByProfile,
       persistence: {
         ...persistenceStatus,
       },
