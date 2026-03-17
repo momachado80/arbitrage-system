@@ -63,9 +63,14 @@ function parseEnabledAdaptiveChallengers(): Set<string> {
   return new Set(raw.split(",").map((s) => s.trim()).filter(Boolean));
 }
 
+/** Pair for comparison: when either is enabled, run both so audit can compare challenger vs winner. */
+const EXITREFINE_V1 = "shadow_1000_adapt_captrade_exitrefine_v1";
+const ENTRYCAL_V1 = "shadow_1000_adapt_captrade_exitrefine_entrycal_v1";
+
 /**
  * Returns baseline profiles + explicitly enabled adaptive challengers.
  * Challengers are only included when they have a current spec from the adaptive layer.
+ * When either exitrefine_v1 or entrycal_v1 is enabled, both run for comparison.
  */
 export function getProfilesForExecution(): ShadowProfileConfig[] {
   const base = getEnabledProfiles();
@@ -73,8 +78,13 @@ export function getProfilesForExecution(): ShadowProfileConfig[] {
   const audit = computeClosedTradeAudit(profiles, getProfileConfig);
   const adaptive = computeAdaptiveCalibration(audit);
   const enabledIds = parseEnabledAdaptiveChallengers();
+  const effectiveIds = new Set(enabledIds);
+  if (enabledIds.has(EXITREFINE_V1) || enabledIds.has(ENTRYCAL_V1)) {
+    effectiveIds.add(EXITREFINE_V1);
+    effectiveIds.add(ENTRYCAL_V1);
+  }
   const challengerConfigs = adaptive.adaptiveChallengers
-    .filter((c) => enabledIds.has(c.profileId))
+    .filter((c) => effectiveIds.has(c.profileId))
     .map((c) => c.fullConfig);
 
   challengerConfigRegistry.clear();
@@ -93,7 +103,7 @@ export function getProfilesForExecution(): ShadowProfileConfig[] {
   // Also: challengers explicitly enabled but NOT in adaptiveChallengers (e.g. recommendation
   // conditions not met) get a synthetic spec so activation works regardless.
   const materializedIds = new Set(getAllShadowProfiles().map((p) => p.profileId));
-  for (const id of Array.from(enabledIds)) {
+  for (const id of Array.from(effectiveIds)) {
     if (!materializedIds.has(id)) {
       const spec =
         adaptive.adaptiveChallengers.find((c) => c.profileId === id) ??
