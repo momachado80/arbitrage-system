@@ -947,6 +947,14 @@ export function buildSyntheticChallengerSpecForActivation(profileId: string): Ad
       whyGenerated: "Explicitly enabled via ENABLED_ADAPTIVE_CHALLENGERS; synthetic spec for activation.",
     };
   }
+  if (profileId === "shadow_1000_adapt_captrade_exitrefine_entrycal_v1") {
+    const entrycalSeed = buildEntrycalChallengerSeed();
+    if (!entrycalSeed) return null;
+    return {
+      ...entrycalSeed,
+      whyGenerated: "Explicitly enabled via ENABLED_ADAPTIVE_CHALLENGERS; synthetic spec for activation.",
+    };
+  }
   return null;
 }
 
@@ -1039,6 +1047,9 @@ const EXITREFINE_HOLD_MS = 60_000;
 /** Fill-quality guard: min fill ratio on top of captrade+exitrefine. Rejects entry when filledCapital/requestedCapital < threshold. */
 const FILLGUARD_MIN_FILL_RATIO = 0.5;
 
+/** Entry calibration: stricter minNetCapturableEdgeToTrade on captrade+exitrefine. Distinct from top-level edgegate (failed on baseline with full capital). */
+const ENTRYCAL_MIN_NET_EDGE = 0.008;
+
 function buildExitRefineChallengerSeed(): AdaptiveProfileSpec | null {
   const baseConfig = getProfileById("shadow_1000");
   if (!baseConfig) return null;
@@ -1104,6 +1115,36 @@ function buildFillguardChallengerSeed(): AdaptiveProfileSpec | null {
   };
 }
 
+/** Entrycal challenger: minNetCapturableEdgeToTrade on top of captrade+exitrefine. Distinct from edgegate (top-level on baseline) and entryfloor (on captrade only). */
+function buildEntrycalChallengerSeed(): AdaptiveProfileSpec | null {
+  const exitRefineSeed = buildExitRefineChallengerSeed();
+  if (!exitRefineSeed?.fullConfig) return null;
+
+  const fullConfig: ShadowProfileConfig = {
+    ...exitRefineSeed.fullConfig,
+    profileId: "shadow_1000_adapt_captrade_exitrefine_entrycal_v1",
+    label: "Shadow 5000 USD (test) (adapt captrade + exit refine + entry cal v1)",
+    minNetCapturableEdgeToTrade: ENTRYCAL_MIN_NET_EDGE,
+    baseProfileId: "shadow_1000_adapt_captrade_exitrefine_v1",
+  };
+
+  return {
+    profileId: fullConfig.profileId,
+    baseProfileId: "shadow_1000_adapt_captrade_exitrefine_v1",
+    label: fullConfig.label,
+    status: "spec_only",
+    changes: { minNetCapturableEdgeToTrade: ENTRYCAL_MIN_NET_EDGE },
+    fullConfig,
+    hypothesis:
+      "Residual bottleneck compatible with entry edge miscalibration. Distinct from edgegate: layered on captrade+exitrefine (reduced capital + shorter hold), not on baseline. Single variable: minNetCapturableEdgeToTrade=0.008.",
+    expectedMechanism:
+      "Reject entry if capturableEdgeAtEntry < 0.008. Inherits maxCapitalPerTrade=75, maxHoldingTimeMs=60s. No exit, fill, or pair penalty changes.",
+    whyGenerated:
+      "Prepared for controlled activation. Entry calibration on captrade+exitrefine winner. Not a rerun of edgegate (which failed on baseline with full capital).",
+    forExperimentationOnly: true,
+  };
+}
+
 function getAdaptiveChallengerSpecs(recommendations: CalibrationRecommendation[]): AdaptiveProfileSpec[] {
   const seen = new Set<string>();
   const specs: AdaptiveProfileSpec[] = [];
@@ -1135,6 +1176,11 @@ function getAdaptiveChallengerSpecs(recommendations: CalibrationRecommendation[]
   if (fillguardSeed && !seen.has(fillguardSeed.profileId)) {
     seen.add(fillguardSeed.profileId);
     specs.push(fillguardSeed);
+  }
+  const entrycalSeed = buildEntrycalChallengerSeed();
+  if (entrycalSeed && !seen.has(entrycalSeed.profileId)) {
+    seen.add(entrycalSeed.profileId);
+    specs.push(entrycalSeed);
   }
   return specs;
 }

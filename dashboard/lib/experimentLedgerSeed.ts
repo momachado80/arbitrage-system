@@ -123,5 +123,19 @@ export function getSeededHistoricalEntries(): ExperimentLedgerEntry[] {
       decisionReason: undefined,
       notes: "Prepared for controlled activation. Fill-quality guard on winning branch. Not yet active.",
     },
+    {
+      experimentId: "exp-entrycal_v1",
+      challengerProfileId: "shadow_1000_adapt_captrade_exitrefine_entrycal_v1",
+      familyId: "entrycal_refinement",
+      baseProfileId: "shadow_1000_adapt_captrade_exitrefine_v1",
+      hypothesis: "Entry calibration on captrade+exitrefine; minNetCapturableEdgeToTrade=0.008. Distinct from edgegate (failed on baseline with full capital).",
+      isolatedVariable: "minNetCapturableEdgeToTrade",
+      activationMode: "manual",
+      status: "available",
+      startTimestamp: now,
+      decision: undefined,
+      decisionReason: undefined,
+      notes: "Prepared for controlled activation. Entry calibration on winning branch. Not a rerun of edgegate: layered on captrade+exitrefine (reduced capital + shorter hold).",
+    },
   ];
 }
