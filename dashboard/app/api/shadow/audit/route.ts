@@ -11,6 +11,8 @@ import { getSelectionDiagnostics } from "@/lib/shadowSelectionDiagnostics";
 import { getFillGuardDiagnostics } from "@/lib/fillGuardDiagnostics";
 import { getEntryThresholdCausalDiagnostics } from "@/lib/entryThresholdCausalDiagnostics";
 import { getEntryThresholdFlowDiagnostics } from "@/lib/entryThresholdFlowDiagnostics";
+import { getShadowRuntimeDiagnostics } from "@/lib/shadowRuntimeDiagnostics";
+import { getMarketSourceDiagnostics } from "@/lib/marketSourceDiagnostics";
 import { getProfileById } from "@/lib/shadowSimulationProfiles";
 import { getServiceStats } from "@/lib/marketDataService";
 import { getGraphScanStats } from "@/lib/graphScanService";
@@ -47,6 +49,21 @@ export async function GET() {
       return cfg as { minNetCapturableEdgeToTrade?: number; minCapturableEdgeToTrade?: number } | undefined;
     });
     const entryThresholdFlowDiagnostics = getEntryThresholdFlowDiagnostics(profiles.map((p) => p.profileId));
+    const shadowRuntimeDiagnostics = getShadowRuntimeDiagnostics(
+      {
+        marketBootstrapAttempted: marketStats.marketBootstrapAttempted,
+        marketBootstrapCompleted: marketStats.marketBootstrapCompleted,
+        marketBootstrapFailed: marketStats.marketBootstrapFailed,
+        marketBootstrapErrorMessage: marketStats.marketBootstrapErrorMessage,
+        lastMarketBootstrapAt: marketStats.lastMarketBootstrapAt,
+        refreshAttemptedCount: marketStats.refreshAttemptedCount,
+        refreshSuccessCount: marketStats.refreshSuccessCount,
+        refreshFailureCount: marketStats.refreshFailureCount,
+        lastRefreshError: marketStats.lastRefreshError,
+      },
+      { registered: true, intervalMs: 10_000 }
+    );
+    const marketSourceDiagnostics = getMarketSourceDiagnostics();
     const effectiveEntryThresholdByProfile: Record<string, number> = {};
     for (const p of profiles) {
       const cfg = getProfileById(p.profileId) ?? getProfileConfig(p.profileId);
@@ -62,6 +79,8 @@ export async function GET() {
       fillGuardDiagnostics,
       entryThresholdCausalDiagnostics,
       entryThresholdFlowDiagnostics,
+      shadowRuntimeDiagnostics,
+      marketSourceDiagnostics,
       effectiveEntryThresholdByProfile,
       persistence: {
         ...persistenceStatus,

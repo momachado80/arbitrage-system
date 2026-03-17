@@ -62,6 +62,14 @@ import {
   recordSkippedBeforeThreshold,
   recordEvaluateOpportunityCalled,
 } from "./entryThresholdFlowDiagnostics";
+import {
+  recordShadowBootAttempted,
+  recordShadowBootCompleted,
+  recordShadowBootFailed,
+  recordShadowLoopStarted,
+  recordShadowLoopCompleted,
+} from "./shadowRuntimeDiagnostics";
+import { recordStandardFetch, recordGraphFetch, recordMerged } from "./marketSourceDiagnostics";
 import type { NormalizedPaperOpportunity } from "./paperTypes";
 import type { PersistenceData } from "./edgeDecayModel";
 
@@ -222,11 +230,18 @@ async function fetchStandardOpportunities(): Promise<NormalizedPaperOpportunity[
       cache: "no-store",
       signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      recordStandardFetch(0, `HTTP ${res.status}`);
+      return [];
+    }
     const data = await res.json();
     const opps = data.opportunities || [];
-    return opps.map((o: Record<string, unknown>) => normalizeStandard(o));
-  } catch {
+    const result = opps.map((o: Record<string, unknown>) => normalizeStandard(o));
+    recordStandardFetch(result.length);
+    return result;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    recordStandardFetch(0, msg);
     return [];
   }
 }
@@ -234,8 +249,12 @@ async function fetchStandardOpportunities(): Promise<NormalizedPaperOpportunity[
 function fetchGraphOpportunities(): NormalizedPaperOpportunity[] {
   try {
     const ranked = getGraphOpportunities();
-    return ranked.map((o) => normalizeGraph(o));
-  } catch {
+    const result = ranked.map((o) => normalizeGraph(o));
+    recordGraphFetch(result.length);
+    return result;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    recordGraphFetch(0, msg);
     return [];
   }
 }
@@ -261,7 +280,9 @@ function runCycle(): void {
   Promise.all([fetchStandardOpportunities(), Promise.resolve(fetchGraphOpportunities())])
     .then(([stdOpps, graphOpps]) => {
       const merged = [...graphOpps, ...stdOpps];
+      recordMerged(merged.length);
       opportunitiesSeenLastCycle = merged.length;
+      recordShadowLoopStarted();
       const profiles = getProfilesForExecution();
       recordCycleCompleted(merged.length, profiles.length);
       const persistenceData = getPersistenceData();
@@ -583,9 +604,11 @@ function runCycle(): void {
 
       lastUpdateMs = Date.now();
       lastCycleOk = true;
+      recordShadowLoopCompleted();
     })
     .catch((err) => {
       lastCycleOk = false;
+      recordStandardFetch(0, err instanceof Error ? err.message : String(err));
       console.warn("[ShadowSim] cycle failed:", err?.message ?? err);
     });
 }
@@ -827,17 +850,28 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
 }
 
 export function ensureShadowSimulation(): void {
-  if (loopStarted) return;
-  loopStarted = true;
-  rehydrateFromPersistence();
-  ensureMarketDataRunning();
-  ensureGraphScanning();
-  for (const p of getEnabledProfiles()) {
-    ensureProfileState(p);
+  recordShadowBootAttempted();
+  if (loopStarted) {
+    recordShadowBootCompleted();
+    return;
   }
-  console.log("[ShadowSim] Background shadow simulation started");
-  setTimeout(runCycle, INITIAL_DELAY_MS);
-  setInterval(runCycle, CYCLE_INTERVAL_MS);
+  loopStarted = true;
+  try {
+    rehydrateFromPersistence();
+    ensureMarketDataRunning();
+    ensureGraphScanning();
+    for (const p of getEnabledProfiles()) {
+      ensureProfileState(p);
+    }
+    console.log("[ShadowSim] Background shadow simulation started");
+    setTimeout(runCycle, INITIAL_DELAY_MS);
+    setInterval(runCycle, CYCLE_INTERVAL_MS);
+    recordShadowBootCompleted();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    recordShadowBootFailed(msg);
+    throw err;
+  }
 }
 
 export function getShadowSystemStatus(): {
