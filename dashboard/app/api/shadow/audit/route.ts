@@ -10,6 +10,7 @@ import { computeClosedTradeAudit } from "@/lib/shadowClosedTradeAudit";
 import { getSelectionDiagnostics } from "@/lib/shadowSelectionDiagnostics";
 import { getFillGuardDiagnostics } from "@/lib/fillGuardDiagnostics";
 import { getEntryThresholdCausalDiagnostics } from "@/lib/entryThresholdCausalDiagnostics";
+import { getEntryThresholdFlowDiagnostics } from "@/lib/entryThresholdFlowDiagnostics";
 import { getProfileById } from "@/lib/shadowSimulationProfiles";
 import { getServiceStats } from "@/lib/marketDataService";
 import { getGraphScanStats } from "@/lib/graphScanService";
@@ -45,6 +46,7 @@ export async function GET() {
       const cfg = getProfileById(pid) ?? getProfileConfig(pid);
       return cfg as { minNetCapturableEdgeToTrade?: number; minCapturableEdgeToTrade?: number } | undefined;
     });
+    const entryThresholdFlowDiagnostics = getEntryThresholdFlowDiagnostics(profiles.map((p) => p.profileId));
     const effectiveEntryThresholdByProfile: Record<string, number> = {};
     for (const p of profiles) {
       const cfg = getProfileById(p.profileId) ?? getProfileConfig(p.profileId);
@@ -59,6 +61,7 @@ export async function GET() {
       selectionDiagnostics,
       fillGuardDiagnostics,
       entryThresholdCausalDiagnostics,
+      entryThresholdFlowDiagnostics,
       effectiveEntryThresholdByProfile,
       persistence: {
         ...persistenceStatus,

@@ -53,6 +53,15 @@ import {
   recordReachedFillGuardDecision,
 } from "./fillGuardDiagnostics";
 import { recordThresholdDecision } from "./entryThresholdCausalDiagnostics";
+import {
+  recordCycleCompleted,
+  recordCycleOpportunityIteration,
+  recordOpportunityReachedProfile,
+  recordReachedSimulateRealisticEntry,
+  recordReachedThresholdCheck,
+  recordSkippedBeforeThreshold,
+  recordEvaluateOpportunityCalled,
+} from "./entryThresholdFlowDiagnostics";
 import type { NormalizedPaperOpportunity } from "./paperTypes";
 import type { PersistenceData } from "./edgeDecayModel";
 
@@ -253,11 +262,13 @@ function runCycle(): void {
     .then(([stdOpps, graphOpps]) => {
       const merged = [...graphOpps, ...stdOpps];
       opportunitiesSeenLastCycle = merged.length;
+      const profiles = getProfilesForExecution();
+      recordCycleCompleted(merged.length, profiles.length);
       const persistenceData = getPersistenceData();
       const capacityResults = estimateBatchCapacity(merged);
       const oppMap = new Map(merged.map((o, i) => [o.opportunityId, { opp: o, capacity: capacityResults[i] }]));
 
-      for (const profile of getProfilesForExecution()) {
+      for (const profile of profiles) {
         try {
           const state = ensureProfileState(profile);
           const exposure = getProfileExposure(profile.profileId);
@@ -276,18 +287,30 @@ function runCycle(): void {
           const activeOppIds = new Set(state.activeTrades.map((t) => t.opportunityId));
 
           for (const { opp, capacity } of Array.from(oppMap.values())) {
-            if (capacity.recommendedCapital <= 0) continue;
-            if (opp.confidence < profile.minConfidenceToTrade) continue;
-            if (activeOppIds.has(opp.opportunityId)) continue;
-
+            recordCycleOpportunityIteration(profile.profileId);
+            if (capacity.recommendedCapital <= 0) {
+              recordSkippedBeforeThreshold(profile.profileId, "capacity_zero");
+              continue;
+            }
+            if (opp.confidence < profile.minConfidenceToTrade) {
+              recordSkippedBeforeThreshold(profile.profileId, "confidence_below_threshold");
+              continue;
+            }
+            if (activeOppIds.has(opp.opportunityId)) {
+              recordSkippedBeforeThreshold(profile.profileId, "trade_already_active");
+              continue;
+            }
             const pairKey = makePairKey(opp.marketsInvolved ?? []);
             if (
               pairKey &&
               profile.excludedPairKeys?.length &&
               profile.excludedPairKeys.includes(pairKey)
             ) {
+              recordSkippedBeforeThreshold(profile.profileId, "pair_excluded");
               continue;
             }
+            recordOpportunityReachedProfile(profile.profileId);
+            recordReachedSimulateRealisticEntry(profile.profileId);
 
             const freshExposure = getProfileExposure(profile.profileId);
             const freshState = getShadowProfileState(profile.profileId);
@@ -328,6 +351,7 @@ function runCycle(): void {
               thresholdPassed ? undefined : entryResult.rejectionReason,
               cycleBucket
             );
+            recordReachedThresholdCheck(profile.profileId);
 
             if (entryResult.rejectionReason) {
               if (entryResult.rejectionReason === "net_edge_below_threshold") {
@@ -573,6 +597,7 @@ function runCycle(): void {
 export function evaluateOpportunity(opportunity: Record<string, unknown>): void {
   ensureShadowSimulation();
   incrementEvaluateCall();
+  recordEvaluateOpportunityCalled();
 
   const isGraph = Array.isArray(opportunity.marketsInvolved) && (opportunity.marketsInvolved as unknown[]).length > 0;
   const opp: NormalizedPaperOpportunity = isGraph
@@ -596,17 +621,20 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
 
   for (const profile of enabledProfiles) {
     try {
+      recordCycleOpportunityIteration(profile.profileId);
       ensureProfileState(profile);
       const state = getShadowProfileState(profile.profileId);
       const exposure = getProfileExposure(profile.profileId);
       const activeOppIds = new Set((state?.activeTrades ?? []).map((t) => t.opportunityId));
       if (activeOppIds.has(opp.opportunityId)) {
+        recordSkippedBeforeThreshold(profile.profileId, "trade_already_active");
         incrementEarlyExit("TRADE_ALREADY_ACTIVE");
         if (VERBOSE) console.log("[DIAGNOSTICS] EARLY EXIT", { reason: "TRADE_ALREADY_ACTIVE", marketId });
         continue;
       }
 
       if (capacity.recommendedCapital <= 0) {
+        recordSkippedBeforeThreshold(profile.profileId, "capacity_zero");
         incrementEarlyExit("RECOMMENDED_CAPITAL_ZERO_OR_NEGATIVE");
         if (VERBOSE) console.log("[DIAGNOSTICS] CAPITAL REJECTION", { marketId, recommendedCapital: capacity.recommendedCapital });
         if (VERBOSE) console.log("[DIAGNOSTICS] EARLY EXIT", { reason: "RECOMMENDED_CAPITAL_ZERO_OR_NEGATIVE", marketId });
@@ -614,6 +642,7 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
         continue;
       }
       if (opp.confidence < profile.minConfidenceToTrade) {
+        recordSkippedBeforeThreshold(profile.profileId, "confidence_below_threshold");
         incrementEarlyExit("CONFIDENCE_BELOW_THRESHOLD");
         if (VERBOSE) console.log("[DIAGNOSTICS] CONFIDENCE REJECTION", {
           marketId,
@@ -630,9 +659,12 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
         profile.excludedPairKeys?.length &&
         profile.excludedPairKeys.includes(pairKey)
       ) {
+        recordSkippedBeforeThreshold(profile.profileId, "pair_excluded");
         incrementEarlyExit("PAIR_EXCLUDED_BY_CHALLENGER");
         continue;
       }
+      recordOpportunityReachedProfile(profile.profileId);
+      recordReachedSimulateRealisticEntry(profile.profileId);
       const freshExposure = getProfileExposure(profile.profileId);
       const freshState = getShadowProfileState(profile.profileId);
       const profileState = {
@@ -694,6 +726,7 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
         thresholdPassedEval ? undefined : entryResult.rejectionReason,
         evalCycleBucket
       );
+      recordReachedThresholdCheck(profile.profileId);
 
       if (entryResult.rejectionReason) {
         const engineReason =
