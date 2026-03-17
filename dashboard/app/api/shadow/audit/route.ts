@@ -6,7 +6,7 @@
 
 import { NextResponse } from "next/server";
 import { ensureShadowSimulation, getShadowSystemStatus, getProfileConfig, getProfilesForExecution } from "@/lib/shadowSimulationService";
-import { getAllShadowProfiles, getRejectionCountsByProfile, getPersistenceStatus } from "@/lib/shadowSimulationStore";
+import { getAllShadowProfiles, getRejectionCountsByProfile, getPersistenceStatus, getRehydratedTradeIds } from "@/lib/shadowSimulationStore";
 import {
   computeClosedTradeAudit,
   buildClosedTradeAuditEntries,
@@ -22,9 +22,12 @@ import { getShadowRuntimeDiagnostics } from "@/lib/shadowRuntimeDiagnostics";
 import { getMarketSourceDiagnostics } from "@/lib/marketSourceDiagnostics";
 import { getProfileById } from "@/lib/shadowSimulationProfiles";
 import { getServiceStats } from "@/lib/marketDataService";
-import { getRehydratedTradeIds } from "@/lib/shadowSimulationStore";
 import { getGraphScanStats } from "@/lib/graphScanService";
 import { getPipelineDiagnostics } from "@/lib/shadowPipelineDiagnostics";
+import {
+  getNarrowChallengerDiagnostics,
+  getNarrowChallengerComparison,
+} from "@/lib/narrowChallengerDiagnostics";
 
 export const dynamic = "force-dynamic";
 
@@ -142,6 +145,12 @@ export async function GET() {
       allAuditEntries,
       getRehydratedTradeIds()
     );
+    const narrowChallengerDiagnostics = getNarrowChallengerDiagnostics(
+      profiles,
+      allAuditEntries,
+      getRehydratedTradeIds()
+    );
+    const narrowChallengerComparison = getNarrowChallengerComparison(profiles, narrowChallengerDiagnostics);
 
     return NextResponse.json({
       ...audit,
@@ -159,6 +168,8 @@ export async function GET() {
       localViabilityPrep,
       structuralResearchV2,
       structuralPersistenceValidation,
+      narrowChallengerDiagnostics,
+      narrowChallengerComparison,
       persistence: {
         ...persistenceStatus,
       },

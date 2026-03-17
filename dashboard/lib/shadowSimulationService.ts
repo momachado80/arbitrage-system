@@ -71,6 +71,18 @@ import {
   recordSchedulerScheduled,
 } from "./shadowRuntimeDiagnostics";
 import { recordStandardFetch, recordGraphFetch, recordMerged } from "./marketSourceDiagnostics";
+import {
+  isPairMatch,
+  isEdgeBucketMatch,
+  isFillBucketMatch,
+} from "./narrowChallengerHelpers";
+import {
+  recordOpportunitiesSeen,
+  recordRejectedByPairMismatch,
+  recordRejectedByEdgeBucketMismatch,
+  recordRejectedByFillBucketMismatch,
+  recordPassedAllNarrowFilters,
+} from "./narrowChallengerDiagnostics";
 import type { NormalizedPaperOpportunity } from "./paperTypes";
 import type { PersistenceData } from "./edgeDecayModel";
 
@@ -807,6 +819,27 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
       ) {
         recordRejection(profile.profileId, "fill_ratio_below_threshold");
         continue;
+      }
+      // Narrow challenger: só abre quando pair/edge/fill batem exatamente (auditável)
+      const target = profile.narrowChallengerTarget;
+      if (target) {
+        recordOpportunitiesSeen(profile.profileId);
+        if (!isPairMatch(pairKey ?? null, target.pairKey)) {
+          recordRejection(profile.profileId, "narrow_pair_mismatch");
+          recordRejectedByPairMismatch(profile.profileId);
+          continue;
+        }
+        if (!isEdgeBucketMatch(entryResult.capturableEdgeBeforeImpact, target.capturableEdgeBucket)) {
+          recordRejection(profile.profileId, "narrow_edge_bucket_mismatch");
+          recordRejectedByEdgeBucketMismatch(profile.profileId);
+          continue;
+        }
+        if (!isFillBucketMatch(fillRatio, target.fillRatioBucket)) {
+          recordRejection(profile.profileId, "narrow_fill_bucket_mismatch");
+          recordRejectedByFillBucketMismatch(profile.profileId);
+          continue;
+        }
+        recordPassedAllNarrowFilters(profile.profileId);
       }
       const trade: ShadowTrade = {
         tradeId: `sst-${profile.profileId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

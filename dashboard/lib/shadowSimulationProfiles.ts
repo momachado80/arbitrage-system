@@ -31,6 +31,12 @@ export interface ShadowProfileConfig {
   minCapturableEdgeToTrade?: number;
   /** Entry calibration: penalty per pairKey (decimal), subtracted from capturable edge before threshold check */
   entryPairPenalties?: Record<string, number>;
+  /** Narrow challenger: só abre trade quando pair/edge/fill buckets batem exatamente. Isolado, auditável. */
+  narrowChallengerTarget?: {
+    pairKey: string;
+    capturableEdgeBucket: "2-5%";
+    fillRatioBucket: "0.25-0.5";
+  };
 }
 
 export const SHADOW_PROFILES: ShadowProfileConfig[] = [
@@ -141,6 +147,29 @@ export const SHADOW_PROFILES: ShadowProfileConfig[] = [
     impactAlpha: 1.3,
     liquidityHaircut: 0.6,
     enabled: true,
+  },
+  {
+    profileId: "shadow_1000_narrow_562794_567561_edge2to5_fill25to50_v1",
+    label: "Narrow 562794+567561 edge2-5% fill0.25-0.5 (v1)",
+    startingCapital: 5000,
+    latencyProfile: "normal",
+    maxCapitalPerTrade: 150,
+    maxCapitalPerCluster: 400,
+    maxCapitalPerMarket: 200,
+    minConfidenceToTrade: 0.2,
+    minNetCapturableEdgeToTrade: 0.007,
+    maxHoldingTimeMs: 300_000,
+    stopLossPct: 0.03,
+    takeProfitPct: 0.05,
+    feeBuffer: 0.002,
+    impactAlpha: 1.3,
+    liquidityHaircut: 0.6,
+    enabled: true,
+    narrowChallengerTarget: {
+      pairKey: "562794+567561",
+      capturableEdgeBucket: "2-5%",
+      fillRatioBucket: "0.25-0.5",
+    },
   },
 ];
 
