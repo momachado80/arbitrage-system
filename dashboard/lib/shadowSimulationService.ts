@@ -69,12 +69,14 @@ function parseEnabledAdaptiveChallengers(): Set<string> {
 
 /** Pair for comparison: when either is enabled, run both so audit can compare challenger vs winner. */
 const EXITREFINE_V1 = "shadow_1000_adapt_captrade_exitrefine_v1";
+const FILLGUARD_V1 = "shadow_1000_adapt_captrade_exitrefine_fillguard_v1";
 const ENTRYCAL_V1 = "shadow_1000_adapt_captrade_exitrefine_entrycal_v1";
 
 /**
  * Returns baseline profiles + explicitly enabled adaptive challengers.
  * Challengers are only included when they have a current spec from the adaptive layer.
- * When either exitrefine_v1 or entrycal_v1 is enabled, both run for comparison.
+ * When either exitrefine_v1 or fillguard_v1 is enabled, both run for comparison.
+ * When entrycal_v1 was enabled (pre-switch), run exitrefine+fillguard instead (entrycal desativado).
  */
 export function getProfilesForExecution(): ShadowProfileConfig[] {
   const base = getEnabledProfiles();
@@ -83,9 +85,13 @@ export function getProfilesForExecution(): ShadowProfileConfig[] {
   const adaptive = computeAdaptiveCalibration(audit);
   const enabledIds = parseEnabledAdaptiveChallengers();
   const effectiveIds = new Set(enabledIds);
-  if (enabledIds.has(EXITREFINE_V1) || enabledIds.has(ENTRYCAL_V1)) {
+  if (enabledIds.has(EXITREFINE_V1) || enabledIds.has(FILLGUARD_V1)) {
     effectiveIds.add(EXITREFINE_V1);
-    effectiveIds.add(ENTRYCAL_V1);
+    effectiveIds.add(FILLGUARD_V1);
+  } else if (enabledIds.has(ENTRYCAL_V1)) {
+    effectiveIds.delete(ENTRYCAL_V1);
+    effectiveIds.add(EXITREFINE_V1);
+    effectiveIds.add(FILLGUARD_V1);
   }
   const challengerConfigs = adaptive.adaptiveChallengers
     .filter((c) => effectiveIds.has(c.profileId))
