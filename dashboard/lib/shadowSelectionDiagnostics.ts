@@ -1,11 +1,12 @@
 /**
  * Shadow Selection Diagnostics — observability for entry decisions.
- * Compares exitrefine_v1 vs entrycal_v1 to see if entrycal filters differently.
+ * Compares exitrefine_v1 vs entrycal_v1 / entrycal_bind_v1 to see if entry calibration filters differently.
  * In-memory only; no persistence. No business logic changes.
  */
 
 const EXITREFINE = "shadow_1000_adapt_captrade_exitrefine_v1";
 const ENTRYCAL = "shadow_1000_adapt_captrade_exitrefine_entrycal_v1";
+const ENTRYCAL_BIND = "shadow_1000_adapt_captrade_exitrefine_entrycal_bind_v1";
 export const SELECTION_CYCLE_BUCKET_MS = 10_000;
 const MAX_CYCLES_TO_KEEP = 1000;
 
@@ -32,6 +33,8 @@ function pruneOldCycles(currentBucket: number): void {
   oldestCycleBucket = cutoff;
 }
 
+const TRACKED_PROFILES = new Set([EXITREFINE, ENTRYCAL, ENTRYCAL_BIND]);
+
 export function recordEntryDecision(
   profileId: string,
   opportunityId: string,
@@ -40,7 +43,7 @@ export function recordEntryDecision(
   rejectionReason?: string,
   capturableEdge?: number
 ): void {
-  if (profileId !== EXITREFINE && profileId !== ENTRYCAL) return;
+  if (!TRACKED_PROFILES.has(profileId)) return;
   const key = `${opportunityId}|${cycleBucket}`;
   let rec = decisionByOppCycle.get(key);
   if (!rec) {
@@ -79,6 +82,7 @@ export interface ExitrefineEntrycalComparison {
 export interface SelectionDiagnosticsResult {
   byProfile: Record<string, ProfileSelectionStats>;
   exitrefineVsEntrycal: ExitrefineEntrycalComparison;
+  exitrefineVsEntrycalBind: ExitrefineEntrycalComparison;
   generatedAt: string;
 }
 
@@ -91,7 +95,7 @@ export function getSelectionDiagnostics(
   rejectionCountsByProfile: Record<string, Record<string, number>>
 ): SelectionDiagnosticsResult {
   const byProfile: Record<string, ProfileSelectionStats> = {};
-  const targetIds = [EXITREFINE, ENTRYCAL];
+  const targetIds = [EXITREFINE, ENTRYCAL, ENTRYCAL_BIND];
 
   for (const profileId of targetIds) {
     const p = profiles.find((x) => x.profileId === profileId);
@@ -124,20 +128,41 @@ export function getSelectionDiagnostics(
   let acceptedOnlyByEntrycal = 0;
   let rejectedOnlyByEntrycalThreshold = 0;
 
+  let bindAcceptedByBoth = 0;
+  let bindAcceptedOnlyByExitrefine = 0;
+  let bindAcceptedOnlyByEntrycalBind = 0;
+  let bindRejectedOnlyByEntrycalBindThreshold = 0;
+
   for (const rec of Array.from(decisionByOppCycle.values())) {
     const exitrec = rec[EXITREFINE];
     const entryrec = rec[ENTRYCAL];
-    if (!exitrec || !entryrec) continue;
-    const exitAccepted = exitrec.accepted;
-    const entryAccepted = entryrec.accepted;
-    const entryRejectedByThreshold =
-      !entryAccepted && entryrec.rejectionReason === "net_edge_below_threshold";
+    const bindrec = rec[ENTRYCAL_BIND];
 
-    if (exitAccepted && entryAccepted) acceptedByBoth++;
-    else if (exitAccepted && !entryAccepted) {
-      acceptedOnlyByExitrefine++;
-      if (entryRejectedByThreshold) rejectedOnlyByEntrycalThreshold++;
-    } else if (!exitAccepted && entryAccepted) acceptedOnlyByEntrycal++;
+    if (exitrec && entryrec) {
+      const exitAccepted = exitrec.accepted;
+      const entryAccepted = entryrec.accepted;
+      const entryRejectedByThreshold =
+        !entryAccepted && entryrec.rejectionReason === "net_edge_below_threshold";
+
+      if (exitAccepted && entryAccepted) acceptedByBoth++;
+      else if (exitAccepted && !entryAccepted) {
+        acceptedOnlyByExitrefine++;
+        if (entryRejectedByThreshold) rejectedOnlyByEntrycalThreshold++;
+      } else if (!exitAccepted && entryAccepted) acceptedOnlyByEntrycal++;
+    }
+
+    if (exitrec && bindrec) {
+      const exitAccepted = exitrec.accepted;
+      const bindAccepted = bindrec.accepted;
+      const bindRejectedByThreshold =
+        !bindAccepted && bindrec.rejectionReason === "net_edge_below_threshold";
+
+      if (exitAccepted && bindAccepted) bindAcceptedByBoth++;
+      else if (exitAccepted && !bindAccepted) {
+        bindAcceptedOnlyByExitrefine++;
+        if (bindRejectedByThreshold) bindRejectedOnlyByEntrycalBindThreshold++;
+      } else if (!exitAccepted && bindAccepted) bindAcceptedOnlyByEntrycalBind++;
+    }
   }
 
   return {
@@ -147,6 +172,12 @@ export function getSelectionDiagnostics(
       acceptedOnlyByExitrefine,
       acceptedOnlyByEntrycal,
       rejectedOnlyByEntrycalThreshold,
+    },
+    exitrefineVsEntrycalBind: {
+      acceptedByBoth: bindAcceptedByBoth,
+      acceptedOnlyByExitrefine: bindAcceptedOnlyByExitrefine,
+      acceptedOnlyByEntrycal: bindAcceptedOnlyByEntrycalBind,
+      rejectedOnlyByEntrycalThreshold: bindRejectedOnlyByEntrycalBindThreshold,
     },
     generatedAt: new Date().toISOString(),
   };

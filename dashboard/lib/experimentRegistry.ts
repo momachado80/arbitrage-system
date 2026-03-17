@@ -133,6 +133,16 @@ export const EXPERIMENT_FAMILIES: ExperimentFamilyDefinition[] = [
     allowedForAutomatedActivation: false,
     challengerPattern: "shadow_1000_adapt_captrade_exitrefine_entrycal_v1",
   },
+  {
+    familyId: "entrycal_bind_refinement",
+    label: "Entry threshold 0.025 calibrated to p50~0.042 (binding threshold)",
+    allowedBaseProfiles: ["shadow_1000_adapt_captrade_exitrefine_v1"],
+    isolatedVariable: "minNetCapturableEdgeToTrade",
+    safetyConstraints: ["single-variable on top of captrade+exitrefine", "threshold 0.025 to bind vs selectionDiagnostics", "inherits maxCapitalPerTrade=75, maxHoldingTimeMs=60s"],
+    eligibleForRecommendation: true,
+    allowedForAutomatedActivation: false,
+    challengerPattern: "shadow_1000_adapt_captrade_exitrefine_entrycal_bind_v1",
+  },
 ];
 
 export function getFamilyByChallengerId(challengerProfileId: string): ExperimentFamilyDefinition | undefined {

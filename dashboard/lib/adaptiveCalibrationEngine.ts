@@ -963,6 +963,14 @@ export function buildSyntheticChallengerSpecForActivation(profileId: string): Ad
       whyGenerated: "Explicitly enabled via ENABLED_ADAPTIVE_CHALLENGERS; synthetic spec for activation.",
     };
   }
+  if (profileId === "shadow_1000_adapt_captrade_exitrefine_entrycal_bind_v1") {
+    const entrycalBindSeed = buildEntrycalBindChallengerSeed();
+    if (!entrycalBindSeed) return null;
+    return {
+      ...entrycalBindSeed,
+      whyGenerated: "Explicitly enabled via ENABLED_ADAPTIVE_CHALLENGERS; synthetic spec for activation.",
+    };
+  }
   return null;
 }
 
@@ -1060,6 +1068,9 @@ const FILLGUARD_CAL_MIN_FILL_RATIO = 0.24;
 
 /** Entry calibration: stricter minNetCapturableEdgeToTrade on captrade+exitrefine. Distinct from top-level edgegate (failed on baseline with full capital). */
 const ENTRYCAL_MIN_NET_EDGE = 0.008;
+
+/** Entrycal bind: threshold calibrated to selectionDiagnostics p50~0.042 to actually bind. */
+const ENTRYCAL_BIND_MIN_NET_EDGE = 0.025;
 
 function buildExitRefineChallengerSeed(): AdaptiveProfileSpec | null {
   const baseConfig = getProfileById("shadow_1000");
@@ -1185,6 +1196,35 @@ function buildEntrycalChallengerSeed(): AdaptiveProfileSpec | null {
   };
 }
 
+/** Entrycal bind challenger: minNetCapturableEdgeToTrade=0.025 calibrated to p50~0.042. */
+function buildEntrycalBindChallengerSeed(): AdaptiveProfileSpec | null {
+  const exitRefineSeed = buildExitRefineChallengerSeed();
+  if (!exitRefineSeed?.fullConfig) return null;
+
+  const fullConfig: ShadowProfileConfig = {
+    ...exitRefineSeed.fullConfig,
+    profileId: "shadow_1000_adapt_captrade_exitrefine_entrycal_bind_v1",
+    label: "Shadow 5000 USD (test) (adapt captrade + exit refine + entry cal bind v1)",
+    minNetCapturableEdgeToTrade: ENTRYCAL_BIND_MIN_NET_EDGE,
+    baseProfileId: "shadow_1000_adapt_captrade_exitrefine_v1",
+  };
+
+  return {
+    profileId: fullConfig.profileId,
+    baseProfileId: "shadow_1000_adapt_captrade_exitrefine_v1",
+    label: fullConfig.label,
+    status: "spec_only",
+    changes: { minNetCapturableEdgeToTrade: ENTRYCAL_BIND_MIN_NET_EDGE },
+    fullConfig,
+    hypothesis:
+      "Entry threshold 0.025 to bind vs p50~0.042. fillguard_cal showed better fill ratio did not improve economics; entry quality is the bottleneck.",
+    expectedMechanism:
+      "Reject entry if capturableEdgeAtEntry < 0.025. Inherits maxCapitalPerTrade=75, maxHoldingTimeMs=60s.",
+    whyGenerated: "selectionDiagnostics p10~0.022, p50~0.042; 0.008 was too loose. Replaces fillguard_cal (not promoted).",
+    forExperimentationOnly: true,
+  };
+}
+
 function getAdaptiveChallengerSpecs(recommendations: CalibrationRecommendation[]): AdaptiveProfileSpec[] {
   const seen = new Set<string>();
   const specs: AdaptiveProfileSpec[] = [];
@@ -1226,6 +1266,11 @@ function getAdaptiveChallengerSpecs(recommendations: CalibrationRecommendation[]
   if (entrycalSeed && !seen.has(entrycalSeed.profileId)) {
     seen.add(entrycalSeed.profileId);
     specs.push(entrycalSeed);
+  }
+  const entrycalBindSeed = buildEntrycalBindChallengerSeed();
+  if (entrycalBindSeed && !seen.has(entrycalBindSeed.profileId)) {
+    seen.add(entrycalBindSeed.profileId);
+    specs.push(entrycalBindSeed);
   }
   return specs;
 }
