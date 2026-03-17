@@ -219,6 +219,21 @@ function decileKey(d: number): string {
 
 export type ProfileConfigResolver = (profileId: string) => { maxHoldingTimeMs?: number } | undefined;
 
+/** Constrói entries para segmentação local (fluxo novo vs reidratado). */
+export function buildClosedTradeAuditEntries(
+  profiles: ShadowProfileState[],
+  _configResolver?: ProfileConfigResolver
+): ClosedTradeAuditEntry[] {
+  const out: ClosedTradeAuditEntry[] = [];
+  for (const p of profiles) {
+    const closed = p.closedTrades.filter((t) => t.status === "closed" && t.closedAt);
+    for (const t of closed) {
+      out.push(toAuditEntry(t, p.profileId));
+    }
+  }
+  return out;
+}
+
 export function computeClosedTradeAudit(
   profiles: ShadowProfileState[],
   configResolver?: ProfileConfigResolver
@@ -560,5 +575,103 @@ export function computeClosedTradeAudit(
     exitReasonDiagnostics,
     profileComparison,
     causalReadout,
+  };
+}
+
+/**
+ * Segmentação para análise de ilhas locais de viabilidade.
+ * Usar apenas com trades novos (não reidratados) para inferência econômica válida.
+ * Não inventa positividade; retorna vazio se amostra insuficiente.
+ */
+export interface LocalViabilitySegment {
+  tradeCount: number;
+  avgRealizedPnL: number;
+  winRate: number;
+}
+
+export interface LocalViabilityPrep {
+  /** Só fluxo novo desta execução; nunca mistura com histórico */
+  newTradesCount: number;
+  sufficientForLocalAnalysis: boolean;
+  minRequiredForLocalAnalysis: number;
+  byPairKey: Record<string, LocalViabilitySegment>;
+  byCapturableEdgeBucket: Record<string, LocalViabilitySegment>;
+  byFillRatioBucket: Record<string, LocalViabilitySegment>;
+  byPairKeyAndFillRatio: Record<string, LocalViabilitySegment>;
+  byPairKeyAndEdge: Record<string, LocalViabilitySegment>;
+  byExitReason: Record<string, LocalViabilitySegment>;
+  byHoldingRegime: Record<string, LocalViabilitySegment>;
+}
+
+const MIN_FOR_LOCAL_ANALYSIS = 10;
+
+export function computeLocalViabilitySegments(
+  entries: ClosedTradeAuditEntry[],
+  rehydratedIds: ReadonlySet<string>
+): LocalViabilityPrep {
+  const newEntries = entries.filter((e) => !rehydratedIds.has(e.tradeId));
+  const n = newEntries.length;
+  const sufficient = n >= MIN_FOR_LOCAL_ANALYSIS;
+
+  type Acc = { tradeCount: number; totalPnL: number; wins: number };
+  const byPairKey: Record<string, Acc> = {};
+  const byFillRatioBucket: Record<string, Acc> = {};
+  const byCapturableEdgeBucket: Record<string, Acc> = {};
+  const byPairKeyAndFillRatio: Record<string, Acc> = {};
+  const byPairKeyAndEdge: Record<string, Acc> = {};
+  const byExitReason: Record<string, Acc> = {};
+  const byHoldingRegime: Record<string, Acc> = {};
+
+  function edgeBucket(edge: number): string {
+    if (edge < 0.005) return "0-0.5%";
+    if (edge < 0.01) return "0.5-1%";
+    if (edge < 0.02) return "1-2%";
+    if (edge < 0.05) return "2-5%";
+    return ">5%";
+  }
+
+  function add(map: Record<string, Acc>, key: string, e: ClosedTradeAuditEntry): void {
+    if (!map[key]) map[key] = { tradeCount: 0, totalPnL: 0, wins: 0 };
+    map[key].tradeCount++;
+    map[key].totalPnL += e.realizedPnL;
+    map[key].wins += e.realizedPnL > 0 ? 1 : 0;
+  }
+
+  for (const e of newEntries) {
+    const pk = e.pairKey ?? "_no_pair";
+    const fr = bucketByFillRatio(e.fillRatio ?? null) ?? "_unknown";
+    const eb = edgeBucket(e.capturableEdgeAtEntry ?? 0);
+    add(byPairKey, pk, e);
+    add(byFillRatioBucket, fr, e);
+    add(byCapturableEdgeBucket, eb, e);
+    add(byPairKeyAndFillRatio, `${pk}|${fr}`, e);
+    add(byPairKeyAndEdge, `${pk}|${eb}`, e);
+    add(byExitReason, e.exitReason ?? "unknown", e);
+    add(byHoldingRegime, e.holdingTimeBucket ?? "unknown", e);
+  }
+
+  const toSeg = (m: Record<string, Acc>): Record<string, LocalViabilitySegment> =>
+    Object.fromEntries(
+      Object.entries(m).map(([k, v]) => [
+        k,
+        {
+          tradeCount: v.tradeCount,
+          avgRealizedPnL: v.tradeCount ? v.totalPnL / v.tradeCount : 0,
+          winRate: v.tradeCount ? v.wins / v.tradeCount : 0,
+        },
+      ])
+    );
+
+  return {
+    newTradesCount: n,
+    sufficientForLocalAnalysis: sufficient,
+    minRequiredForLocalAnalysis: MIN_FOR_LOCAL_ANALYSIS,
+    byPairKey: toSeg(byPairKey),
+    byCapturableEdgeBucket: toSeg(byCapturableEdgeBucket),
+    byFillRatioBucket: toSeg(byFillRatioBucket),
+    byPairKeyAndFillRatio: toSeg(byPairKeyAndFillRatio),
+    byPairKeyAndEdge: toSeg(byPairKeyAndEdge),
+    byExitReason: toSeg(byExitReason),
+    byHoldingRegime: toSeg(byHoldingRegime),
   };
 }

@@ -68,6 +68,7 @@ import {
   recordShadowBootFailed,
   recordShadowLoopStarted,
   recordShadowLoopCompleted,
+  recordSchedulerScheduled,
 } from "./shadowRuntimeDiagnostics";
 import { recordStandardFetch, recordGraphFetch, recordMerged } from "./marketSourceDiagnostics";
 import type { NormalizedPaperOpportunity } from "./paperTypes";
@@ -75,7 +76,8 @@ import type { PersistenceData } from "./edgeDecayModel";
 
 const CYCLE_INTERVAL_MS = 10_000;
 const VERBOSE = process.env.WORKER_VERBOSE_LOGS === "1";
-const INITIAL_DELAY_MS = 6_000;
+/** 0 = next tick; evita shadowLoopStarted=false no primeiro audit por delay de 6s */
+const INITIAL_DELAY_MS = 0;
 
 /** Shadow-only: refuse to open trades with dust fills; audit showed avgFilledCapital e-12, 100% loss rate. */
 const MIN_FILLED_CAPITAL_USD = 0.5;
@@ -863,6 +865,7 @@ export function ensureShadowSimulation(): void {
     for (const p of getEnabledProfiles()) {
       ensureProfileState(p);
     }
+    recordSchedulerScheduled();
     console.log("[ShadowSim] Background shadow simulation started");
     setTimeout(runCycle, INITIAL_DELAY_MS);
     setInterval(runCycle, CYCLE_INTERVAL_MS);

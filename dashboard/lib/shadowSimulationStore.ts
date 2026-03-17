@@ -100,6 +100,7 @@ const profileStates = new Map<string, ShadowProfileState>();
 
 let rehydratedAt: string | null = null;
 let rehydratedClosedTradesCount = 0;
+const rehydratedTradeIds = new Set<string>();
 
 function initProfileState(config: ShadowProfileConfig): ShadowProfileState {
   return {
@@ -200,6 +201,7 @@ export function rehydrateFromPersistence(): void {
 
     const state = ensureProfileState(config);
     state.closedTrades = toRestore;
+    for (const t of toRestore) rehydratedTradeIds.add(t.tradeId);
     state.realizedPnL = toRestore.reduce((s, t) => s + (t.realizedPnL ?? 0), 0);
     state.currentEquity = state.startingCapital + state.realizedPnL + state.unrealizedPnL;
     state.availableCapital = Math.max(0, state.currentEquity - state.reservedCapital);
@@ -239,6 +241,11 @@ export function rehydrateFromPersistence(): void {
       `[ShadowStore] Rehydrated ${totalRestored} closed trades into ${Object.keys(snapshot.byProfile).length} profiles`
     );
   }
+}
+
+/** IDs de trades restaurados na reidratação. Usado para separar histórico vs fluxo novo no audit. */
+export function getRehydratedTradeIds(): ReadonlySet<string> {
+  return rehydratedTradeIds;
 }
 
 export function getShadowProfileState(profileId: string): ShadowProfileState | null {

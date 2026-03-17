@@ -1,6 +1,12 @@
 /**
  * Shadow Runtime Diagnostics — bootstrap and lifecycle observability.
  * Diagnoses why upstream/markets/cycles are dead. In-memory only.
+ *
+ * CAUSA RAIZ (quando bootstrap/loop mortos):
+ * 1. refresh() pendente: fetchAllMarkets() sem timeout → promise nunca resolve → attempted=1, success=0, failure=0.
+ * 2. runCycle nunca chamado: recordShadowLoopStarted só disparava no .then; fetch para localhost pendente → loopStarted=false.
+ * 3. instrumentation bloqueava HTTP server 15s → fetch /api/opportunities falhava (server não ready).
+ * 4. INITIAL_DELAY_MS=6s → primeiro audit antes de 6s mostra loopStarted=false.
  */
 
 let serviceBootAttempted = false;
@@ -11,6 +17,8 @@ let shadowLoopStarted = false;
 let shadowLoopHeartbeatCount = 0;
 let lastShadowLoopStartedAt: string | null = null;
 let lastShadowLoopCompletedAt: string | null = null;
+let instrumentationRanAt: string | null = null;
+let schedulerScheduledAt: string | null = null;
 
 export function recordShadowBootAttempted(): void {
   serviceBootAttempted = true;
@@ -36,6 +44,22 @@ export function recordShadowLoopCompleted(): void {
   lastShadowLoopCompletedAt = new Date().toISOString();
 }
 
+export function recordInstrumentationRan(): void {
+  if (!instrumentationRanAt) instrumentationRanAt = new Date().toISOString();
+}
+
+export function recordSchedulerScheduled(): void {
+  if (!schedulerScheduledAt) schedulerScheduledAt = new Date().toISOString();
+}
+
+export function getInstrumentationRanAt(): string | null {
+  return instrumentationRanAt;
+}
+
+export function getSchedulerScheduledAt(): string | null {
+  return schedulerScheduledAt;
+}
+
 export interface ShadowRuntimeDiagnostics {
   serviceBootAttempted: boolean;
   serviceBootCompleted: boolean;
@@ -45,19 +69,42 @@ export interface ShadowRuntimeDiagnostics {
   shadowLoopHeartbeatCount: number;
   lastShadowLoopStartedAt: string | null;
   lastShadowLoopCompletedAt: string | null;
+  instrumentationRanAt: string | null;
+  schedulerScheduledAt: string | null;
+  /** Gate explícito quando loop não iniciou */
+  loopBlockReason: string | null;
   marketBootstrapAttempted: boolean;
   marketBootstrapCompleted: boolean;
   marketBootstrapFailed: boolean;
   marketBootstrapErrorMessage: string | null;
   lastMarketBootstrapAt: string | null;
+  /** pending | completed | failed */
+  marketBootstrapStatus: "pending" | "completed" | "failed";
   marketRefreshAttemptedCount: number;
   marketRefreshSuccessCount: number;
   marketRefreshFailureCount: number;
   lastMarketRefreshError: string | null;
+  /** true quando attempted > 0 e success+failure < attempted */
+  marketRefreshPending: boolean;
   schedulerRegistered: boolean;
   intervalMs: number;
   runtimeEnvironmentSummary: Record<string, string | number | boolean>;
   generatedAt: string;
+}
+
+function deriveLoopBlockReason(
+  marketStats: { isRefreshing?: boolean; refreshAttemptedCount?: number; refreshSuccessCount?: number; refreshFailureCount?: number }
+): string | null {
+  if (shadowLoopStarted) return null;
+  if (!serviceBootCompleted) return "shadow_boot_not_completed";
+  if (!schedulerScheduledAt) return "scheduler_not_scheduled";
+  const attempted = marketStats.refreshAttemptedCount ?? 0;
+  const success = marketStats.refreshSuccessCount ?? 0;
+  const failure = marketStats.refreshFailureCount ?? 0;
+  if (attempted === 0) return "market_refresh_never_called";
+  if (success + failure < attempted && marketStats.isRefreshing) return "market_refresh_pending";
+  if (success + failure < attempted) return "market_refresh_hung";
+  return "awaiting_first_cycle_or_cycle_not_yet_invoked";
 }
 
 export function getShadowRuntimeDiagnostics(
@@ -71,9 +118,19 @@ export function getShadowRuntimeDiagnostics(
     refreshSuccessCount?: number;
     refreshFailureCount?: number;
     lastRefreshError?: string | null;
+    isRefreshing?: boolean;
   },
   scheduler: { registered: boolean; intervalMs: number }
 ): ShadowRuntimeDiagnostics {
+  const attempted = marketStats.refreshAttemptedCount ?? 0;
+  const success = marketStats.refreshSuccessCount ?? 0;
+  const failure = marketStats.refreshFailureCount ?? 0;
+  const refreshPending = attempted > 0 && success + failure < attempted;
+  const bootstrapCompleted = marketStats.marketBootstrapCompleted ?? false;
+  const bootstrapFailed = marketStats.marketBootstrapFailed ?? false;
+  const bootstrapStatus: "pending" | "completed" | "failed" =
+    bootstrapCompleted ? "completed" : bootstrapFailed ? "failed" : "pending";
+
   return {
     serviceBootAttempted,
     serviceBootCompleted,
@@ -83,15 +140,20 @@ export function getShadowRuntimeDiagnostics(
     shadowLoopHeartbeatCount,
     lastShadowLoopStartedAt,
     lastShadowLoopCompletedAt,
+    instrumentationRanAt,
+    schedulerScheduledAt,
+    loopBlockReason: deriveLoopBlockReason(marketStats),
     marketBootstrapAttempted: marketStats.marketBootstrapAttempted ?? false,
-    marketBootstrapCompleted: marketStats.marketBootstrapCompleted ?? false,
-    marketBootstrapFailed: marketStats.marketBootstrapFailed ?? false,
+    marketBootstrapCompleted: bootstrapCompleted,
+    marketBootstrapFailed: bootstrapFailed,
     marketBootstrapErrorMessage: marketStats.marketBootstrapErrorMessage ?? null,
     lastMarketBootstrapAt: marketStats.lastMarketBootstrapAt ?? null,
-    marketRefreshAttemptedCount: marketStats.refreshAttemptedCount ?? 0,
-    marketRefreshSuccessCount: marketStats.refreshSuccessCount ?? 0,
-    marketRefreshFailureCount: marketStats.refreshFailureCount ?? 0,
+    marketBootstrapStatus: bootstrapStatus,
+    marketRefreshAttemptedCount: attempted,
+    marketRefreshSuccessCount: success,
+    marketRefreshFailureCount: failure,
     lastMarketRefreshError: marketStats.lastRefreshError ?? null,
+    marketRefreshPending: refreshPending,
     schedulerRegistered: scheduler.registered,
     intervalMs: scheduler.intervalMs,
     runtimeEnvironmentSummary: {

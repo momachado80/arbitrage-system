@@ -1,12 +1,17 @@
 /**
  * Shadow Closed Trade Audit API — diagnostic endpoint only.
  * Returns full audit of closed shadow trades. No business logic changes.
+ * Inclui operationalTruth: respostas causais para decisão operacional.
  */
 
 import { NextResponse } from "next/server";
 import { ensureShadowSimulation, getShadowSystemStatus, getProfileConfig, getProfilesForExecution } from "@/lib/shadowSimulationService";
 import { getAllShadowProfiles, getRejectionCountsByProfile, getPersistenceStatus } from "@/lib/shadowSimulationStore";
-import { computeClosedTradeAudit } from "@/lib/shadowClosedTradeAudit";
+import {
+  computeClosedTradeAudit,
+  buildClosedTradeAuditEntries,
+  computeLocalViabilitySegments,
+} from "@/lib/shadowClosedTradeAudit";
 import { getSelectionDiagnostics } from "@/lib/shadowSelectionDiagnostics";
 import { getFillGuardDiagnostics } from "@/lib/fillGuardDiagnostics";
 import { getEntryThresholdCausalDiagnostics } from "@/lib/entryThresholdCausalDiagnostics";
@@ -15,7 +20,9 @@ import { getShadowRuntimeDiagnostics } from "@/lib/shadowRuntimeDiagnostics";
 import { getMarketSourceDiagnostics } from "@/lib/marketSourceDiagnostics";
 import { getProfileById } from "@/lib/shadowSimulationProfiles";
 import { getServiceStats } from "@/lib/marketDataService";
+import { getRehydratedTradeIds } from "@/lib/shadowSimulationStore";
 import { getGraphScanStats } from "@/lib/graphScanService";
+import { getPipelineDiagnostics } from "@/lib/shadowPipelineDiagnostics";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +42,9 @@ export async function GET() {
       if (cfg) maxHoldingTimeMsByProfile[p.profileId] = cfg.maxHoldingTimeMs;
     }
     const persistenceStatus = getPersistenceStatus();
+    const pipelineDiagnostics = getPipelineDiagnostics();
+    const newClosedThisRun =
+      persistenceStatus.inMemoryClosedTradesCount - persistenceStatus.persistedClosedTradesCount;
     const selectionDiagnostics = getSelectionDiagnostics(
       profiles.map((p) => ({
         profileId: p.profileId,
@@ -60,6 +70,7 @@ export async function GET() {
         refreshSuccessCount: marketStats.refreshSuccessCount,
         refreshFailureCount: marketStats.refreshFailureCount,
         lastRefreshError: marketStats.lastRefreshError,
+        isRefreshing: marketStats.isRefreshing,
       },
       { registered: true, intervalMs: 10_000 }
     );
@@ -70,6 +81,58 @@ export async function GET() {
       const v = cfg?.minCapturableEdgeToTrade ?? cfg?.minNetCapturableEdgeToTrade;
       if (typeof v === "number") effectiveEntryThresholdByProfile[p.profileId] = v;
     }
+    const rt = shadowRuntimeDiagnostics;
+    const ms = marketSourceDiagnostics;
+
+    const operationalTruth = {
+      /** 1. Boot da aplicação terminou? */
+      bootComplete: rt.serviceBootCompleted,
+      /** 2-5. Bootstrap de mercado: começou, terminou, estado */
+      marketBootstrapStarted: rt.marketBootstrapAttempted,
+      marketBootstrapCompleted: rt.marketBootstrapCompleted,
+      marketBootstrapFailed: rt.marketBootstrapFailed,
+      marketBootstrapStatus: rt.marketBootstrapStatus,
+      marketBootstrapErrorMessage: rt.marketBootstrapErrorMessage,
+      /** 6-7. Refresh: chamado, terminou */
+      refreshCalled: rt.marketRefreshAttemptedCount > 0,
+      refreshCompleted: !rt.marketRefreshPending,
+      refreshCoherent: rt.marketRefreshAttemptedCount === rt.marketRefreshSuccessCount + rt.marketRefreshFailureCount,
+      /** 8-10. Fetches standard, graph, merge */
+      standardOpportunitiesCount: ms.standardMarketsCount,
+      graphOpportunitiesCount: ms.graphMarketsCount,
+      mergedOpportunitiesCount: ms.mergedMarketsCount,
+      /** 11-12. Loop shadow: iniciou, gate se bloqueado */
+      shadowLoopStarted: rt.shadowLoopStarted,
+      shadowLoopBlockReason: rt.loopBlockReason,
+      /** 13-14. Oportunidades e perfis em ciclo novo */
+      opportunitiesReachingProfiles: rt.shadowLoopHeartbeatCount > 0 ? status.opportunitiesSeenLastCycle : 0,
+      evaluateOpportunityCallCount: pipelineDiagnostics.totalEvaluateCalls,
+      cycleCompletedCount: entryThresholdFlowDiagnostics.cycleLevel?.cycleCompletedCount ?? 0,
+      /** 15. Histórico reidratado vs produção nova */
+      rehydratedClosedTradesCount: persistenceStatus.persistedClosedTradesCount,
+      newClosedThisRun,
+      inMemoryClosedTradesCount: persistenceStatus.inMemoryClosedTradesCount,
+      rehydratedAt: persistenceStatus.rehydratedAt,
+      /** Ambiente operacional */
+      instrumentationRanAt: rt.instrumentationRanAt,
+      schedulerScheduledAt: rt.schedulerScheduledAt,
+      /** Conclusão causal */
+      environmentValidForEconomicInference:
+        rt.marketBootstrapCompleted &&
+        rt.shadowLoopStarted &&
+        rt.shadowLoopHeartbeatCount > 0 &&
+        (ms.standardMarketsCount > 0 || ms.graphMarketsCount > 0),
+    };
+
+    const allAuditEntries = buildClosedTradeAuditEntries(profiles, (pid) => {
+      const cfg = getProfileById(pid) ?? getProfileConfig(pid);
+      return cfg as { maxHoldingTimeMs?: number } | undefined;
+    });
+    const localViabilityPrep = computeLocalViabilitySegments(
+      allAuditEntries,
+      getRehydratedTradeIds()
+    );
+
     return NextResponse.json({
       ...audit,
       maxHoldingTimeMsByProfile,
@@ -82,6 +145,8 @@ export async function GET() {
       shadowRuntimeDiagnostics,
       marketSourceDiagnostics,
       effectiveEntryThresholdByProfile,
+      operationalTruth,
+      localViabilityPrep,
       persistence: {
         ...persistenceStatus,
       },
