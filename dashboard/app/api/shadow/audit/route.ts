@@ -8,6 +8,7 @@ import { ensureShadowSimulation, getShadowSystemStatus, getProfileConfig, getPro
 import { getAllShadowProfiles, getRejectionCountsByProfile, getPersistenceStatus } from "@/lib/shadowSimulationStore";
 import { computeClosedTradeAudit } from "@/lib/shadowClosedTradeAudit";
 import { getSelectionDiagnostics } from "@/lib/shadowSelectionDiagnostics";
+import { getFillGuardDiagnostics } from "@/lib/fillGuardDiagnostics";
 import { getProfileById } from "@/lib/shadowSimulationProfiles";
 import { getServiceStats } from "@/lib/marketDataService";
 import { getGraphScanStats } from "@/lib/graphScanService";
@@ -38,12 +39,14 @@ export async function GET() {
       })),
       rejectionCountsByProfile
     );
+    const fillGuardDiagnostics = getFillGuardDiagnostics(profiles);
     return NextResponse.json({
       ...audit,
       maxHoldingTimeMsByProfile,
       opportunitiesSeenLastCycle: status.opportunitiesSeenLastCycle,
       rejectionCountsByProfile,
       selectionDiagnostics,
+      fillGuardDiagnostics,
       persistence: {
         ...persistenceStatus,
       },

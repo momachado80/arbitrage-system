@@ -45,6 +45,13 @@ import {
   recordEntryDecision,
   SELECTION_CYCLE_BUCKET_MS,
 } from "./shadowSelectionDiagnostics";
+import {
+  recordEvaluated,
+  recordRejectedByEntryThreshold,
+  recordRejectedByFillGuard,
+  recordRejectedByOther,
+  recordReachedFillGuardDecision,
+} from "./fillGuardDiagnostics";
 import type { NormalizedPaperOpportunity } from "./paperTypes";
 import type { PersistenceData } from "./edgeDecayModel";
 
@@ -289,6 +296,7 @@ function runCycle(): void {
               exposureByMarket: freshExposure.exposureByMarket,
             };
 
+            recordEvaluated(profile.profileId);
             const minEdge = profile.minCapturableEdgeToTrade ?? profile.minNetCapturableEdgeToTrade;
             const entryResult = simulateRealisticEntry(
               opp,
@@ -305,6 +313,11 @@ function runCycle(): void {
             );
 
             if (entryResult.rejectionReason) {
+              if (entryResult.rejectionReason === "net_edge_below_threshold") {
+                recordRejectedByEntryThreshold(profile.profileId);
+              } else {
+                recordRejectedByOther(profile.profileId);
+              }
               recordRejection(profile.profileId, entryResult.rejectionReason);
               recordEntryDecision(
                 profile.profileId,
@@ -329,6 +342,7 @@ function runCycle(): void {
               continue;
             }
             if (entryResult.filledCapital <= 0) {
+              recordRejectedByOther(profile.profileId);
               recordEntryDecision(
                 profile.profileId,
                 opp.opportunityId,
@@ -340,6 +354,7 @@ function runCycle(): void {
               continue;
             }
             if (entryResult.filledCapital < MIN_FILLED_CAPITAL_USD) {
+              recordRejectedByOther(profile.profileId);
               recordRejection(profile.profileId, "fill_below_minimum");
               recordEntryDecision(
                 profile.profileId,
@@ -355,6 +370,7 @@ function runCycle(): void {
               const penalty = profile.entryPairPenalties[pairKey] ?? 0;
               const effectiveEdge = entryResult.capturableEdgeBeforeImpact - penalty;
               if (effectiveEdge < minEdge) {
+                recordRejectedByOther(profile.profileId);
                 recordRejection(profile.profileId, "entry_pair_penalty");
                 recordEntryDecision(
                   profile.profileId,
@@ -370,10 +386,14 @@ function runCycle(): void {
             const requestedCapital = entryResult.requestedCapital ?? 0;
             const fillRatio =
               requestedCapital > 0 ? entryResult.filledCapital / requestedCapital : 1;
+            if (profile.minFillRatioToTrade != null) {
+              recordReachedFillGuardDecision(profile.profileId);
+            }
             if (
               profile.minFillRatioToTrade != null &&
               fillRatio < profile.minFillRatioToTrade
             ) {
+              recordRejectedByFillGuard(profile.profileId, fillRatio);
               recordRejection(profile.profileId, "fill_ratio_below_threshold");
               recordEntryDecision(
                 profile.profileId,
