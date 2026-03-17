@@ -947,6 +947,14 @@ export function buildSyntheticChallengerSpecForActivation(profileId: string): Ad
       whyGenerated: "Explicitly enabled via ENABLED_ADAPTIVE_CHALLENGERS; synthetic spec for activation.",
     };
   }
+  if (profileId === "shadow_1000_adapt_captrade_exitrefine_fillguard_cal_v1") {
+    const fillguardCalSeed = buildFillguardCalChallengerSeed();
+    if (!fillguardCalSeed) return null;
+    return {
+      ...fillguardCalSeed,
+      whyGenerated: "Explicitly enabled via ENABLED_ADAPTIVE_CHALLENGERS; synthetic spec for activation.",
+    };
+  }
   if (profileId === "shadow_1000_adapt_captrade_exitrefine_entrycal_v1") {
     const entrycalSeed = buildEntrycalChallengerSeed();
     if (!entrycalSeed) return null;
@@ -1047,6 +1055,9 @@ const EXITREFINE_HOLD_MS = 60_000;
 /** Fill-quality guard: min fill ratio on top of captrade+exitrefine. Rejects entry when filledCapital/requestedCapital < threshold. */
 const FILLGUARD_MIN_FILL_RATIO = 0.5;
 
+/** Fill guard calibrated to real regime (fillGuardDiagnostics p50~0.23). */
+const FILLGUARD_CAL_MIN_FILL_RATIO = 0.24;
+
 /** Entry calibration: stricter minNetCapturableEdgeToTrade on captrade+exitrefine. Distinct from top-level edgegate (failed on baseline with full capital). */
 const ENTRYCAL_MIN_NET_EDGE = 0.008;
 
@@ -1115,6 +1126,35 @@ function buildFillguardChallengerSeed(): AdaptiveProfileSpec | null {
   };
 }
 
+/** Fillguard cal challenger: minFillRatioToTrade=0.24 calibrated to real fill regime. */
+function buildFillguardCalChallengerSeed(): AdaptiveProfileSpec | null {
+  const exitRefineSeed = buildExitRefineChallengerSeed();
+  if (!exitRefineSeed?.fullConfig) return null;
+
+  const fullConfig: ShadowProfileConfig = {
+    ...exitRefineSeed.fullConfig,
+    profileId: "shadow_1000_adapt_captrade_exitrefine_fillguard_cal_v1",
+    label: "Shadow 5000 USD (test) (adapt captrade + exit refine + fill guard cal v1)",
+    minFillRatioToTrade: FILLGUARD_CAL_MIN_FILL_RATIO,
+    baseProfileId: "shadow_1000_adapt_captrade_exitrefine_v1",
+  };
+
+  return {
+    profileId: fullConfig.profileId,
+    baseProfileId: "shadow_1000_adapt_captrade_exitrefine_v1",
+    label: fullConfig.label,
+    status: "spec_only",
+    changes: { minFillRatioToTrade: FILLGUARD_CAL_MIN_FILL_RATIO },
+    fullConfig,
+    hypothesis:
+      "Fill guard calibrated to real regime (p50~0.23). Single-variable: reject when fillRatio < 0.24. Replaces fillguard 0.5 (operationally unviable).",
+    expectedMechanism:
+      "Reject entry if filledCapital/requestedCapital < 0.24. Inherits maxCapitalPerTrade=75, maxHoldingTimeMs=60s.",
+    whyGenerated: "Calibrated from fillGuardDiagnostics; fillguard 0.5 blocked all entries.",
+    forExperimentationOnly: true,
+  };
+}
+
 /** Entrycal challenger: minNetCapturableEdgeToTrade on top of captrade+exitrefine. Distinct from edgegate (top-level on baseline) and entryfloor (on captrade only). */
 function buildEntrycalChallengerSeed(): AdaptiveProfileSpec | null {
   const exitRefineSeed = buildExitRefineChallengerSeed();
@@ -1176,6 +1216,11 @@ function getAdaptiveChallengerSpecs(recommendations: CalibrationRecommendation[]
   if (fillguardSeed && !seen.has(fillguardSeed.profileId)) {
     seen.add(fillguardSeed.profileId);
     specs.push(fillguardSeed);
+  }
+  const fillguardCalSeed = buildFillguardCalChallengerSeed();
+  if (fillguardCalSeed && !seen.has(fillguardCalSeed.profileId)) {
+    seen.add(fillguardCalSeed.profileId);
+    specs.push(fillguardCalSeed);
   }
   const entrycalSeed = buildEntrycalChallengerSeed();
   if (entrycalSeed && !seen.has(entrycalSeed.profileId)) {

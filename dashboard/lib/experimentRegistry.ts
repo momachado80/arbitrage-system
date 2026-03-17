@@ -114,6 +114,16 @@ export const EXPERIMENT_FAMILIES: ExperimentFamilyDefinition[] = [
     challengerPattern: "shadow_1000_adapt_captrade_exitrefine_fillguard_v1",
   },
   {
+    familyId: "fillguard_cal_refinement",
+    label: "Fill guard calibrated to real regime (minFillRatioToTrade=0.24)",
+    allowedBaseProfiles: ["shadow_1000_adapt_captrade_exitrefine_v1"],
+    isolatedVariable: "minFillRatioToTrade",
+    safetyConstraints: ["single-variable on top of captrade+exitrefine", "calibrated from fillGuardDiagnostics p50~0.23", "inherits maxCapitalPerTrade=75, maxHoldingTimeMs=60s"],
+    eligibleForRecommendation: true,
+    allowedForAutomatedActivation: false,
+    challengerPattern: "shadow_1000_adapt_captrade_exitrefine_fillguard_cal_v1",
+  },
+  {
     familyId: "entrycal_refinement",
     label: "Entry-calibration refinement on captrade+exitrefine",
     allowedBaseProfiles: ["shadow_1000_adapt_captrade_exitrefine_v1"],

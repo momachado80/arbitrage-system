@@ -5,6 +5,8 @@
  */
 
 const FILLGUARD_V1 = "shadow_1000_adapt_captrade_exitrefine_fillguard_v1";
+const FILLGUARD_CAL_V1 = "shadow_1000_adapt_captrade_exitrefine_fillguard_cal_v1";
+const TRACKED_PROFILES = new Set([FILLGUARD_V1, FILLGUARD_CAL_V1]);
 const MAX_REJECTED_FILL_RATIOS = 2000;
 
 interface ProfileCounters {
@@ -39,19 +41,19 @@ function ensureProfile(profileId: string): ProfileCounters {
 }
 
 export function recordEvaluated(profileId: string): void {
-  if (profileId !== FILLGUARD_V1) return;
+  if (!TRACKED_PROFILES.has(profileId)) return;
   const c = ensureProfile(profileId);
   c.evaluatedOpportunityCount++;
 }
 
 export function recordRejectedByEntryThreshold(profileId: string): void {
-  if (profileId !== FILLGUARD_V1) return;
+  if (!TRACKED_PROFILES.has(profileId)) return;
   const c = ensureProfile(profileId);
   c.rejectedByEntryThresholdCount++;
 }
 
 export function recordRejectedByFillGuard(profileId: string, fillRatio: number): void {
-  if (profileId !== FILLGUARD_V1) return;
+  if (!TRACKED_PROFILES.has(profileId)) return;
   const c = ensureProfile(profileId);
   c.rejectedByFillGuardCount++;
   c.failedAtFillGuardCount++;
@@ -62,13 +64,13 @@ export function recordRejectedByFillGuard(profileId: string, fillRatio: number):
 }
 
 export function recordRejectedByOther(profileId: string): void {
-  if (profileId !== FILLGUARD_V1) return;
+  if (!TRACKED_PROFILES.has(profileId)) return;
   const c = ensureProfile(profileId);
   c.rejectedByOtherReasonCount++;
 }
 
 export function recordReachedFillGuardDecision(profileId: string): void {
-  if (profileId !== FILLGUARD_V1) return;
+  if (!TRACKED_PROFILES.has(profileId)) return;
   const c = ensureProfile(profileId);
   c.reachedFillGuardDecisionCount++;
 }
@@ -105,7 +107,7 @@ export function getFillGuardDiagnostics(
 ): FillGuardDiagnosticsResult {
   const byProfile: Record<string, FillGuardProfileDiagnostics> = {};
 
-  for (const profileId of [FILLGUARD_V1]) {
+  for (const profileId of Array.from(TRACKED_PROFILES)) {
     const c = ensureProfile(profileId);
     const p = profiles.find((x) => x.profileId === profileId);
     const opened = (p?.closedTrades?.length ?? 0) + (p?.activeTrades?.length ?? 0);
