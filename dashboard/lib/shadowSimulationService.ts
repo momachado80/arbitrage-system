@@ -41,6 +41,10 @@ import {
   incrementShadowTradeOpened,
   incrementEarlyExit,
 } from "./shadowPipelineDiagnostics";
+import {
+  recordEntryDecision,
+  SELECTION_CYCLE_BUCKET_MS,
+} from "./shadowSelectionDiagnostics";
 import type { NormalizedPaperOpportunity } from "./paperTypes";
 import type { PersistenceData } from "./edgeDecayModel";
 
@@ -227,6 +231,7 @@ function getPersistenceData(): PersistenceData | null {
 
 function runCycle(): void {
   const t0 = Date.now();
+  const cycleBucket = Math.floor(t0 / SELECTION_CYCLE_BUCKET_MS);
   Promise.all([fetchStandardOpportunities(), Promise.resolve(fetchGraphOpportunities())])
     .then(([stdOpps, graphOpps]) => {
       const merged = [...graphOpps, ...stdOpps];
@@ -295,6 +300,14 @@ function runCycle(): void {
 
             if (entryResult.rejectionReason) {
               recordRejection(profile.profileId, entryResult.rejectionReason);
+              recordEntryDecision(
+                profile.profileId,
+                opp.opportunityId,
+                cycleBucket,
+                false,
+                entryResult.rejectionReason,
+                entryResult.capturableEdgeBeforeImpact
+              );
               const reasonMap: Record<string, import("./tradeRejectionLogger").TradeRejectionReason> = {
                 insufficient_capital_or_exposure_limit: "TRADE_SIZE_TOO_SMALL",
                 net_edge_below_threshold: "EDGE_BELOW_THRESHOLD",
@@ -309,9 +322,27 @@ function runCycle(): void {
               });
               continue;
             }
-            if (entryResult.filledCapital <= 0) continue;
+            if (entryResult.filledCapital <= 0) {
+              recordEntryDecision(
+                profile.profileId,
+                opp.opportunityId,
+                cycleBucket,
+                false,
+                "filled_capital_zero",
+                entryResult.capturableEdgeBeforeImpact
+              );
+              continue;
+            }
             if (entryResult.filledCapital < MIN_FILLED_CAPITAL_USD) {
               recordRejection(profile.profileId, "fill_below_minimum");
+              recordEntryDecision(
+                profile.profileId,
+                opp.opportunityId,
+                cycleBucket,
+                false,
+                "fill_below_minimum",
+                entryResult.capturableEdgeBeforeImpact
+              );
               continue;
             }
             if (profile.entryPairPenalties && pairKey) {
@@ -319,6 +350,14 @@ function runCycle(): void {
               const effectiveEdge = entryResult.capturableEdgeBeforeImpact - penalty;
               if (effectiveEdge < minEdge) {
                 recordRejection(profile.profileId, "entry_pair_penalty");
+                recordEntryDecision(
+                  profile.profileId,
+                  opp.opportunityId,
+                  cycleBucket,
+                  false,
+                  "entry_pair_penalty",
+                  entryResult.capturableEdgeBeforeImpact
+                );
                 continue;
               }
             }
@@ -330,9 +369,25 @@ function runCycle(): void {
               fillRatio < profile.minFillRatioToTrade
             ) {
               recordRejection(profile.profileId, "fill_ratio_below_threshold");
+              recordEntryDecision(
+                profile.profileId,
+                opp.opportunityId,
+                cycleBucket,
+                false,
+                "fill_ratio_below_threshold",
+                entryResult.capturableEdgeBeforeImpact
+              );
               continue;
             }
 
+            recordEntryDecision(
+              profile.profileId,
+              opp.opportunityId,
+              cycleBucket,
+              true,
+              undefined,
+              entryResult.capturableEdgeBeforeImpact
+            );
             const tradeId = `sst-${profile.profileId}-${Date.now()}-${opened}`;
             const trade: ShadowTrade = {
               tradeId,

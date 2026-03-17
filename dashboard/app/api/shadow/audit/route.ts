@@ -7,6 +7,7 @@ import { NextResponse } from "next/server";
 import { ensureShadowSimulation, getShadowSystemStatus, getProfileConfig, getProfilesForExecution } from "@/lib/shadowSimulationService";
 import { getAllShadowProfiles, getRejectionCountsByProfile, getPersistenceStatus } from "@/lib/shadowSimulationStore";
 import { computeClosedTradeAudit } from "@/lib/shadowClosedTradeAudit";
+import { getSelectionDiagnostics } from "@/lib/shadowSelectionDiagnostics";
 import { getProfileById } from "@/lib/shadowSimulationProfiles";
 import { getServiceStats } from "@/lib/marketDataService";
 import { getGraphScanStats } from "@/lib/graphScanService";
@@ -29,11 +30,20 @@ export async function GET() {
       if (cfg) maxHoldingTimeMsByProfile[p.profileId] = cfg.maxHoldingTimeMs;
     }
     const persistenceStatus = getPersistenceStatus();
+    const selectionDiagnostics = getSelectionDiagnostics(
+      profiles.map((p) => ({
+        profileId: p.profileId,
+        closedTrades: p.closedTrades,
+        activeTrades: p.activeTrades,
+      })),
+      rejectionCountsByProfile
+    );
     return NextResponse.json({
       ...audit,
       maxHoldingTimeMsByProfile,
       opportunitiesSeenLastCycle: status.opportunitiesSeenLastCycle,
       rejectionCountsByProfile,
+      selectionDiagnostics,
       persistence: {
         ...persistenceStatus,
       },
