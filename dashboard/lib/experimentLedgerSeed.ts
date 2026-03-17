@@ -109,5 +109,19 @@ export function getSeededHistoricalEntries(): ExperimentLedgerEntry[] {
       decisionReason: undefined,
       notes: "Prepared for controlled activation. Exit-focused refinement on winning branch. Not yet active.",
     },
+    {
+      experimentId: "exp-fillguard_v1",
+      challengerProfileId: "shadow_1000_adapt_captrade_exitrefine_fillguard_v1",
+      familyId: "fillguard_refinement",
+      baseProfileId: "shadow_1000_adapt_captrade_exitrefine_v1",
+      hypothesis: "Fill-quality / adverse-selection guard on captrade+exitrefine; minFillRatioToTrade=0.5.",
+      isolatedVariable: "minFillRatioToTrade",
+      activationMode: "manual",
+      status: "available",
+      startTimestamp: now,
+      decision: undefined,
+      decisionReason: undefined,
+      notes: "Prepared for controlled activation. Fill-quality guard on winning branch. Not yet active.",
+    },
   ];
 }

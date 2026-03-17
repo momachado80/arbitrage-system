@@ -103,6 +103,16 @@ export const EXPERIMENT_FAMILIES: ExperimentFamilyDefinition[] = [
     allowedForAutomatedActivation: false,
     challengerPattern: "shadow_1000_adapt_captrade_exitrefine_v1",
   },
+  {
+    familyId: "fillguard_refinement",
+    label: "Fill-quality / adverse-selection guard on captrade+exitrefine",
+    allowedBaseProfiles: ["shadow_1000_adapt_captrade_exitrefine_v1"],
+    isolatedVariable: "minFillRatioToTrade",
+    safetyConstraints: ["single-variable on top of captrade+exitrefine", "inherits maxCapitalPerTrade=75, maxHoldingTimeMs=60s", "fill-quality guard only"],
+    eligibleForRecommendation: true,
+    allowedForAutomatedActivation: false,
+    challengerPattern: "shadow_1000_adapt_captrade_exitrefine_fillguard_v1",
+  },
 ];
 
 export function getFamilyByChallengerId(challengerProfileId: string): ExperimentFamilyDefinition | undefined {

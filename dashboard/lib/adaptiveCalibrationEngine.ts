@@ -939,6 +939,14 @@ export function buildSyntheticChallengerSpecForActivation(profileId: string): Ad
       forExperimentationOnly: true,
     };
   }
+  if (profileId === "shadow_1000_adapt_captrade_exitrefine_fillguard_v1") {
+    const fillguardSeed = buildFillguardChallengerSeed();
+    if (!fillguardSeed) return null;
+    return {
+      ...fillguardSeed,
+      whyGenerated: "Explicitly enabled via ENABLED_ADAPTIVE_CHALLENGERS; synthetic spec for activation.",
+    };
+  }
   return null;
 }
 
@@ -1028,6 +1036,9 @@ function buildEntryFloorPairPenaltyChallengerSeed(
 /** Exit refinement challenger: shorter max hold on top of captrade. Single variable: maxHoldingTimeMs. */
 const EXITREFINE_HOLD_MS = 60_000;
 
+/** Fill-quality guard: min fill ratio on top of captrade+exitrefine. Rejects entry when filledCapital/requestedCapital < threshold. */
+const FILLGUARD_MIN_FILL_RATIO = 0.5;
+
 function buildExitRefineChallengerSeed(): AdaptiveProfileSpec | null {
   const baseConfig = getProfileById("shadow_1000");
   if (!baseConfig) return null;
@@ -1064,6 +1075,35 @@ function buildExitRefineChallengerSeed(): AdaptiveProfileSpec | null {
   };
 }
 
+/** Fillguard challenger: minFillRatioToTrade on top of captrade+exitrefine. Single variable: fill-quality guard. */
+function buildFillguardChallengerSeed(): AdaptiveProfileSpec | null {
+  const exitRefineSeed = buildExitRefineChallengerSeed();
+  if (!exitRefineSeed?.fullConfig) return null;
+
+  const fullConfig: ShadowProfileConfig = {
+    ...exitRefineSeed.fullConfig,
+    profileId: "shadow_1000_adapt_captrade_exitrefine_fillguard_v1",
+    label: "Shadow 5000 USD (test) (adapt captrade + exit refine + fill guard v1)",
+    minFillRatioToTrade: FILLGUARD_MIN_FILL_RATIO,
+    baseProfileId: "shadow_1000_adapt_captrade_exitrefine_v1",
+  };
+
+  return {
+    profileId: fullConfig.profileId,
+    baseProfileId: "shadow_1000_adapt_captrade_exitrefine_v1",
+    label: fullConfig.label,
+    status: "spec_only",
+    changes: { minFillRatioToTrade: FILLGUARD_MIN_FILL_RATIO },
+    fullConfig,
+    hypothesis:
+      "Residual bottleneck compatible with fill quality / adverse selection. Single-variable: reject entry when fillRatio < 0.5 to avoid partial fills at worse prices.",
+    expectedMechanism:
+      "Reject entry if filledCapital/requestedCapital < 0.5. Inherits maxCapitalPerTrade=75, maxHoldingTimeMs=60s. No entry floor or pair penalty changes.",
+    whyGenerated: "Prepared for controlled activation. Fill-quality guard on captrade+exitrefine winner.",
+    forExperimentationOnly: true,
+  };
+}
+
 function getAdaptiveChallengerSpecs(recommendations: CalibrationRecommendation[]): AdaptiveProfileSpec[] {
   const seen = new Set<string>();
   const specs: AdaptiveProfileSpec[] = [];
@@ -1090,6 +1130,11 @@ function getAdaptiveChallengerSpecs(recommendations: CalibrationRecommendation[]
   if (exitRefineSeed && !seen.has(exitRefineSeed.profileId)) {
     seen.add(exitRefineSeed.profileId);
     specs.push(exitRefineSeed);
+  }
+  const fillguardSeed = buildFillguardChallengerSeed();
+  if (fillguardSeed && !seen.has(fillguardSeed.profileId)) {
+    seen.add(fillguardSeed.profileId);
+    specs.push(fillguardSeed);
   }
   return specs;
 }
