@@ -13,6 +13,7 @@ import {
   computeLocalViabilitySegments,
 } from "@/lib/shadowClosedTradeAudit";
 import { runStructuralResearchV2 } from "@/lib/structuralResearchV2";
+import { runStructuralPersistenceValidation } from "@/lib/structuralPersistenceValidation";
 import { getSelectionDiagnostics } from "@/lib/shadowSelectionDiagnostics";
 import { getFillGuardDiagnostics } from "@/lib/fillGuardDiagnostics";
 import { getEntryThresholdCausalDiagnostics } from "@/lib/entryThresholdCausalDiagnostics";
@@ -137,6 +138,10 @@ export async function GET() {
       allAuditEntries,
       getRehydratedTradeIds()
     );
+    const structuralPersistenceValidation = runStructuralPersistenceValidation(
+      allAuditEntries,
+      getRehydratedTradeIds()
+    );
 
     return NextResponse.json({
       ...audit,
@@ -153,6 +158,7 @@ export async function GET() {
       operationalTruth,
       localViabilityPrep,
       structuralResearchV2,
+      structuralPersistenceValidation,
       persistence: {
         ...persistenceStatus,
       },
