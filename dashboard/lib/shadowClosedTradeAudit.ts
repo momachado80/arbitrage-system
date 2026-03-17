@@ -111,12 +111,41 @@ export interface CausalReadout {
   leadingHypothesis: string;
 }
 
+export interface ProfileAggregationConsistency {
+  profileId: string;
+  totalRealizedPnL: number;
+  sumWins: number;
+  sumLosses: number;
+  sumWinsPlusSumLosses: number;
+  byOpportunityTypeTotal: number;
+  byExitReasonTotal: number;
+  byHoldingBucketTotal: number;
+  tradeCount: number;
+  consistent: boolean;
+  /** store.realizedPnL pode divergir quando closedTrades foi slice() sem ajustar (MAX_CLOSED_PER_PROFILE) */
+  storeRealizedPnL?: number;
+  storeVsDerivedDiff?: number;
+  /** Diferenças absolutas vs total (para auditoria) */
+  diffTotalVsSumWinsLosses: number;
+  diffTotalVsByOpp: number;
+  diffTotalVsByExit: number;
+  diffTotalVsByBucket: number;
+}
+
+export interface AggregationConsistencyDiagnostics {
+  methodology: string;
+  byProfile: Record<string, ProfileAggregationConsistency>;
+  allConsistent: boolean;
+  universe: "closedTrades_in_memory";
+}
+
 export interface ClosedTradeAuditResult {
   timestamp: string;
   realizedPnLFormula: string;
   codePath: string;
   profileSummaries: ProfileAuditSummary[];
   byProfile: Record<string, ByBreakdown>;
+  aggregationConsistencyDiagnostics: AggregationConsistencyDiagnostics;
   worst20: ClosedTradeAuditEntry[];
   best20: ClosedTradeAuditEntry[];
   lossDriverAnalysis: {
@@ -274,11 +303,13 @@ export function computeClosedTradeAudit(
     const sumWins = wins.reduce((s, e) => s + e.realizedPnL, 0);
     const sumLosses = losses.reduce((s, e) => s + e.realizedPnL, 0);
     const pnls = entries.map((e) => e.realizedPnL);
+    /** Fonte única de verdade: soma dos realizedPnL dos trades em memória. p.realizedPnL pode divergir quando closedTrades foi slice() sem ajustar o store. */
+    const totalFromEntries = entries.reduce((s, e) => s + e.realizedPnL, 0);
 
     profileSummaries.push({
       profileId: p.profileId,
       totalClosed: closed.length,
-      avgRealizedPnL: closed.length ? p.realizedPnL / closed.length : 0,
+      avgRealizedPnL: closed.length ? totalFromEntries / closed.length : 0,
       medianRealizedPnL: median(pnls),
       winRate: closed.length ? wins.length / closed.length : 0,
       lossRate: closed.length ? losses.length / closed.length : 0,
@@ -292,7 +323,7 @@ export function computeClosedTradeAudit(
         closed.length ? entries.reduce((s, e) => s + e.capturableEdgeAtEntry, 0) / entries.length : 0,
       avgEffectiveEntryPrice:
         closed.length ? entries.reduce((s, e) => s + e.effectiveEntryPrice, 0) / entries.length : 0,
-      totalRealizedPnL: p.realizedPnL,
+      totalRealizedPnL: totalFromEntries,
       sumWins,
       sumLosses,
     });
@@ -317,6 +348,60 @@ export function computeClosedTradeAudit(
       byHoldingBucket: toBreakdown(byBucket),
     };
   }
+
+  const aggregationConsistencyDiagnostics = ((): AggregationConsistencyDiagnostics => {
+    const byProfileDiag: Record<string, ProfileAggregationConsistency> = {};
+    let allConsistent = true;
+    for (const ps of profileSummaries) {
+      const bp = byProfile[ps.profileId];
+      const byOppTotal = bp
+        ? Object.values(bp.byOpportunityType).reduce((s, x) => s + x.totalPnL, 0)
+        : 0;
+      const byExitTotal = bp
+        ? Object.values(bp.byExitReason).reduce((s, x) => s + x.totalPnL, 0)
+        : 0;
+      const byBucketTotal = bp
+        ? Object.values(bp.byHoldingBucket).reduce((s, x) => s + x.totalPnL, 0)
+        : 0;
+      const sumWinsPlusLosses = ps.sumWins + ps.sumLosses;
+      const epsilon = 1e-9;
+      const consistent =
+        Math.abs(ps.totalRealizedPnL - sumWinsPlusLosses) < epsilon &&
+        Math.abs(ps.totalRealizedPnL - byOppTotal) < epsilon &&
+        Math.abs(ps.totalRealizedPnL - byExitTotal) < epsilon &&
+        Math.abs(ps.totalRealizedPnL - byBucketTotal) < epsilon;
+      if (!consistent) allConsistent = false;
+      const prof = profiles.find((x) => x.profileId === ps.profileId);
+      const storeRealizedPnL = prof?.realizedPnL;
+      const storeVsDerivedDiff =
+        storeRealizedPnL != null ? storeRealizedPnL - ps.totalRealizedPnL : undefined;
+      byProfileDiag[ps.profileId] = {
+        profileId: ps.profileId,
+        totalRealizedPnL: ps.totalRealizedPnL,
+        sumWins: ps.sumWins,
+        sumLosses: ps.sumLosses,
+        sumWinsPlusSumLosses: sumWinsPlusLosses,
+        byOpportunityTypeTotal: byOppTotal,
+        byExitReasonTotal: byExitTotal,
+        byHoldingBucketTotal: byBucketTotal,
+        tradeCount: ps.totalClosed,
+        consistent,
+        storeRealizedPnL,
+        storeVsDerivedDiff,
+        diffTotalVsSumWinsLosses: ps.totalRealizedPnL - sumWinsPlusLosses,
+        diffTotalVsByOpp: ps.totalRealizedPnL - byOppTotal,
+        diffTotalVsByExit: ps.totalRealizedPnL - byExitTotal,
+        diffTotalVsByBucket: ps.totalRealizedPnL - byBucketTotal,
+      };
+    }
+    return {
+      methodology:
+        "All totals derived from same universe: closedTrades in memory. totalRealizedPnL = sum(entries.realizedPnL). sumWins+sumLosses and byProfile breakdowns must reconcile.",
+      byProfile: byProfileDiag,
+      allConsistent,
+      universe: "closedTrades_in_memory",
+    };
+  })();
 
   const sortedByPnL = [...allEntries].sort((a, b) => a.realizedPnL - b.realizedPnL);
   const worst20 = sortedByPnL.slice(0, 20);
@@ -548,6 +633,7 @@ export function computeClosedTradeAudit(
       "shadowSimulationService.runCycle -> simulateRealisticExit (realisticExecutionEngine.ts L326-371) -> closeShadowTrade (shadowSimulationStore.ts L155-202)",
     profileSummaries,
     byProfile,
+    aggregationConsistencyDiagnostics,
     worst20,
     best20,
     lossDriverAnalysis: {
