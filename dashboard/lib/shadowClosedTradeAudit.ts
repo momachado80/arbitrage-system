@@ -58,6 +58,12 @@ export interface ClosedTradeAuditEntry {
   observedEdgeAtKill?: number | null;
   degradationRatioAtKill?: number | null;
   opportunityAbsentCyclesAtKill?: number | null;
+  /** Late exit challenger */
+  lateExitTriggered?: boolean;
+  lateExitReason?: string | null;
+  lateExitAtMsFromOpen?: number | null;
+  capturableEdgeAtLateExit?: number | null;
+  observedEdgeAtLateExit?: number | null;
 }
 
 export interface ProfileAuditSummary {
@@ -282,6 +288,11 @@ function toAuditEntry(t: ShadowTrade, profileId: string): ClosedTradeAuditEntry 
     observedEdgeAtKill: t.observedEdgeAtKill,
     degradationRatioAtKill: t.degradationRatioAtKill,
     opportunityAbsentCyclesAtKill: t.opportunityAbsentCyclesAtKill,
+    lateExitTriggered: t.lateExitTriggered,
+    lateExitReason: t.lateExitReason,
+    lateExitAtMsFromOpen: t.lateExitAtMsFromOpen,
+    capturableEdgeAtLateExit: t.capturableEdgeAtLateExit,
+    observedEdgeAtLateExit: t.observedEdgeAtLateExit,
   };
 }
 

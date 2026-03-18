@@ -87,6 +87,13 @@ export interface ShadowTrade {
   observedEdgeAtKill?: number | null;
   degradationRatioAtKill?: number | null;
   opportunityAbsentCyclesAtKill?: number | null;
+
+  /** Late exit challenger: não reversão / estagnação tardia */
+  lateExitTriggered?: boolean;
+  lateExitReason?: string | null;
+  lateExitAtMsFromOpen?: number | null;
+  capturableEdgeAtLateExit?: number | null;
+  observedEdgeAtLateExit?: number | null;
 }
 
 export interface ShadowProfileState {

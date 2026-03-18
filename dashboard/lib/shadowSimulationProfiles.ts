@@ -62,6 +62,15 @@ export interface ShadowProfileConfig {
     killAbsentCycles: number;
     killObservedEdgeDecayFraction: number;
   };
+  /** Late exit: saída por não reversão ou estagnação tardia. Hipótese diferente de kill precoce. */
+  lateExitTarget?: {
+    minObservationMs: number;
+    reversionMinFraction: number;
+    stagnantEdgeFloor: number;
+    stagnantCycles: number;
+    netEdgeProlongedFloor: number;
+    absentCyclesInLatePhase: number;
+  };
 }
 
 export const SHADOW_PROFILES: ShadowProfileConfig[] = [
@@ -404,6 +413,46 @@ export const SHADOW_PROFILES: ShadowProfileConfig[] = [
       killNetEdgeFloor: 0.02,
       killAbsentCycles: 2,
       killObservedEdgeDecayFraction: 0.5,
+    },
+  },
+  {
+    profileId: "shadow_1000_structural_lateexit_nonreversion_v1",
+    label: "Structural late exit: não reversão / estagnação tardia (v1)",
+    startingCapital: 5000,
+    latencyProfile: "normal",
+    maxCapitalPerTrade: 150,
+    maxCapitalPerCluster: 400,
+    maxCapitalPerMarket: 200,
+    minConfidenceToTrade: 0.2,
+    minNetCapturableEdgeToTrade: 0.045,
+    maxHoldingTimeMs: 300_000,
+    stopLossPct: 0.03,
+    takeProfitPct: 0.05,
+    feeBuffer: 0.002,
+    impactAlpha: 1.3,
+    liquidityHaircut: 0.6,
+    enabled: true,
+    structuralRiskManagedTarget: {
+      pairKeys: [
+        "540817+565065",
+        "540817+562187",
+        "540817+573647",
+        "540817+540818",
+        "556108+567561",
+        "556108+562187",
+        "540818+556108",
+      ],
+      fillRatioBucket: "0.1-0.25",
+      capfloor: 0.045,
+      degRatioMin: 0.24,
+    },
+    lateExitTarget: {
+      minObservationMs: 90_000,
+      reversionMinFraction: 0.5,
+      stagnantEdgeFloor: 0.03,
+      stagnantCycles: 3,
+      netEdgeProlongedFloor: 0.02,
+      absentCyclesInLatePhase: 2,
     },
   },
 ];

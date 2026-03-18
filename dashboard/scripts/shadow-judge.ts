@@ -47,8 +47,11 @@ interface Snapshot {
   structuralExitKillComparison?: Record<string, Record<string, unknown>> | null;
   structuralExitKillWindow180Diagnostics?: Record<string, unknown> | null;
   structuralExitKillWindow180Comparison?: Record<string, Record<string, unknown>> | null;
+  structuralLateExitDiagnostics?: Record<string, unknown> | null;
+  structuralLateExitComparison?: Record<string, Record<string, unknown>> | null;
   exitKillProfileSummary?: Record<string, unknown> | null;
   exitKillWindow180ProfileSummary?: Record<string, unknown> | null;
+  lateExitProfileSummary?: Record<string, unknown> | null;
   metrics: Record<string, unknown>;
   defenseActivation?: Record<string, { activated: boolean; rejections?: number; avgMultiplier?: number }>;
 }
@@ -431,6 +434,76 @@ function run(): void {
     process.stdout.write(`earlyKillExitCount: ${w180EarlyKill}\n`);
     process.stdout.write(`Reason: ${w180Reason}\n`);
     process.stdout.write(`Saved: ${w180OutPath}\n`);
+  }
+
+  // Late exit non-reversion challenger
+  const lateExitDiag = snapshot.structuralLateExitDiagnostics as Record<string, unknown> | null | undefined;
+  const lateExitComp = snapshot.structuralLateExitComparison as Record<string, Record<string, unknown>> | null | undefined;
+  if (lateExitDiag != null && lateExitComp != null) {
+    const leClosed = num(lateExitDiag.closedTradeCount);
+    const leLateExitCount = num(lateExitDiag.lateExitTriggeredCount);
+    const compVs1000 = lateExitComp["shadow_1000"];
+    const leChallengerAvg = num(lateExitDiag.avgRealizedPnL);
+    const leDefenseActivated = leLateExitCount > 0;
+
+    let leStatus: ChallengerStatus;
+    let leReason: string;
+    let leEvidenceGrade: EvidenceGrade = leClosed >= THRESHOLDS.minimumClosedForBaselineComparison ? "MODERATE" : leClosed >= THRESHOLDS.minimumClosedForReadableEconomics ? "WEAK" : "NONE";
+    if (leClosed >= 50) leEvidenceGrade = "STRONG";
+
+    if (leClosed === 0) {
+      leStatus = "NOT_READABLE_YET";
+      leReason = "challenger_closed_zero — nenhum trade fechado.";
+    } else if (leClosed < THRESHOLDS.minimumClosedForReadableEconomics) {
+      leStatus = "SAMPLE_TOO_SMALL";
+      leReason = `closed=${leClosed}. Amostra insuficiente.`;
+    } else if (!leDefenseActivated && leChallengerAvg < 0) {
+      leStatus = "DEFENSIVE_LOGIC_NOT_ENGAGED";
+      leReason = "lateExitTriggeredCount=0. Saída tardia não acionou e challenger negativo.";
+    } else if (compVs1000 != null && leClosed >= THRESHOLDS.minimumClosedForBaselineComparison) {
+      const baselineAvg = num(compVs1000.baselineAvgRealizedPnL);
+      const improvement = baselineAvg === 0 ? 0 : (leChallengerAvg - baselineAvg) / Math.abs(baselineAvg);
+      if (baselineAvg >= 0 && leChallengerAvg < 0) {
+        leStatus = "WORSE_THAN_BASELINE";
+        leReason = "Baseline positivo, late exit negativo.";
+      } else if (baselineAvg < 0 && leChallengerAvg >= 0) {
+        leStatus = "LESS_BAD_THAN_BASELINE";
+        leReason = "Late exit positivo vs baseline negativo.";
+      } else if (improvement >= THRESHOLDS.minimumRelativeImprovementToCallLessBad) {
+        leStatus = "LESS_BAD_THAN_BASELINE";
+        leReason = `Late exit ${(improvement * 100).toFixed(1)}% menos ruim que baseline.`;
+      } else if (improvement <= -THRESHOLDS.minimumRelativeImprovementToCallLessBad) {
+        leStatus = "WORSE_THAN_BASELINE";
+        leReason = `Late exit ${(-improvement * 100).toFixed(1)}% pior que baseline.`;
+      } else {
+        leStatus = "OPERABLE_BUT_UNPROVEN";
+        leReason = "Diferença vs baseline dentro da banda de ruído.";
+      }
+    } else {
+      leStatus = "OPERABLE_BUT_UNPROVEN";
+      leReason = "Aguardar amostra. Primeiro objetivo: verificar se lateExitTriggeredCount > 0.";
+    }
+
+    const leJudgment: Judgment = {
+      status: leStatus,
+      reason: leReason,
+      evidenceGrade: leEvidenceGrade,
+      dominantFailureMode: leStatus === "WORSE_THAN_BASELINE" ? "worse_than_baseline" : leStatus === "DEFENSIVE_LOGIC_NOT_ENGAGED" ? "defenses_not_engaged" : "no_clear_failure_mode",
+      timestamp: new Date().toISOString(),
+      snapshotSource: snapshotFile,
+      thresholds: {
+        minClosedReadable: THRESHOLDS.minimumClosedForReadableEconomics,
+        minClosedCompare: THRESHOLDS.minimumClosedForBaselineComparison,
+        minImprovementPct: THRESHOLDS.minimumRelativeImprovementToCallLessBad,
+      },
+    };
+    const leOutPath = path.join(outDir, "judgment_lateexit_latest.json");
+    fs.writeFileSync(leOutPath, JSON.stringify(leJudgment, null, 2), "utf-8");
+    process.stdout.write(`\n[lateexit_nonreversion] ${leStatus}\n`);
+    process.stdout.write(`evidenceGrade: ${leEvidenceGrade}\n`);
+    process.stdout.write(`lateExitTriggeredCount: ${leLateExitCount}\n`);
+    process.stdout.write(`Reason: ${leReason}\n`);
+    process.stdout.write(`Saved: ${leOutPath}\n`);
   }
 }
 

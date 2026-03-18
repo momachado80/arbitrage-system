@@ -19,6 +19,7 @@ const PRODUCTION_CANDIDATES = [
 const EXPECTED_PROFILE_ID = "shadow_1000_structural_riskmanaged_v1";
 const EXIT_KILL_PROFILE_ID = "shadow_1000_structural_exitkill_v1";
 const EXIT_KILL_WINDOW180_PROFILE_ID = "shadow_1000_structural_exitkill_window180_v1";
+const LATE_EXIT_PROFILE_ID = "shadow_1000_structural_lateexit_nonreversion_v1";
 const FETCH_TIMEOUT_MS = 15000;
 const SNAPSHOT_PATH = "reports/runtime_snapshot_latest.json";
 
@@ -78,9 +79,12 @@ interface Snapshot {
   structuralExitKillWindow180Diagnostics: Record<string, unknown> | null;
   structuralExitKillWindow180Comparison: Record<string, Record<string, unknown>> | null;
   structuralExitKillWindow180CausalAudit: Record<string, unknown> | null;
+  structuralLateExitDiagnostics: Record<string, unknown> | null;
+  structuralLateExitComparison: Record<string, Record<string, unknown>> | null;
   profileSummary: Record<string, unknown> | null;
   exitKillProfileSummary: Record<string, unknown> | null;
   exitKillWindow180ProfileSummary: Record<string, unknown> | null;
+  lateExitProfileSummary: Record<string, unknown> | null;
   metrics: {
     openedTradeCount: number;
     closedTradeCount: number;
@@ -143,6 +147,12 @@ async function run(): Promise<void> {
   const exitKillWindow180Diag = audit.structuralExitKillWindow180Diagnostics as Record<string, unknown> | undefined;
   const exitKillWindow180Comp = audit.structuralExitKillWindow180Comparison as Record<string, Record<string, unknown>> | undefined;
   const exitKillWindow180Causal = audit.structuralExitKillWindow180CausalAudit as Record<string, unknown> | undefined;
+  const lateExitDiag = audit.structuralLateExitDiagnostics as Record<string, unknown> | undefined;
+  const lateExitComp = audit.structuralLateExitComparison as Record<string, Record<string, unknown>> | undefined;
+  const lateExitProfileSummary =
+    Array.isArray(summaries)
+      ? summaries.find((p) => p?.profileId === LATE_EXIT_PROFILE_ID) ?? null
+      : null;
 
   const def = (v: unknown, d: number) => (typeof v === "number" ? v : d);
   const opened = def(diag?.openedTradeCount, 0);
@@ -234,9 +244,12 @@ async function run(): Promise<void> {
     structuralExitKillWindow180Diagnostics: exitKillWindow180Diag ?? null,
     structuralExitKillWindow180Comparison: exitKillWindow180Comp ?? null,
     structuralExitKillWindow180CausalAudit: exitKillWindow180Causal ?? null,
+    structuralLateExitDiagnostics: lateExitDiag ?? null,
+    structuralLateExitComparison: lateExitComp ?? null,
     profileSummary,
     exitKillProfileSummary,
     exitKillWindow180ProfileSummary,
+    lateExitProfileSummary,
     metrics,
     defenseActivation,
   };

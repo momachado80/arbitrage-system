@@ -34,9 +34,12 @@ interface Snapshot {
   structuralExitKillWindow180Diagnostics?: Record<string, unknown> | null;
   structuralExitKillWindow180Comparison?: Record<string, Record<string, unknown>> | null;
   structuralExitKillWindow180CausalAudit?: Record<string, unknown> | null;
+  structuralLateExitDiagnostics?: Record<string, unknown> | null;
+  structuralLateExitComparison?: Record<string, Record<string, unknown>> | null;
   profileSummary: Record<string, unknown> | null;
   exitKillProfileSummary?: Record<string, unknown> | null;
   exitKillWindow180ProfileSummary?: Record<string, unknown> | null;
+  lateExitProfileSummary?: Record<string, unknown> | null;
   metrics: {
     openedTradeCount: number;
     closedTradeCount: number;
@@ -290,6 +293,25 @@ ${
 | killWindowMs | ${num(snapshot.structuralExitKillWindow180CausalAudit.killWindowMs)} |`
     : ""
 }
+`
+    : ""
+}
+${
+  snapshot.structuralLateExitDiagnostics != null
+    ? `
+---
+
+## Late Exit Non-Reversion (shadow_1000_structural_lateexit_nonreversion_v1)
+
+| Métrica | Valor |
+|---------|-------|
+| closedTradeCount | ${num(snapshot.structuralLateExitDiagnostics.closedTradeCount)} |
+| lateExitTriggeredCount | ${num(snapshot.structuralLateExitDiagnostics.lateExitTriggeredCount)} |
+| avgRealizedPnL | ${num(snapshot.structuralLateExitDiagnostics.avgRealizedPnL).toFixed(4)} |
+| totalRealizedPnL | ${num(snapshot.structuralLateExitDiagnostics.totalRealizedPnL).toFixed(4)} |
+| avgHoldingTimeMs | ${num(snapshot.structuralLateExitDiagnostics.avgHoldingTimeMs).toFixed(0)} ms |
+| avgHoldingMsLateExit | ${num(snapshot.structuralLateExitDiagnostics.avgHoldingMsLateExit).toFixed(0)} ms |
+| lateExitReasonCounts | ${JSON.stringify(snapshot.structuralLateExitDiagnostics.lateExitReasonCounts ?? {})} |
 `
     : ""
 }
