@@ -45,7 +45,10 @@ interface Snapshot {
   profileSummary: Record<string, unknown> | null;
   structuralExitKillDiagnostics?: Record<string, unknown> | null;
   structuralExitKillComparison?: Record<string, Record<string, unknown>> | null;
+  structuralExitKillWindow180Diagnostics?: Record<string, unknown> | null;
+  structuralExitKillWindow180Comparison?: Record<string, Record<string, unknown>> | null;
   exitKillProfileSummary?: Record<string, unknown> | null;
+  exitKillWindow180ProfileSummary?: Record<string, unknown> | null;
   metrics: Record<string, unknown>;
   defenseActivation?: Record<string, { activated: boolean; rejections?: number; avgMultiplier?: number }>;
 }
@@ -344,6 +347,90 @@ function run(): void {
     process.stdout.write(`evidenceGrade: ${ekEvidenceGrade}\n`);
     process.stdout.write(`Reason: ${ekReason}\n`);
     process.stdout.write(`Saved: ${ekOutPath}\n`);
+  }
+
+  // Exit kill window 180: mesma lógica, comparação vs exitkill_v1
+  const w180Diag = snapshot.structuralExitKillWindow180Diagnostics as Record<string, unknown> | null | undefined;
+  const w180Comp = snapshot.structuralExitKillWindow180Comparison as Record<string, Record<string, unknown>> | null | undefined;
+  if (w180Diag != null && w180Comp != null) {
+    const w180Closed = num(w180Diag.closedTradeCount);
+    const compVs1000 = w180Comp["shadow_1000"];
+    const compVsExitkill = w180Comp["shadow_1000_structural_exitkill_v1"];
+    const w180ChallengerAvg = num(w180Diag.avgRealizedPnL);
+    const w180EarlyKill = num(w180Diag.earlyKillExitCount);
+    const w180DefenseActivated = w180EarlyKill > 0;
+
+    let w180Status: ChallengerStatus;
+    let w180Reason: string;
+    let w180EvidenceGrade: EvidenceGrade = w180Closed >= THRESHOLDS.minimumClosedForBaselineComparison ? "MODERATE" : w180Closed >= THRESHOLDS.minimumClosedForReadableEconomics ? "WEAK" : "NONE";
+    if (w180Closed >= 50) w180EvidenceGrade = "STRONG";
+
+    if (w180Closed === 0) {
+      w180Status = "NOT_READABLE_YET";
+      w180Reason = "challenger_closed_zero — nenhum trade fechado.";
+    } else if (w180Closed < THRESHOLDS.minimumClosedForReadableEconomics) {
+      w180Status = "SAMPLE_TOO_SMALL";
+      w180Reason = `closed=${w180Closed}. Amostra insuficiente.`;
+    } else if (!w180DefenseActivated && w180ChallengerAvg < 0) {
+      w180Status = "DEFENSIVE_LOGIC_NOT_ENGAGED";
+      w180Reason = "earlyKillExitCount=0. Kill window 180s não acionou ainda e challenger negativo.";
+    } else if (compVs1000 != null && w180Closed >= THRESHOLDS.minimumClosedForBaselineComparison) {
+      const baselineAvg = num(compVs1000.baselineAvgRealizedPnL);
+      const improvement = baselineAvg === 0 ? 0 : (w180ChallengerAvg - baselineAvg) / Math.abs(baselineAvg);
+      if (baselineAvg >= 0 && w180ChallengerAvg < 0) {
+        w180Status = "WORSE_THAN_BASELINE";
+        w180Reason = "Baseline positivo, window180 negativo.";
+      } else if (baselineAvg < 0 && w180ChallengerAvg >= 0) {
+        w180Status = "LESS_BAD_THAN_BASELINE";
+        w180Reason = "Window180 positivo vs baseline negativo.";
+      } else if (improvement >= THRESHOLDS.minimumRelativeImprovementToCallLessBad) {
+        w180Status = "LESS_BAD_THAN_BASELINE";
+        w180Reason = `Window180 ${(improvement * 100).toFixed(1)}% menos ruim que baseline.`;
+      } else if (improvement <= -THRESHOLDS.minimumRelativeImprovementToCallLessBad) {
+        w180Status = "WORSE_THAN_BASELINE";
+        w180Reason = `Window180 ${(-improvement * 100).toFixed(1)}% pior que baseline.`;
+      } else {
+        w180Status = "OPERABLE_BUT_UNPROVEN";
+        w180Reason = "Diferença vs baseline dentro da banda de ruído.";
+      }
+    } else if (compVsExitkill != null && w180Closed >= THRESHOLDS.minimumClosedForBaselineComparison) {
+      const ekAvg = num(compVsExitkill.baselineAvgRealizedPnL);
+      const improvement = ekAvg === 0 ? 0 : (w180ChallengerAvg - ekAvg) / Math.abs(ekAvg);
+      if (improvement >= THRESHOLDS.minimumRelativeImprovementToCallLessBad) {
+        w180Status = "LESS_BAD_THAN_BASELINE";
+        w180Reason = `Window180 ${(improvement * 100).toFixed(1)}% menos ruim que exitkill_v1.`;
+      } else if (improvement <= -THRESHOLDS.minimumRelativeImprovementToCallLessBad) {
+        w180Status = "WORSE_THAN_BASELINE";
+        w180Reason = `Window180 ${(-improvement * 100).toFixed(1)}% pior que exitkill_v1.`;
+      } else {
+        w180Status = "OPERABLE_BUT_UNPROVEN";
+        w180Reason = "Comparação vs exitkill_v1 inconclusiva.";
+      }
+    } else {
+      w180Status = "OPERABLE_BUT_UNPROVEN";
+      w180Reason = "Aguardar amostra para comparação. Primeiro objetivo: verificar se earlyKillExitCount > 0.";
+    }
+
+    const w180Judgment: Judgment = {
+      status: w180Status,
+      reason: w180Reason,
+      evidenceGrade: w180EvidenceGrade,
+      dominantFailureMode: w180Status === "WORSE_THAN_BASELINE" ? "worse_than_baseline" : w180Status === "DEFENSIVE_LOGIC_NOT_ENGAGED" ? "defenses_not_engaged" : "no_clear_failure_mode",
+      timestamp: new Date().toISOString(),
+      snapshotSource: snapshotFile,
+      thresholds: {
+        minClosedReadable: THRESHOLDS.minimumClosedForReadableEconomics,
+        minClosedCompare: THRESHOLDS.minimumClosedForBaselineComparison,
+        minImprovementPct: THRESHOLDS.minimumRelativeImprovementToCallLessBad,
+      },
+    };
+    const w180OutPath = path.join(outDir, "judgment_exitkill_window180_latest.json");
+    fs.writeFileSync(w180OutPath, JSON.stringify(w180Judgment, null, 2), "utf-8");
+    process.stdout.write(`\n[exitkill_window180] ${w180Status}\n`);
+    process.stdout.write(`evidenceGrade: ${w180EvidenceGrade}\n`);
+    process.stdout.write(`earlyKillExitCount: ${w180EarlyKill}\n`);
+    process.stdout.write(`Reason: ${w180Reason}\n`);
+    process.stdout.write(`Saved: ${w180OutPath}\n`);
   }
 }
 

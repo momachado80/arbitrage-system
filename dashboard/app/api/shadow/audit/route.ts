@@ -40,8 +40,15 @@ import {
 import {
   getStructuralExitKillDiagnostics,
   getStructuralExitKillComparison,
+  getExitKillCausalAudit,
   STRUCTURAL_EXIT_KILL_PROFILE_ID,
 } from "@/lib/structuralExitKillDiagnostics";
+import {
+  getStructuralExitKillWindow180Diagnostics,
+  getStructuralExitKillWindow180Comparison,
+  getExitKillWindow180CausalAudit,
+  STRUCTURAL_EXIT_KILL_WINDOW180_PROFILE_ID,
+} from "@/lib/structuralExitKillWindow180Diagnostics";
 import {
   getEntryChallengerDiagnostics,
   getEntryChallengerComparisonDiagnostics,
@@ -279,6 +286,7 @@ export async function GET() {
       allAuditEntries,
       rejectionCountsByProfile
     );
+    const structuralExitKillCausalAudit = getExitKillCausalAudit(structuralExitKillProfile);
     const structuralExitKillComparison: Record<
       string,
       import("@/lib/structuralExitKillDiagnostics").StructuralExitKillComparisonBlock
@@ -291,6 +299,29 @@ export async function GET() {
       structuralExitKillComparison[compareId] = getStructuralExitKillComparison(
         profiles,
         structuralExitKillDiagnostics,
+        compareId
+      );
+    }
+
+    const structuralExitKillWindow180Profile = profiles.find((p) => p.profileId === STRUCTURAL_EXIT_KILL_WINDOW180_PROFILE_ID);
+    const structuralExitKillWindow180Diagnostics = getStructuralExitKillWindow180Diagnostics(
+      structuralExitKillWindow180Profile,
+      allAuditEntries,
+      rejectionCountsByProfile
+    );
+    const structuralExitKillWindow180CausalAudit = getExitKillWindow180CausalAudit(structuralExitKillWindow180Profile);
+    const structuralExitKillWindow180Comparison: Record<
+      string,
+      import("@/lib/structuralExitKillDiagnostics").StructuralExitKillComparisonBlock
+    > = {};
+    for (const compareId of [
+      "shadow_1000",
+      "shadow_1000_structural_riskmanaged_v1",
+      "shadow_1000_structural_exitkill_v1",
+    ]) {
+      structuralExitKillWindow180Comparison[compareId] = getStructuralExitKillWindow180Comparison(
+        profiles,
+        structuralExitKillWindow180Diagnostics,
         compareId
       );
     }
@@ -319,6 +350,10 @@ export async function GET() {
       structuralRiskManagedComparison,
       structuralExitKillDiagnostics,
       structuralExitKillComparison,
+      structuralExitKillCausalAudit,
+      structuralExitKillWindow180Diagnostics,
+      structuralExitKillWindow180Comparison,
+      structuralExitKillWindow180CausalAudit,
       entryChallengerDiagnostics,
       entryChallengerComparisonDiagnostics,
       filteredOpportunityCounterfactual,

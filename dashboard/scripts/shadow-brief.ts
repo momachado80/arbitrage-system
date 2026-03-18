@@ -31,8 +31,12 @@ interface Snapshot {
   structuralRiskManagedComparison_vs_exitrefine: Record<string, unknown> | null;
   structuralExitKillDiagnostics?: Record<string, unknown> | null;
   structuralExitKillComparison?: Record<string, Record<string, unknown>> | null;
+  structuralExitKillWindow180Diagnostics?: Record<string, unknown> | null;
+  structuralExitKillWindow180Comparison?: Record<string, Record<string, unknown>> | null;
+  structuralExitKillWindow180CausalAudit?: Record<string, unknown> | null;
   profileSummary: Record<string, unknown> | null;
   exitKillProfileSummary?: Record<string, unknown> | null;
+  exitKillWindow180ProfileSummary?: Record<string, unknown> | null;
   metrics: {
     openedTradeCount: number;
     closedTradeCount: number;
@@ -260,6 +264,32 @@ ${
 | totalRealizedPnL | ${num(snapshot.structuralExitKillDiagnostics.totalRealizedPnL).toFixed(4)} |
 | avgHoldingMsEarlyKill | ${num(snapshot.structuralExitKillDiagnostics.avgHoldingMsEarlyKill).toFixed(0)} ms |
 | killReasonCounts | ${JSON.stringify(snapshot.structuralExitKillDiagnostics.killReasonCounts ?? {})} |
+`
+    : ""
+}
+${
+  snapshot.structuralExitKillWindow180Diagnostics != null
+    ? `
+---
+
+## Exit Kill Window 180 (shadow_1000_structural_exitkill_window180_v1)
+
+| Métrica | Valor |
+|---------|-------|
+| closedTradeCount | ${num(snapshot.structuralExitKillWindow180Diagnostics.closedTradeCount)} |
+| earlyKillExitCount | ${num(snapshot.structuralExitKillWindow180Diagnostics.earlyKillExitCount)} |
+| avgRealizedPnL | ${num(snapshot.structuralExitKillWindow180Diagnostics.avgRealizedPnL).toFixed(4)} |
+| totalRealizedPnL | ${num(snapshot.structuralExitKillWindow180Diagnostics.totalRealizedPnL).toFixed(4)} |
+| avgHoldingTimeMs | ${num(snapshot.structuralExitKillWindow180Diagnostics.avgHoldingTimeMs).toFixed(0)} ms |
+| avgHoldingMsEarlyKill | ${num(snapshot.structuralExitKillWindow180Diagnostics.avgHoldingMsEarlyKill).toFixed(0)} ms |
+| killReasonCounts | ${JSON.stringify(snapshot.structuralExitKillWindow180Diagnostics.killReasonCounts ?? {})} |
+${
+  snapshot.structuralExitKillWindow180CausalAudit != null
+    ? `| closedInKillWindow | ${num(snapshot.structuralExitKillWindow180CausalAudit.closedInKillWindow)} |
+| closedOutsideKillWindow | ${num(snapshot.structuralExitKillWindow180CausalAudit.closedOutsideKillWindow)} |
+| killWindowMs | ${num(snapshot.structuralExitKillWindow180CausalAudit.killWindowMs)} |`
+    : ""
+}
 `
     : ""
 }

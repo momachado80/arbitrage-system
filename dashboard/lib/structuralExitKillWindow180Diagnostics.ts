@@ -1,71 +1,21 @@
 /**
- * Structural Exit-Kill Challenger Diagnostics — shadow_1000_structural_exitkill_v1.
- * Hipótese: saída adaptativa mais agressiva reduz destruição econômica.
+ * Structural Exit-Kill Window 180 Challenger Diagnostics — shadow_1000_structural_exitkill_window180_v1.
+ * Hipótese: janela de 180s dá chance real à lógica de kill atuar.
+ * Única diferença vs exitkill_v1: monitoringWindowMs 180_000 em vez de 90_000.
  */
 
 import type { ShadowProfileState } from "./shadowSimulationStore";
 import type { ClosedTradeAuditEntry } from "./shadowClosedTradeAudit";
+import type { StructuralExitKillDiagnosticsBlock, StructuralExitKillComparisonBlock } from "./structuralExitKillDiagnostics";
 
-const PROFILE_ID = "shadow_1000_structural_exitkill_v1";
-
-let evaluatedOpportunityCount = 0;
-
-export function recordExitKillEvaluated(): void {
-  evaluatedOpportunityCount++;
-}
-
-export function recordExitKillKilled(): void {
-  // Optional: could increment for per-cycle killed count if needed
-}
-
-function percentile(sorted: number[], p: number): number {
-  if (sorted.length === 0) return 0;
-  const i = Math.max(0, Math.ceil((p / 100) * sorted.length) - 1);
-  return sorted[i] ?? 0;
-}
+const PROFILE_ID = "shadow_1000_structural_exitkill_window180_v1";
+const MONITORING_WINDOW_MS = 180_000;
 
 function median(arr: number[]): number {
   if (arr.length === 0) return 0;
   const sorted = [...arr].sort((a, b) => a - b);
   const m = Math.floor(arr.length / 2);
   return arr.length % 2 ? sorted[m]! : (sorted[m - 1]! + sorted[m]!) / 2;
-}
-
-export interface StructuralExitKillDiagnosticsBlock {
-  profileId: string;
-  evaluatedOpportunityCount: number;
-  openedTradeCount: number;
-  closedTradeCount: number;
-  avgRealizedPnL: number;
-  medianRealizedPnL: number;
-  totalRealizedPnL: number;
-  avgHoldingTimeMs: number;
-  earlyKillExitCount: number;
-  avgHoldingMsEarlyKill: number;
-  killReasonCounts: Record<string, number>;
-  avgCapitalMultiplierOpened: number;
-  avgCapturableEdgeOpened: number;
-  avgObservedEdgeOpened: number;
-  avgDegradationRatioOpened: number;
-  avgFillRatioOpened: number;
-}
-
-export interface StructuralExitKillComparisonBlock {
-  baselineProfileId: string;
-  challengerProfileId: string;
-  baselineClosed: number;
-  challengerClosed: number;
-  baselineAvgRealizedPnL: number;
-  challengerAvgRealizedPnL: number;
-  baselineMedianRealizedPnL: number;
-  challengerMedianRealizedPnL: number;
-  baselineTotalRealizedPnL: number;
-  challengerTotalRealizedPnL: number;
-  baselineAvgFillRatio: number;
-  challengerAvgFillRatio: number;
-  baselineAvgCapturableEdgeAtEntry: number;
-  challengerAvgCapturableEdgeAtEntry: number;
-  sameUniverseNote: string;
 }
 
 type TradeLike = {
@@ -82,7 +32,7 @@ type TradeLike = {
   requestedCapital?: number | null;
 };
 
-export function getStructuralExitKillDiagnostics(
+export function getStructuralExitKillWindow180Diagnostics(
   profile: ShadowProfileState | undefined,
   _allAuditEntries: ClosedTradeAuditEntry[],
   _rejectionCountsByProfile: Record<string, Record<string, number>>
@@ -123,7 +73,7 @@ export function getStructuralExitKillDiagnostics(
 
   return {
     profileId: PROFILE_ID,
-    evaluatedOpportunityCount,
+    evaluatedOpportunityCount: 0,
     openedTradeCount: openedCount,
     closedTradeCount: closed.length,
     avgRealizedPnL: pnls.length ? pnls.reduce((a, b) => a + b, 0) / pnls.length : 0,
@@ -141,7 +91,7 @@ export function getStructuralExitKillDiagnostics(
   };
 }
 
-export function getStructuralExitKillComparison(
+export function getStructuralExitKillWindow180Comparison(
   profiles: ShadowProfileState[],
   diagnostics: StructuralExitKillDiagnosticsBlock,
   compareProfileId: string
@@ -187,16 +137,13 @@ export function getStructuralExitKillComparison(
     challengerAvgFillRatio: diagnostics.avgFillRatioOpened,
     baselineAvgCapturableEdgeAtEntry: baselineAvgEdge,
     challengerAvgCapturableEdgeAtEntry: diagnostics.avgCapturableEdgeOpened,
-    sameUniverseNote: `Challenger: structural pair×fill×capfloor×degratio + exit kill. Baseline: ${compareProfileId}.`,
+    sameUniverseNote: `Challenger: structural pair×fill×capfloor×degratio + exit kill window 180s. Baseline: ${compareProfileId}.`,
   };
 }
 
-export const STRUCTURAL_EXIT_KILL_PROFILE_ID = PROFILE_ID;
+export const STRUCTURAL_EXIT_KILL_WINDOW180_PROFILE_ID = PROFILE_ID;
 
-/** Janela de monitoramento em ms — alinhado ao profile */
-const EXIT_KILL_MONITORING_WINDOW_MS = 90_000;
-
-export interface ExitKillCausalAuditBlock {
+export interface ExitKillWindow180CausalAuditBlock {
   profileId: string;
   totalClosed: number;
   closedInKillWindow: number;
@@ -206,75 +153,21 @@ export interface ExitKillCausalAuditBlock {
   exitReasonBreakdown: Record<string, number>;
   tradesNeverEvaluatedForKill: number;
   tradesEvaluatedButNoKill: number;
-  nearMissByCriterion: {
-    capturable_decayed: number;
-    observed_decayed: number;
-    net_edge_floor: number;
-    opportunity_absent: number;
-  };
-  sampleTradesInWindow: Array<{
-    tradeId: string;
-    holdingTimeMs: number;
-    exitReason: string;
-    capturableAtEntry: number;
-    observedAtEntry: number;
-    edgeAtExit: number;
-    capturableProxyAtClose: number;
-    wouldCapturableDecayFire: boolean;
-    wouldObservedDecayFire: boolean;
-    wouldNetEdgeFloorFire: boolean;
-  }>;
 }
 
-export function getExitKillCausalAudit(
+export function getExitKillWindow180CausalAudit(
   profile: ShadowProfileState | undefined
-): ExitKillCausalAuditBlock {
+): ExitKillWindow180CausalAuditBlock {
   const closed = (profile?.closedTrades ?? []).filter(
     (t) => t.status === "closed" && t.closedAt && t.structuralRiskFilterMatchAtOpen !== false
   );
-  const inWindow = closed.filter((t) => (t.holdingTimeMs ?? 0) < EXIT_KILL_MONITORING_WINDOW_MS);
-  const outsideWindow = closed.filter((t) => (t.holdingTimeMs ?? 0) >= EXIT_KILL_MONITORING_WINDOW_MS);
+  const inWindow = closed.filter((t) => (t.holdingTimeMs ?? 0) < MONITORING_WINDOW_MS);
+  const outsideWindow = closed.filter((t) => (t.holdingTimeMs ?? 0) >= MONITORING_WINDOW_MS);
 
   const exitReasonBreakdown: Record<string, number> = {};
   for (const t of closed) {
     const r = t.exitReason ?? "unknown";
     exitReasonBreakdown[r] = (exitReasonBreakdown[r] ?? 0) + 1;
-  }
-
-  let nearMissCapturable = 0;
-  let nearMissObserved = 0;
-  let nearMissNetEdge = 0;
-  const sampleTradesInWindow: ExitKillCausalAuditBlock["sampleTradesInWindow"] = [];
-
-  for (const t of inWindow) {
-    const capEntry = t.capturableEdgeAtEntry ?? 0;
-    const obsEntry = t.observedEdgeAtEntry ?? 0;
-    const edgeExit = t.edgeAtExit ?? 0;
-    const capturableProxy =
-      obsEntry > 0.0001 ? capEntry * (edgeExit / obsEntry) : edgeExit;
-
-    const wouldCapturable = capEntry > 0.0001 && capturableProxy <= 0.5 * capEntry;
-    const wouldObserved = obsEntry > 0.0001 && edgeExit <= 0.5 * obsEntry;
-    const wouldNetEdge = edgeExit <= 0.02;
-
-    const ratioCapturable = capEntry > 0.0001 ? capturableProxy / capEntry : 1;
-    const ratioObserved = obsEntry > 0.0001 ? edgeExit / obsEntry : 1;
-    if (ratioCapturable > 0.5 && ratioCapturable <= 0.65) nearMissCapturable++;
-    if (ratioObserved > 0.5 && ratioObserved <= 0.65) nearMissObserved++;
-    if (edgeExit > 0.02 && edgeExit <= 0.03) nearMissNetEdge++;
-
-    sampleTradesInWindow.push({
-      tradeId: t.tradeId,
-      holdingTimeMs: t.holdingTimeMs ?? 0,
-      exitReason: t.exitReason ?? "unknown",
-      capturableAtEntry: capEntry,
-      observedAtEntry: obsEntry,
-      edgeAtExit: edgeExit,
-      capturableProxyAtClose: capturableProxy,
-      wouldCapturableDecayFire: wouldCapturable,
-      wouldObservedDecayFire: wouldObserved,
-      wouldNetEdgeFloorFire: wouldNetEdge,
-    });
   }
 
   const avgHoldingMs =
@@ -288,16 +181,9 @@ export function getExitKillCausalAudit(
     closedInKillWindow: inWindow.length,
     closedOutsideKillWindow: outsideWindow.length,
     avgHoldingTimeMs: avgHoldingMs,
-    killWindowMs: EXIT_KILL_MONITORING_WINDOW_MS,
+    killWindowMs: MONITORING_WINDOW_MS,
     exitReasonBreakdown,
     tradesNeverEvaluatedForKill: outsideWindow.length,
     tradesEvaluatedButNoKill: inWindow.length,
-    nearMissByCriterion: {
-      capturable_decayed: nearMissCapturable,
-      observed_decayed: nearMissObserved,
-      net_edge_floor: nearMissNetEdge,
-      opportunity_absent: 0,
-    },
-    sampleTradesInWindow,
   };
 }
