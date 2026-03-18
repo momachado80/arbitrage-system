@@ -61,6 +61,7 @@ import {
 } from "@/lib/structuralLateExitTighterDiagnostics";
 import { getStructuralLateExitCausalAudit } from "@/lib/structuralLateExitCausalAudit";
 import { getExitKillComparativeProximityAudit } from "@/lib/exitKillComparativeProximityAudit";
+import { getStructuralFamilyOperationalDiagnostics } from "@/lib/structuralFamilyOperationalDiagnostics";
 import {
   getEntryChallengerDiagnostics,
   getEntryChallengerComparisonDiagnostics,
@@ -76,6 +77,7 @@ export async function GET() {
     ensureShadowSimulation();
     getProfilesForExecution(); // Materialize enabled challengers before audit (ensureProfileState for challengers)
     const profiles = getAllShadowProfiles();
+    const structuralFamilyOperationalDiagnostics = getStructuralFamilyOperationalDiagnostics(profiles);
     const audit = computeClosedTradeAudit(profiles, getProfileConfig);
     const status = getShadowSystemStatus();
     const rejectionCountsByProfile = getRejectionCountsByProfile();
@@ -428,6 +430,7 @@ export async function GET() {
       structuralLateExitTighterDiagnostics,
       structuralLateExitTighterComparison,
       structuralLateExitTighterCausalAudit,
+      structuralFamilyOperationalDiagnostics,
       exitKillComparativeProximityAudit: getExitKillComparativeProximityAudit(profiles),
       entryChallengerDiagnostics,
       entryChallengerComparisonDiagnostics,

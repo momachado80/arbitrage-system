@@ -27,6 +27,7 @@ import {
   addShadowTrade,
   closeShadowTrade,
   updateShadowUnrealized,
+  updateProfileHeartbeat,
   recordRejection,
   getShadowProfileState,
   getProfileExposure,
@@ -1172,8 +1173,10 @@ function runCycle(): void {
               `[ShadowSim] profile=${profile.profileId} seen=${merged.length} opened=${opened} closed=${closed} equity=${eq.toFixed(2)} duration=${elapsed}ms`
             );
           }
+          updateProfileHeartbeat(profile.profileId);
         } catch (err) {
           console.warn(`[ShadowSim] profile ${profile.profileId} failed:`, err instanceof Error ? err.message : err);
+          updateProfileHeartbeat(profile.profileId);
         }
       }
 

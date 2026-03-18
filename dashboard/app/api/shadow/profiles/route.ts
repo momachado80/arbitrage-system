@@ -28,6 +28,7 @@ export async function GET() {
         activeTrades: p.activeTrades.length,
         closedTrades: p.closedTrades.length,
         lastUpdate: p.lastUpdate,
+        lastCycleProcessedAt: (p as { lastCycleProcessedAt?: string | null }).lastCycleProcessedAt ?? null,
         isAdaptive: config?.isAdaptive ?? false,
         baseProfileId: config?.baseProfileId ?? null,
       };

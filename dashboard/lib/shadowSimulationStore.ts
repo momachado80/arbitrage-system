@@ -110,6 +110,8 @@ export interface ShadowProfileState {
   closedTrades: ShadowTrade[];
   equityCurve: Array<{ ts: string; equity: number; cumulativePnL: number }>;
   lastUpdate: string | null;
+  /** Último ciclo em que o profile foi processado (heartbeat operacional) */
+  lastCycleProcessedAt: string | null;
   peakEquity: number;
   exposureByCluster: Record<string, number>;
   exposureByMarket: Record<string, number>;
@@ -164,6 +166,7 @@ function initProfileState(config: ShadowProfileConfig): ShadowProfileState {
     closedTrades: [],
     equityCurve: [{ ts: new Date().toISOString(), equity: config.startingCapital, cumulativePnL: 0 }],
     lastUpdate: null,
+    lastCycleProcessedAt: null,
     peakEquity: config.startingCapital,
     exposureByCluster: {},
     exposureByMarket: {},
@@ -276,6 +279,7 @@ export function rehydrateFromPersistence(): void {
         ? curve.slice(-MAX_EQUITY_CURVE_POINTS)
         : curve;
     state.lastUpdate = new Date().toISOString();
+    state.lastCycleProcessedAt = new Date().toISOString();
 
     totalRestored += toRestore.length;
   }
@@ -404,6 +408,13 @@ export function updateShadowUnrealized(profileId: string, unrealized: number): v
   state.unrealizedPnL = unrealized;
   state.currentEquity = state.startingCapital + state.realizedPnL + unrealized;
   state.availableCapital = Math.max(0, state.currentEquity - state.reservedCapital);
+}
+
+/** Atualiza heartbeat operacional: último ciclo em que o profile foi processado. */
+export function updateProfileHeartbeat(profileId: string): void {
+  const state = profileStates.get(profileId);
+  if (!state) return;
+  state.lastCycleProcessedAt = new Date().toISOString();
 }
 
 export function recordRejection(profileId: string, reason: string): void {
