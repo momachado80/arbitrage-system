@@ -114,6 +114,17 @@ import {
   recordEntryChallengerDecision,
   BASELINE_PROFILE_ID,
 } from "./entryChallengerDiagnostics";
+import {
+  recordCycleProcessed,
+  recordRawOpportunitySeen,
+  recordPairEligible,
+  recordFillEligible,
+  recordCapfloorEligible,
+  recordDegratioEligible,
+  recordFinalCandidate,
+  recordOpenAttempt,
+  recordOpened,
+} from "./profileEligibilityFunnel";
 import type { NormalizedPaperOpportunity } from "./paperTypes";
 import type { PersistenceData } from "./edgeDecayModel";
 
@@ -345,6 +356,7 @@ function runCycle(): void {
 
       for (const profile of profiles) {
         try {
+          recordCycleProcessed(profile.profileId);
           const state = ensureProfileState(profile);
           const exposure = getProfileExposure(profile.profileId);
           const profileState = {
@@ -363,6 +375,7 @@ function runCycle(): void {
 
           for (const { opp, capacity } of Array.from(oppMap.values())) {
             recordCycleOpportunityIteration(profile.profileId);
+            recordRawOpportunitySeen(profile.profileId);
             if (capacity.recommendedCapital <= 0) {
               recordSkippedBeforeThreshold(profile.profileId, "capacity_zero");
               continue;
@@ -696,6 +709,7 @@ function runCycle(): void {
                 );
                 continue;
               }
+              recordPairEligible(profile.profileId);
               if (!isStructuralFillBucketMatch(fillRatio)) {
                 recordStructuralRiskRejectedByFillBucket();
                 recordRejection(profile.profileId, "structural_risk_fill_bucket_mismatch");
@@ -709,6 +723,7 @@ function runCycle(): void {
                 );
                 continue;
               }
+              recordFillEligible(profile.profileId);
               const cap = entryResult.capturableEdgeBeforeImpact ?? 0;
               if (cap < structuralRiskTarget.capfloor) {
                 recordStructuralRiskRejectedByCapfloor();
@@ -723,6 +738,7 @@ function runCycle(): void {
                 );
                 continue;
               }
+              recordCapfloorEligible(profile.profileId);
               const observed = entryResult.observedEdge ?? opp.edge ?? 0;
               const degRatio = cap / Math.max(0.0001, observed);
               if (degRatio < structuralRiskTarget.degRatioMin) {
@@ -738,6 +754,7 @@ function runCycle(): void {
                 );
                 continue;
               }
+              recordDegratioEligible(profile.profileId);
               if (profile.exitKillTarget) recordExitKillEvaluated();
             }
 
@@ -837,6 +854,8 @@ function runCycle(): void {
               pairKey ?? undefined,
               degRatioForRecord
             );
+            recordFinalCandidate(profile.profileId);
+            recordOpenAttempt(profile.profileId);
             const tradeId = `sst-${profile.profileId}-${Date.now()}-${opened}`;
             const narrowTarget = profile.narrowChallengerTarget;
             const structuralTarget = profile.structuralChallengerTarget;
@@ -915,6 +934,7 @@ function runCycle(): void {
             };
 
             addShadowTrade(profile.profileId, trade, profile);
+            recordOpened(profile.profileId);
             activeOppIds.add(opp.opportunityId);
             opened++;
           }

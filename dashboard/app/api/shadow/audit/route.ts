@@ -69,6 +69,7 @@ import {
   getEntryChallengerMetricsSummary,
   BASELINE_PROFILE_ID,
 } from "@/lib/entryChallengerDiagnostics";
+import { getProfileEligibilityDiagnostics } from "@/lib/profileEligibilityFunnel";
 
 export const dynamic = "force-dynamic";
 
@@ -77,10 +78,23 @@ export async function GET() {
     ensureShadowSimulation();
     getProfilesForExecution(); // Materialize enabled challengers before audit (ensureProfileState for challengers)
     const profiles = getAllShadowProfiles();
+    const rejectionCountsByProfile = getRejectionCountsByProfile();
     const structuralFamilyOperationalDiagnostics = getStructuralFamilyOperationalDiagnostics(profiles);
+    const profileEligibilityDiagnostics = getProfileEligibilityDiagnostics(
+      profiles.map((p) => p.profileId),
+      (pid) => getProfileById(pid)?.label,
+      (pid) => {
+        const p = profiles.find((x) => x.profileId === pid);
+        return p?.closedTrades.filter((t) => t.status === "closed" && t.closedAt).length ?? 0;
+      },
+      (pid) => {
+        const p = profiles.find((x) => x.profileId === pid);
+        return p?.realizedPnL ?? 0;
+      },
+      rejectionCountsByProfile
+    );
     const audit = computeClosedTradeAudit(profiles, getProfileConfig);
     const status = getShadowSystemStatus();
-    const rejectionCountsByProfile = getRejectionCountsByProfile();
     const marketStats = getServiceStats();
     const graphStats = getGraphScanStats();
     const maxHoldingTimeMsByProfile: Record<string, number> = {};
@@ -431,6 +445,7 @@ export async function GET() {
       structuralLateExitTighterComparison,
       structuralLateExitTighterCausalAudit,
       structuralFamilyOperationalDiagnostics,
+      profileEligibilityDiagnostics,
       exitKillComparativeProximityAudit: getExitKillComparativeProximityAudit(profiles),
       entryChallengerDiagnostics,
       entryChallengerComparisonDiagnostics,
