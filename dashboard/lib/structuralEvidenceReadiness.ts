@@ -43,6 +43,7 @@ export interface StructuralEvidenceReadiness {
 
 const STRUCTURAL_PROFILE_IDS = new Set([
   "shadow_1000_structural_riskmanaged_v1",
+  "shadow_1000_structural_fillrelax_v1",
   "shadow_1000_structural_exitkill_v1",
   "shadow_1000_structural_exitkill_window180_v1",
   "shadow_1000_structural_lateexit_nonreversion_v1",

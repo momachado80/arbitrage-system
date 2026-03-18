@@ -88,6 +88,7 @@ import {
 import {
   isStructuralPairMatch,
   isStructuralFillBucketMatch,
+  isStructuralFillBucketMatchFor,
   isStructuralEdgeBucketGt5Match,
   getCapturableEdgeBucket,
 } from "./structuralChallengerHelpers";
@@ -710,7 +711,7 @@ function runCycle(): void {
                 continue;
               }
               recordPairEligible(profile.profileId);
-              if (!isStructuralFillBucketMatch(fillRatio)) {
+              if (!isStructuralFillBucketMatchFor(fillRatio, structuralRiskTarget.fillRatioBucket)) {
                 recordStructuralRiskRejectedByFillBucket();
                 recordRejection(profile.profileId, "structural_risk_fill_bucket_mismatch");
                 recordEntryDecision(
@@ -1457,7 +1458,7 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
           recordRejection(profile.profileId, "structural_risk_pair_mismatch");
           continue;
         }
-        if (!isStructuralFillBucketMatch(fillRatio)) {
+        if (!isStructuralFillBucketMatchFor(fillRatio, structuralRiskTargetEval.fillRatioBucket)) {
           recordStructuralRiskRejectedByFillBucket();
           recordRejection(profile.profileId, "structural_risk_fill_bucket_mismatch");
           continue;

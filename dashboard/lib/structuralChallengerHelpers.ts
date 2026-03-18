@@ -25,6 +25,21 @@ export function isStructuralFillBucketMatch(fillRatio: number | null | undefined
   return fillRatio > 0.1 && fillRatio <= 0.25;
 }
 
+/** Fill bucket 0.1-0.5: relaxamento controlado — > 0.1 e <= 0.5 (challenger fill_gate) */
+export function isStructuralFillBucketRelaxedMatch(fillRatio: number | null | undefined): boolean {
+  if (fillRatio == null || fillRatio < 0) return false;
+  return fillRatio > 0.1 && fillRatio <= 0.5;
+}
+
+/** Match por bucket configurável. "0.1-0.25" = padrão; "0.1-0.5" = relaxado. */
+export function isStructuralFillBucketMatchFor(
+  fillRatio: number | null | undefined,
+  bucket: "0.1-0.25" | "0.1-0.5"
+): boolean {
+  if (bucket === "0.1-0.5") return isStructuralFillBucketRelaxedMatch(fillRatio);
+  return isStructuralFillBucketMatch(fillRatio);
+}
+
 /** Edge bucket >5%: >= 0.05 (decimal) */
 export function isStructuralEdgeBucketGt5Match(capturableEdge: number): boolean {
   return capturableEdge >= 0.05;

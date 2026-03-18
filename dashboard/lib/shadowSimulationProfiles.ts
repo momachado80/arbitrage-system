@@ -50,7 +50,7 @@ export interface ShadowProfileConfig {
   /** Structural risk-managed: pair set + fill + entry capfloor + degratio + adaptive sizing */
   structuralRiskManagedTarget?: {
     pairKeys: readonly string[];
-    fillRatioBucket: "0.1-0.25";
+    fillRatioBucket: "0.1-0.25" | "0.1-0.5";
     capfloor: number;
     degRatioMin: number;
   };
@@ -333,6 +333,38 @@ export const SHADOW_PROFILES: ShadowProfileConfig[] = [
         "540818+556108",
       ],
       fillRatioBucket: "0.1-0.25",
+      capfloor: 0.045,
+      degRatioMin: 0.24,
+    },
+  },
+  {
+    profileId: "shadow_1000_structural_fillrelax_v1",
+    label: "Structural fill-relax: pair×fill0.1-0.5×capfloor×degratio (v1)",
+    startingCapital: 5000,
+    latencyProfile: "normal",
+    maxCapitalPerTrade: 150,
+    maxCapitalPerCluster: 400,
+    maxCapitalPerMarket: 200,
+    minConfidenceToTrade: 0.2,
+    minNetCapturableEdgeToTrade: 0.045,
+    maxHoldingTimeMs: 300_000,
+    stopLossPct: 0.03,
+    takeProfitPct: 0.05,
+    feeBuffer: 0.002,
+    impactAlpha: 1.3,
+    liquidityHaircut: 0.6,
+    enabled: true,
+    structuralRiskManagedTarget: {
+      pairKeys: [
+        "540817+565065",
+        "540817+562187",
+        "540817+573647",
+        "540817+540818",
+        "556108+567561",
+        "556108+562187",
+        "540818+556108",
+      ],
+      fillRatioBucket: "0.1-0.5",
       capfloor: 0.045,
       degRatioMin: 0.24,
     },
