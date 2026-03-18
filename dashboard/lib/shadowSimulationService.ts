@@ -98,6 +98,10 @@ import {
   recordStructuralPassedAllFilters,
 } from "./structuralChallengerDiagnostics";
 import {
+  recordExitKillEvaluated,
+  recordExitKillKilled,
+} from "./structuralExitKillDiagnostics";
+import {
   recordStructuralRiskEvaluated,
   recordStructuralRiskRejectedByPair,
   recordStructuralRiskRejectedByFillBucket,
@@ -730,6 +734,7 @@ function runCycle(): void {
                 );
                 continue;
               }
+              if (profile.exitKillTarget) recordExitKillEvaluated();
             }
 
             /** Entry capfloor challenger: só abre se capturableEdge >= 0.03 */
@@ -933,8 +938,57 @@ function runCycle(): void {
             const holdingMs = now - new Date(t.openedAt).getTime();
             let shouldClose = false;
             let earlyThesisFailureReason: string | null = null;
+            let exitKillReason: string | null = null;
+            let exitKillCapturable: number | null = null;
+            let exitKillObserved: number | null = null;
+            let exitKillDegRatio: number | null = null;
+            let exitKillAbsentCycles: number | null = null;
 
-            if (profile.structuralRiskManagedTarget && holdingMs < EARLY_THESIS_MONITORING_WINDOW_MS) {
+            if (profile.exitKillTarget && holdingMs < profile.exitKillTarget.monitoringWindowMs) {
+              const ek = profile.exitKillTarget;
+              if (!latestState) {
+                const prev = structuralRiskConsecutiveAbsentByTradeId.get(t.tradeId) ?? 0;
+                structuralRiskConsecutiveAbsentByTradeId.set(t.tradeId, prev + 1);
+                if (prev + 1 >= ek.killAbsentCycles) {
+                  shouldClose = true;
+                  exitKillReason = "opportunity_absent";
+                  exitKillAbsentCycles = prev + 1;
+                  structuralRiskConsecutiveAbsentByTradeId.delete(t.tradeId);
+                }
+              } else {
+                structuralRiskConsecutiveAbsentByTradeId.set(t.tradeId, 0);
+                const capturableAtEntry = t.capturableEdgeAtEntry ?? 0;
+                const observedAtEntry = t.observedEdgeAtEntry ?? 0;
+                const observedNow = latestState.edge;
+                const capturableNowProxy =
+                  observedAtEntry > 0.0001
+                    ? capturableAtEntry * (observedNow / observedAtEntry)
+                    : observedNow;
+                const degRatioNow =
+                  observedNow > 0.0001 ? capturableNowProxy / observedNow : 0;
+
+                if (capturableAtEntry > 0.0001 && capturableNowProxy <= ek.killCapturableDecayFraction * capturableAtEntry) {
+                  shouldClose = true;
+                  exitKillReason = "capturable_edge_decayed";
+                  exitKillCapturable = capturableNowProxy;
+                  exitKillObserved = observedNow;
+                  exitKillDegRatio = degRatioNow;
+                } else if (observedAtEntry > 0.0001 && observedNow <= ek.killObservedEdgeDecayFraction * observedAtEntry) {
+                  shouldClose = true;
+                  exitKillReason = "observed_edge_decayed";
+                  exitKillCapturable = capturableNowProxy;
+                  exitKillObserved = observedNow;
+                  exitKillDegRatio = degRatioNow;
+                } else if (observedNow <= ek.killNetEdgeFloor) {
+                  shouldClose = true;
+                  exitKillReason = "net_edge_below_floor";
+                  exitKillCapturable = capturableNowProxy;
+                  exitKillObserved = observedNow;
+                  exitKillDegRatio = degRatioNow;
+                }
+              }
+              if (exitKillReason) recordExitKillKilled();
+            } else if (profile.structuralRiskManagedTarget && !profile.exitKillTarget && holdingMs < EARLY_THESIS_MONITORING_WINDOW_MS) {
               if (!latestState) {
                 const prev = structuralRiskConsecutiveAbsentByTradeId.get(t.tradeId) ?? 0;
                 structuralRiskConsecutiveAbsentByTradeId.set(t.tradeId, prev + 1);
@@ -994,7 +1048,7 @@ function runCycle(): void {
                 realizedPnL: exitResult.realizedPnL,
                 realizedReturn: exitResult.realizedReturn,
                 holdingTimeMs: holdingMs,
-                exitReason: earlyThesisFailureReason ? "early_thesis_failure" : exitResult.exitReason,
+                exitReason: exitKillReason ? "exit_kill" : earlyThesisFailureReason ? "early_thesis_failure" : exitResult.exitReason,
                 exitImpactBps:
                   exitResult.exitSlippage != null
                     ? Math.round(exitResult.exitSlippage * 10000)
@@ -1014,6 +1068,15 @@ function runCycle(): void {
                 closeUpdates.earlyThesisFailureTriggered = true;
                 closeUpdates.earlyThesisFailureReason = earlyThesisFailureReason;
                 closeUpdates.earlyThesisFailureAtMsFromOpen = holdingMs;
+              }
+              if (exitKillReason) {
+                closeUpdates.exitKillTriggered = true;
+                closeUpdates.exitKillReason = exitKillReason;
+                closeUpdates.exitKillAtMsFromOpen = holdingMs;
+                closeUpdates.capturableEdgeAtKill = exitKillCapturable;
+                closeUpdates.observedEdgeAtKill = exitKillObserved;
+                closeUpdates.degradationRatioAtKill = exitKillDegRatio;
+                closeUpdates.opportunityAbsentCyclesAtKill = exitKillAbsentCycles;
               }
               closeShadowTrade(profile.profileId, t.tradeId, closeUpdates);
               closed++;

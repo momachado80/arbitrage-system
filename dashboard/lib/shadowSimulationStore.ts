@@ -78,6 +78,15 @@ export interface ShadowTrade {
   earlyThesisFailureTriggered?: boolean;
   earlyThesisFailureReason?: string | null;
   earlyThesisFailureAtMsFromOpen?: number | null;
+
+  /** Exit-kill challenger: saída adaptativa mais agressiva */
+  exitKillTriggered?: boolean;
+  exitKillReason?: string | null;
+  exitKillAtMsFromOpen?: number | null;
+  capturableEdgeAtKill?: number | null;
+  observedEdgeAtKill?: number | null;
+  degradationRatioAtKill?: number | null;
+  opportunityAbsentCyclesAtKill?: number | null;
 }
 
 export interface ShadowProfileState {

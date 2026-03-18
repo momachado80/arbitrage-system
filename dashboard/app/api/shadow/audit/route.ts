@@ -38,6 +38,11 @@ import {
   STRUCTURAL_RISK_MANAGED_PROFILE_ID,
 } from "@/lib/structuralRiskManagedDiagnostics";
 import {
+  getStructuralExitKillDiagnostics,
+  getStructuralExitKillComparison,
+  STRUCTURAL_EXIT_KILL_PROFILE_ID,
+} from "@/lib/structuralExitKillDiagnostics";
+import {
   getEntryChallengerDiagnostics,
   getEntryChallengerComparisonDiagnostics,
   getFilteredOpportunityCounterfactual,
@@ -268,6 +273,28 @@ export async function GET() {
       );
     }
 
+    const structuralExitKillProfile = profiles.find((p) => p.profileId === STRUCTURAL_EXIT_KILL_PROFILE_ID);
+    const structuralExitKillDiagnostics = getStructuralExitKillDiagnostics(
+      structuralExitKillProfile,
+      allAuditEntries,
+      rejectionCountsByProfile
+    );
+    const structuralExitKillComparison: Record<
+      string,
+      import("@/lib/structuralExitKillDiagnostics").StructuralExitKillComparisonBlock
+    > = {};
+    for (const compareId of [
+      "shadow_1000",
+      "shadow_1000_adapt_captrade_exitrefine_v1",
+      "shadow_1000_structural_riskmanaged_v1",
+    ]) {
+      structuralExitKillComparison[compareId] = getStructuralExitKillComparison(
+        profiles,
+        structuralExitKillDiagnostics,
+        compareId
+      );
+    }
+
     return NextResponse.json({
       ...audit,
       maxHoldingTimeMsByProfile,
@@ -290,6 +317,8 @@ export async function GET() {
       structuralChallengerComparison,
       structuralRiskManagedDiagnostics,
       structuralRiskManagedComparison,
+      structuralExitKillDiagnostics,
+      structuralExitKillComparison,
       entryChallengerDiagnostics,
       entryChallengerComparisonDiagnostics,
       filteredOpportunityCounterfactual,

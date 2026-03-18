@@ -50,6 +50,14 @@ export interface ClosedTradeAuditEntry {
   earlyThesisFailureTriggered?: boolean;
   earlyThesisFailureReason?: string | null;
   earlyThesisFailureAtMsFromOpen?: number | null;
+  /** Exit-kill challenger */
+  exitKillTriggered?: boolean;
+  exitKillReason?: string | null;
+  exitKillAtMsFromOpen?: number | null;
+  capturableEdgeAtKill?: number | null;
+  observedEdgeAtKill?: number | null;
+  degradationRatioAtKill?: number | null;
+  opportunityAbsentCyclesAtKill?: number | null;
 }
 
 export interface ProfileAuditSummary {
@@ -267,6 +275,13 @@ function toAuditEntry(t: ShadowTrade, profileId: string): ClosedTradeAuditEntry 
     earlyThesisFailureTriggered: t.earlyThesisFailureTriggered,
     earlyThesisFailureReason: t.earlyThesisFailureReason,
     earlyThesisFailureAtMsFromOpen: t.earlyThesisFailureAtMsFromOpen,
+    exitKillTriggered: t.exitKillTriggered,
+    exitKillReason: t.exitKillReason,
+    exitKillAtMsFromOpen: t.exitKillAtMsFromOpen,
+    capturableEdgeAtKill: t.capturableEdgeAtKill,
+    observedEdgeAtKill: t.observedEdgeAtKill,
+    degradationRatioAtKill: t.degradationRatioAtKill,
+    opportunityAbsentCyclesAtKill: t.opportunityAbsentCyclesAtKill,
   };
 }
 
