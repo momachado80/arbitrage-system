@@ -71,6 +71,7 @@ import {
 } from "@/lib/entryChallengerDiagnostics";
 import { getProfileEligibilityDiagnostics } from "@/lib/profileEligibilityFunnel";
 import { getProfileEligibilityJudgements } from "@/lib/profileEligibilityJudge";
+import { getStructuralRecalibrationReview } from "@/lib/structuralRecalibrationReview";
 
 export const dynamic = "force-dynamic";
 
@@ -95,6 +96,10 @@ export async function GET() {
       rejectionCountsByProfile
     );
     const profileEligibilityJudgements = getProfileEligibilityJudgements(profileEligibilityDiagnostics);
+    const structuralRecalibrationReview = getStructuralRecalibrationReview(
+      profileEligibilityDiagnostics,
+      profileEligibilityJudgements
+    );
     const audit = computeClosedTradeAudit(profiles, getProfileConfig);
     const status = getShadowSystemStatus();
     const marketStats = getServiceStats();
@@ -449,6 +454,7 @@ export async function GET() {
       structuralFamilyOperationalDiagnostics,
       profileEligibilityDiagnostics,
       profileEligibilityJudgements,
+      structuralRecalibrationReview,
       exitKillComparativeProximityAudit: getExitKillComparativeProximityAudit(profiles),
       entryChallengerDiagnostics,
       entryChallengerComparisonDiagnostics,
