@@ -54,6 +54,7 @@ import {
   getStructuralLateExitComparison,
   STRUCTURAL_LATE_EXIT_PROFILE_ID,
 } from "@/lib/structuralLateExitDiagnostics";
+import { getStructuralLateExitCausalAudit } from "@/lib/structuralLateExitCausalAudit";
 import { getExitKillComparativeProximityAudit } from "@/lib/exitKillComparativeProximityAudit";
 import {
   getEntryChallengerDiagnostics,
@@ -338,6 +339,7 @@ export async function GET() {
       allAuditEntries,
       rejectionCountsByProfile
     );
+    const structuralLateExitCausalAudit = getStructuralLateExitCausalAudit(structuralLateExitProfile);
     const structuralLateExitComparison: Record<
       string,
       import("@/lib/structuralLateExitDiagnostics").StructuralLateExitComparisonBlock
@@ -385,6 +387,7 @@ export async function GET() {
       structuralExitKillWindow180CausalAudit,
       structuralLateExitDiagnostics,
       structuralLateExitComparison,
+      structuralLateExitCausalAudit,
       exitKillComparativeProximityAudit: getExitKillComparativeProximityAudit(profiles),
       entryChallengerDiagnostics,
       entryChallengerComparisonDiagnostics,
