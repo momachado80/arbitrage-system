@@ -10,7 +10,13 @@
     "build": "next build",
     "start": "node server.js",
     "bot": "npx ts-node -P tsconfig.worker.json botRunner.ts",
-    "lint": "next lint"
+    "lint": "next lint",
+    "shadow:preflight": "npx ts-node -P tsconfig.worker.json scripts/shadow-preflight.ts",
+    "shadow:deploy-check": "npx ts-node -P tsconfig.worker.json scripts/shadow-deploy-check.ts",
+    "shadow:snapshot": "npx ts-node -P tsconfig.worker.json scripts/shadow-snapshot.ts",
+    "shadow:brief": "npx ts-node -P tsconfig.worker.json scripts/shadow-brief.ts",
+    "shadow:judge": "npx ts-node -P tsconfig.worker.json scripts/shadow-judge.ts",
+    "shadow:full-check": "npx ts-node -P tsconfig.worker.json scripts/shadow-full-check.ts"
   },
   "dependencies": {
     "next": "13.5.6",

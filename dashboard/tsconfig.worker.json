@@ -4,5 +4,5 @@
     "module": "CommonJS",
     "moduleResolution": "node"
   },
-  "include": ["botRunner.ts", "lib/**/*.ts"]
+  "include": ["botRunner.ts", "lib/**/*.ts", "scripts/**/*.ts"]
 }
