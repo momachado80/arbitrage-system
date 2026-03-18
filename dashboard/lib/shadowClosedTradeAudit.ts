@@ -33,6 +33,12 @@ export interface ClosedTradeAuditEntry {
   /** Entry challenger counterfactual: baseline abriu mas challenger filtrou no mesmo ciclo */
   capfloorFilteredSameCycle?: boolean;
   degratioFilteredSameCycle?: boolean;
+  /** Structural challenger */
+  structuralFilterMatchAtOpen?: boolean;
+  structuralTargetPairSetAtOpen?: string[] | null;
+  structuralTargetFillBucketAtOpen?: string | null;
+  structuralTargetEdgeBucketAtOpen?: string | null;
+  structuralTargetVersion?: string | null;
 }
 
 export interface ProfileAuditSummary {
@@ -235,6 +241,11 @@ function toAuditEntry(t: ShadowTrade, profileId: string): ClosedTradeAuditEntry 
     narrowFilterMatchAtOpen: t.narrowFilterMatchAtOpen,
     capfloorFilteredSameCycle: t.capfloorFilteredSameCycle,
     degratioFilteredSameCycle: t.degratioFilteredSameCycle,
+    structuralFilterMatchAtOpen: t.structuralFilterMatchAtOpen,
+    structuralTargetPairSetAtOpen: t.structuralTargetPairSetAtOpen,
+    structuralTargetFillBucketAtOpen: t.structuralTargetFillBucketAtOpen,
+    structuralTargetEdgeBucketAtOpen: t.structuralTargetEdgeBucketAtOpen,
+    structuralTargetVersion: t.structuralTargetVersion,
   };
 }
 

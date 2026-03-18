@@ -85,6 +85,19 @@ import {
   recordPassedAllNarrowFilters,
 } from "./narrowChallengerDiagnostics";
 import {
+  isStructuralPairMatch,
+  isStructuralFillBucketMatch,
+  isStructuralEdgeBucketGt5Match,
+  getCapturableEdgeBucket,
+} from "./structuralChallengerHelpers";
+import {
+  recordStructuralOpportunitiesSeen,
+  recordStructuralRejectedByPairMismatch,
+  recordStructuralRejectedByFillBucketMismatch,
+  recordStructuralRejectedByEdgeBucketMismatch,
+  recordStructuralPassedAllFilters,
+} from "./structuralChallengerDiagnostics";
+import {
   recordEntryChallengerDecision,
   BASELINE_PROFILE_ID,
 } from "./entryChallengerDiagnostics";
@@ -597,6 +610,53 @@ function runCycle(): void {
               recordPassedAllNarrowFilters(profile.profileId);
             }
 
+            /** Structural challenger: pair set + fill bucket + edge bucket opcional */
+            if (profile.structuralChallengerTarget) {
+              recordStructuralOpportunitiesSeen(profile.profileId);
+              if (!isStructuralPairMatch(pairKey ?? null)) {
+                recordStructuralRejectedByPairMismatch(profile.profileId);
+                recordRejection(profile.profileId, "structural_pair_mismatch");
+                recordEntryDecision(
+                  profile.profileId,
+                  opp.opportunityId,
+                  cycleBucket,
+                  false,
+                  "structural_pair_mismatch",
+                  entryResult.capturableEdgeBeforeImpact
+                );
+                continue;
+              }
+              if (!isStructuralFillBucketMatch(fillRatio)) {
+                recordStructuralRejectedByFillBucketMismatch(profile.profileId);
+                recordRejection(profile.profileId, "structural_fill_bucket_mismatch");
+                recordEntryDecision(
+                  profile.profileId,
+                  opp.opportunityId,
+                  cycleBucket,
+                  false,
+                  "structural_fill_bucket_mismatch",
+                  entryResult.capturableEdgeBeforeImpact
+                );
+                continue;
+              }
+              if (profile.structuralChallengerTarget.capturableEdgeBucket === ">5%") {
+                if (!isStructuralEdgeBucketGt5Match(entryResult.capturableEdgeBeforeImpact ?? 0)) {
+                  recordStructuralRejectedByEdgeBucketMismatch(profile.profileId);
+                  recordRejection(profile.profileId, "structural_edge_bucket_mismatch");
+                  recordEntryDecision(
+                    profile.profileId,
+                    opp.opportunityId,
+                    cycleBucket,
+                    false,
+                    "structural_edge_bucket_mismatch",
+                    entryResult.capturableEdgeBeforeImpact
+                  );
+                  continue;
+                }
+              }
+              recordStructuralPassedAllFilters(profile.profileId);
+            }
+
             /** Entry capfloor challenger: só abre se capturableEdge >= 0.03 */
             if (profile.entryCapfloorMinCapturableEdge != null) {
               const cap = entryResult.capturableEdgeBeforeImpact ?? 0;
@@ -695,6 +755,7 @@ function runCycle(): void {
             );
             const tradeId = `sst-${profile.profileId}-${Date.now()}-${opened}`;
             const narrowTarget = profile.narrowChallengerTarget;
+            const structuralTarget = profile.structuralChallengerTarget;
             const trade: ShadowTrade = {
               tradeId,
               opportunityId: opp.opportunityId,
@@ -726,6 +787,18 @@ function runCycle(): void {
                     narrowTargetFillBucketAtOpen: narrowTarget.fillRatioBucket,
                     narrowFilterMatchAtOpen: true,
                     narrowTargetVersion: "v1",
+                  }
+                : {}),
+              ...(structuralTarget
+                ? {
+                    structuralTargetPairSetAtOpen: [...structuralTarget.pairKeys],
+                    structuralTargetFillBucketAtOpen: structuralTarget.fillRatioBucket,
+                    structuralTargetEdgeBucketAtOpen: structuralTarget.capturableEdgeBucket,
+                    structuralObservedEdgeBucketAtOpen: getCapturableEdgeBucket(
+                      entryResult.capturableEdgeBeforeImpact ?? 0
+                    ),
+                    structuralFilterMatchAtOpen: true,
+                    structuralTargetVersion: "v1",
                   }
                 : {}),
             };
@@ -1055,6 +1128,28 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
         }
         recordPassedAllNarrowFilters(profile.profileId);
       }
+      // Structural challenger: pair set + fill bucket + edge bucket opcional
+      if (profile.structuralChallengerTarget) {
+        recordStructuralOpportunitiesSeen(profile.profileId);
+        if (!isStructuralPairMatch(pairKey ?? null)) {
+          recordStructuralRejectedByPairMismatch(profile.profileId);
+          recordRejection(profile.profileId, "structural_pair_mismatch");
+          continue;
+        }
+        if (!isStructuralFillBucketMatch(fillRatio)) {
+          recordStructuralRejectedByFillBucketMismatch(profile.profileId);
+          recordRejection(profile.profileId, "structural_fill_bucket_mismatch");
+          continue;
+        }
+        if (profile.structuralChallengerTarget.capturableEdgeBucket === ">5%") {
+          if (!isStructuralEdgeBucketGt5Match(entryResult.capturableEdgeBeforeImpact ?? 0)) {
+            recordStructuralRejectedByEdgeBucketMismatch(profile.profileId);
+            recordRejection(profile.profileId, "structural_edge_bucket_mismatch");
+            continue;
+          }
+        }
+        recordStructuralPassedAllFilters(profile.profileId);
+      }
       // Entry capfloor challenger: só abre se capturableEdge >= 0.03
       if (profile.entryCapfloorMinCapturableEdge != null) {
         const cap = entryResult.capturableEdgeBeforeImpact ?? 0;
@@ -1073,6 +1168,7 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
         }
       }
       const narrowTarget = profile.narrowChallengerTarget;
+      const structuralTarget = profile.structuralChallengerTarget;
       const trade: ShadowTrade = {
         tradeId: `sst-${profile.profileId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         opportunityId: opp.opportunityId,
@@ -1104,6 +1200,18 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
               narrowTargetFillBucketAtOpen: narrowTarget.fillRatioBucket,
               narrowFilterMatchAtOpen: true,
               narrowTargetVersion: "v1",
+            }
+          : {}),
+        ...(structuralTarget
+          ? {
+              structuralTargetPairSetAtOpen: [...structuralTarget.pairKeys],
+              structuralTargetFillBucketAtOpen: structuralTarget.fillRatioBucket,
+              structuralTargetEdgeBucketAtOpen: structuralTarget.capturableEdgeBucket,
+              structuralObservedEdgeBucketAtOpen: getCapturableEdgeBucket(
+                entryResult.capturableEdgeBeforeImpact ?? 0
+              ),
+              structuralFilterMatchAtOpen: true,
+              structuralTargetVersion: "v1",
             }
           : {}),
       };

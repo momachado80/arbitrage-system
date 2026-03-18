@@ -58,6 +58,14 @@ export interface ShadowTrade {
   /** Entry challenger counterfactual: baseline abriu mas challenger filtrou no mesmo ciclo */
   capfloorFilteredSameCycle?: boolean;
   degratioFilteredSameCycle?: boolean;
+
+  /** Structural challenger: persistido no open */
+  structuralTargetPairSetAtOpen?: string[] | null;
+  structuralTargetFillBucketAtOpen?: string | null;
+  structuralTargetEdgeBucketAtOpen?: string | null;
+  structuralObservedEdgeBucketAtOpen?: string | null;
+  structuralFilterMatchAtOpen?: boolean;
+  structuralTargetVersion?: string | null;
 }
 
 export interface ShadowProfileState {

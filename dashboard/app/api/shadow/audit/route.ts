@@ -29,6 +29,10 @@ import {
   getNarrowChallengerComparison,
 } from "@/lib/narrowChallengerDiagnostics";
 import {
+  getStructuralChallengerDiagnostics,
+  getStructuralChallengerComparison,
+} from "@/lib/structuralChallengerDiagnostics";
+import {
   getEntryChallengerDiagnostics,
   getEntryChallengerComparisonDiagnostics,
   getFilteredOpportunityCounterfactual,
@@ -165,6 +169,50 @@ export async function GET() {
     );
     const narrowChallengerComparison = getNarrowChallengerComparison(profiles, narrowChallengerDiagnostics);
 
+    const structuralProfileConfigs = [
+      {
+        profileId: "shadow_1000_structural_narrow_gt5_fill10to25_v1",
+        targetPairKeys: [
+          "540817+565065",
+          "540817+562187",
+          "540817+573647",
+          "540817+540818",
+          "556108+567561",
+          "556108+562187",
+          "540818+556108",
+        ],
+        targetFillRatioBucket: "0.1-0.25",
+        targetCapturableEdgeBucket: ">5%" as const,
+      },
+      {
+        profileId: "shadow_1000_structural_narrow_fill10to25_v1",
+        targetPairKeys: [
+          "540817+565065",
+          "540817+562187",
+          "540817+573647",
+          "540817+540818",
+          "556108+567561",
+          "556108+562187",
+          "540818+556108",
+        ],
+        targetFillRatioBucket: "0.1-0.25",
+        targetCapturableEdgeBucket: null,
+      },
+    ];
+    const structuralChallengerDiagnostics: Record<string, import("@/lib/structuralChallengerDiagnostics").StructuralChallengerDiagnosticsBlock> = {};
+    const structuralChallengerComparison: Record<string, import("@/lib/structuralChallengerDiagnostics").StructuralChallengerComparisonBlock> = {};
+    for (const cfg of structuralProfileConfigs) {
+      structuralChallengerDiagnostics[cfg.profileId] = getStructuralChallengerDiagnostics(
+        profiles,
+        allAuditEntries,
+        cfg
+      );
+      structuralChallengerComparison[cfg.profileId] = getStructuralChallengerComparison(
+        profiles,
+        structuralChallengerDiagnostics[cfg.profileId]
+      );
+    }
+
     const profilesForEntry = profiles.map((p) => ({
       profileId: p.profileId,
       closedTrades: p.closedTrades,
@@ -215,6 +263,8 @@ export async function GET() {
       structuralPersistenceValidation,
       narrowChallengerDiagnostics,
       narrowChallengerComparison,
+      structuralChallengerDiagnostics,
+      structuralChallengerComparison,
       entryChallengerDiagnostics,
       entryChallengerComparisonDiagnostics,
       filteredOpportunityCounterfactual,
