@@ -70,6 +70,7 @@ import {
   BASELINE_PROFILE_ID,
 } from "@/lib/entryChallengerDiagnostics";
 import { getProfileEligibilityDiagnostics } from "@/lib/profileEligibilityFunnel";
+import { getProfileEligibilityJudgements } from "@/lib/profileEligibilityJudge";
 
 export const dynamic = "force-dynamic";
 
@@ -93,6 +94,7 @@ export async function GET() {
       },
       rejectionCountsByProfile
     );
+    const profileEligibilityJudgements = getProfileEligibilityJudgements(profileEligibilityDiagnostics);
     const audit = computeClosedTradeAudit(profiles, getProfileConfig);
     const status = getShadowSystemStatus();
     const marketStats = getServiceStats();
@@ -446,6 +448,7 @@ export async function GET() {
       structuralLateExitTighterCausalAudit,
       structuralFamilyOperationalDiagnostics,
       profileEligibilityDiagnostics,
+      profileEligibilityJudgements,
       exitKillComparativeProximityAudit: getExitKillComparativeProximityAudit(profiles),
       entryChallengerDiagnostics,
       entryChallengerComparisonDiagnostics,
