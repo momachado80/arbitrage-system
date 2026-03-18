@@ -266,19 +266,23 @@ export function getStructuralLateExitCausalAudit(
   if (perTrade.length === 0) {
     causeMostLikely = "sem_dados";
     evidenceSummary = "Nenhum trade fechado ainda.";
-  } else if (closedInWindow === 0 && closedByMaxHolding === perTrade.length) {
-    causeMostLikely = "todos_max_holding_fora_janela";
-    evidenceSummary = `Todos os ${perTrade.length} trades fecharam por max_holding_time (holding ~300s). Nenhum fechou dentro da janela de late exit (90-300s). O late exit é avaliado apenas quando 90s <= holding < 300s.`;
+  } else if (closedInWindow === 0 && closedByMaxHolding >= Math.ceil(perTrade.length * 0.5)) {
+    causeMostLikely = "maioria_max_holding_fora_janela";
+    evidenceSummary = `${closedByMaxHolding} de ${perTrade.length} trades fecharam por max_holding_time (holding ~300s). Nenhum fechou por late exit dentro da janela (90-300s). O late exit é avaliado apenas quando 90s <= holding < 300s.`;
     lateExitRaramenteAplicavel = true;
 
     if (withEdge.length > 0) {
-      if (
-        wouldTriggerNonReversion > 0 ||
-        wouldTriggerNetEdge > 0 ||
-        wouldTriggerStagnant > 0
-      ) {
+      const wouldTriggerExcludingNull =
+        perTrade.filter(
+          (e) =>
+            e.edgeAtExitAvailable &&
+            (e.wouldHaveTriggeredNonReversion ||
+              e.wouldHaveTriggeredNetEdge ||
+              e.wouldHaveTriggeredStagnant)
+        ).length;
+      if (wouldTriggerExcludingNull > 0) {
         causeMostLikely = "thresholds_satisfeitos_no_close_mas_janela_pulada";
-        evidenceSummary += ` No momento do close (300s), ${wouldTriggerNonReversion} trades satisfariam non_reversion, ${wouldTriggerNetEdge} net_edge, ${wouldTriggerStagnant} stagnant. Se avaliados na janela, teriam disparado. Possível: edge só cai no final.`;
+        evidenceSummary += ` No momento do close, ${wouldTriggerExcludingNull} trades (com edge disponível) satisfariam algum critério. Possível: edge só cai no final.`;
       } else if (avgObservedAtClose > STAGNANT_EDGE_FLOOR + 0.02) {
         causeMostLikely = "observed_edge_mantem_alto";
         evidenceSummary += ` avgObservedAtClose=${(avgObservedAtClose * 100).toFixed(2)}% >> stagnantFloor 3%. Edge permanece alto durante 90-300s. Thresholds frouxos para o regime.`;
