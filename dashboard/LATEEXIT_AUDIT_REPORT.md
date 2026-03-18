@@ -20,16 +20,19 @@
 
 ## B. Evidência trade a trade / agregada
 
-### Produção (16 trades)
+### Produção (20 trades validados post-deploy)
 
 | Métrica | Valor |
 |---------|-------|
-| closedTradeCount | 16 |
+| totalClosed | 20 |
+| closedByMaxHolding | 16 |
+| closedByOther (stop_loss) | 4 |
 | lateExitTriggeredCount | 0 |
-| byExitReason | 100% max_holding_time |
-| avgHoldingTimeMs | 304875 (~305s) |
-| avgCapturableEdgeOpened | 7.17% |
-| avgObservedEdgeOpened | 25.5% |
+| closedInLateExitWindow | 0 |
+| avgObservedAtClose (16 com edge) | **25.28%** |
+| avgObservedAtEntry | 25.58% |
+| wouldTrigger* (excl. edge null) | 0 |
+| edgeAtExitNullCount | 4 |
 
 ### Nova instrumentação: `structuralLateExitCausalAudit`
 
