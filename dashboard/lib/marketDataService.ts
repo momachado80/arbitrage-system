@@ -1,26 +1,28 @@
 /**
  * Market Data Service — bootstrap e refresh de mercados.
- * Instrumentação explícita; cleanup obrigatório de locks; timeouts defensivos.
+ * Etapas explícitas, rastreamento persistido, timeouts por etapa, guard contra stuck.
  */
 
 import {
   fetchAllMarkets,
   getCachedMarkets,
-  type NormalizedMarket,
+  type RefreshStepReporter,
 } from "./polymarketClient";
 
 const REFRESH_INTERVAL_MS = 5_000;
-const REFRESH_TIMEOUT_MS = 12_000;
-const STALE_REFRESH_MS = REFRESH_TIMEOUT_MS * 2;
+const STUCK_REFRESH_GUARD_MS = 120_000;
 
-let markets: NormalizedMarket[] = [];
+const FETCH_STANDARD_TIMEOUT_MS = 60_000;
+const PARSE_TIMEOUT_MS = 15_000;
+const MERGE_TIMEOUT_MS = 5_000;
+
+let markets: import("./polymarketClient").NormalizedMarket[] = [];
 let lastRefresh = 0;
 let refreshing = false;
 let loopStarted = false;
 let fetchCount = 0;
 let lastError: string | null = null;
 
-// Instrumentação explícita
 let bootstrapAttempted = false;
 let bootstrapCompleted = false;
 let bootstrapFailed = false;
@@ -35,61 +37,119 @@ let refreshStartedAt: number | null = null;
 let lastRefreshCompletedAt: string | null = null;
 let lastRefreshFailedAt: string | null = null;
 
-function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms)
-    ),
-  ]);
+let lastCompletedStep: string | null = null;
+let lastFailedStep: string | null = null;
+let lastStepStartedAt: string | null = null;
+let lastStepCompletedAt: string | null = null;
+let lastRefreshErrorMessage: string | null = null;
+let refreshAttemptDurationMs: number | null = null;
+let bootstrapAttemptDurationMs: number | null = null;
+let timeoutOperationalOccurred = false;
+
+function forceCleanupStuck(reason: string): void {
+  console.error(`[MarketDataService] STUCK REFRESH GUARD (${reason}) — force cleanup`);
+  refreshing = false;
+  refreshStartedAt = null;
+  if (!bootstrapCompleted && bootstrapAttempted) {
+    bootstrapFailed = true;
+    bootstrapErrorMessage = reason;
+  }
+  lastRefreshError = reason;
+  lastRefreshFailedAt = new Date().toISOString();
+  refreshFailureCount++;
+  timeoutOperationalOccurred = true;
+  lastFailedStep = lastCompletedStep ?? "unknown_stuck_step";
+}
+
+function setStep(step: string): void {
+  lastCompletedStep = step;
+  lastStepStartedAt = new Date().toISOString();
+}
+
+function completeStep(step: string): void {
+  lastCompletedStep = step;
+  lastStepCompletedAt = new Date().toISOString();
 }
 
 async function refresh(): Promise<void> {
   if (refreshing) {
     const stuckMs = refreshStartedAt != null ? Date.now() - refreshStartedAt : 0;
-    if (stuckMs > STALE_REFRESH_MS) {
-      console.error(`[MarketDataService] STALE REFRESH (${stuckMs}ms) — force cleanup`);
-      refreshing = false;
-      refreshFailureCount++;
-      if (!bootstrapCompleted && bootstrapAttempted) {
-        bootstrapFailed = true;
-        bootstrapErrorMessage = `refresh hung ${stuckMs}ms`;
-      }
-      lastRefreshError = `stale_refresh_${stuckMs}ms`;
-      lastRefreshFailedAt = new Date().toISOString();
+    if (stuckMs > STUCK_REFRESH_GUARD_MS) {
+      forceCleanupStuck(`refresh_hung_${stuckMs}ms`);
     }
     return;
   }
+
   refreshing = true;
   refreshStartedAt = Date.now();
   refreshAttemptedCount++;
   bootstrapPhase = "refresh_started";
+  lastFailedStep = null;
+  lastRefreshErrorMessage = null;
+  timeoutOperationalOccurred = false;
+
+  const reportStep: RefreshStepReporter = (step: string, detail?: { count?: number }) => {
+    completeStep(step);
+    if (detail?.count != null) {
+      console.log(`[MarketDataService] ${step} count=${detail.count}`);
+    } else {
+      console.log(`[MarketDataService] ${step}`);
+    }
+  };
+
+  console.log("[MarketDataService] refresh_begin");
 
   try {
-    markets = await withTimeout(fetchAllMarkets(), REFRESH_TIMEOUT_MS, "market refresh");
-    bootstrapPhase = "fetch_completed";
+    setStep("refresh_begin");
+    completeStep("refresh_begin");
+
+    const rawMarkets = await fetchAllMarkets({
+      reportStep,
+      fetchStandardTimeoutMs: FETCH_STANDARD_TIMEOUT_MS,
+      parseTimeoutMs: PARSE_TIMEOUT_MS,
+      mergeTimeoutMs: MERGE_TIMEOUT_MS,
+    });
+
+    setStep("publish_done");
+    markets = rawMarkets;
+    completeStep("publish_done");
+    console.log(`[MarketDataService] publish_done count=${markets.length}`);
+
     lastRefresh = Date.now();
     fetchCount++;
     lastError = null;
     lastRefreshError = null;
     refreshSuccessCount++;
     lastRefreshCompletedAt = new Date().toISOString();
+    refreshAttemptDurationMs = Date.now() - (refreshStartedAt ?? 0);
+
     if (!bootstrapCompleted && markets.length > 0) {
       bootstrapCompleted = true;
       bootstrapFailed = false;
       bootstrapErrorMessage = null;
       lastBootstrapAt = new Date().toISOString();
+      bootstrapAttemptDurationMs = refreshAttemptDurationMs;
     } else if (!bootstrapCompleted && bootstrapAttempted && markets.length === 0) {
       bootstrapFailed = true;
       bootstrapErrorMessage = "no markets returned";
     }
+
+    setStep("refresh_finalize_done");
+    completeStep("refresh_finalize_done");
+    console.log("[MarketDataService] refresh_finalize_done");
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "unknown error";
+    const msg = err instanceof Error ? err.message : String(err);
+    const isTimeout = msg.includes("timeout");
     bootstrapPhase = "fetch_failed";
     lastError = msg;
     lastRefreshError = msg;
+    lastRefreshErrorMessage = msg;
     refreshFailureCount++;
     lastRefreshFailedAt = new Date().toISOString();
+    refreshAttemptDurationMs = refreshStartedAt != null ? Date.now() - refreshStartedAt : null;
+    lastFailedStep = lastCompletedStep ?? "unknown";
+    if (isTimeout) timeoutOperationalOccurred = true;
+
     if (!bootstrapCompleted && bootstrapAttempted) {
       bootstrapFailed = true;
       bootstrapErrorMessage = msg;
@@ -117,18 +177,21 @@ export function ensureRunning(): void {
   startLoop();
 }
 
-export function getAllMarkets(): NormalizedMarket[] {
+export function getAllMarkets(): import("./polymarketClient").NormalizedMarket[] {
   ensureRunning();
   return markets;
 }
 
-export function getMarketById(id: string): NormalizedMarket | undefined {
+export function getMarketById(id: string): import("./polymarketClient").NormalizedMarket | undefined {
   ensureRunning();
   return markets.find((m) => m.id === id);
 }
 
 export function getServiceStats() {
   const stuckMs = refreshStartedAt != null ? Date.now() - refreshStartedAt : 0;
+  if (stuckMs > STUCK_REFRESH_GUARD_MS) {
+    forceCleanupStuck(`guard_triggered_${stuckMs}ms`);
+  }
   return {
     marketsTracked: markets.length,
     lastRefreshMs: lastRefresh,
@@ -149,5 +212,13 @@ export function getServiceStats() {
     refreshStuckMs: stuckMs,
     lastRefreshCompletedAt,
     lastRefreshFailedAt,
+    lastCompletedStep,
+    lastFailedStep,
+    lastStepStartedAt,
+    lastStepCompletedAt,
+    lastRefreshErrorMessage,
+    refreshAttemptDurationMs,
+    bootstrapAttemptDurationMs,
+    timeoutOperationalOccurred,
   };
 }

@@ -96,6 +96,13 @@ export interface ShadowRuntimeDiagnostics {
     lockStuck: boolean;
     schedulerRegisteredButBlocked: boolean;
     timeoutOperationalOccurred: boolean;
+    lastCompletedStep: string | null;
+    lastFailedStep: string | null;
+    lastStepStartedAt: string | null;
+    lastStepCompletedAt: string | null;
+    lastRefreshErrorMessage: string | null;
+    refreshAttemptDurationMs: number | null;
+    bootstrapAttemptDurationMs: number | null;
   };
 }
 
@@ -131,6 +138,14 @@ export function getShadowRuntimeDiagnostics(
     isRefreshing?: boolean;
     bootstrapPhase?: string;
     refreshStuckMs?: number;
+    lastCompletedStep?: string | null;
+    lastFailedStep?: string | null;
+    lastStepStartedAt?: string | null;
+    lastStepCompletedAt?: string | null;
+    lastRefreshErrorMessage?: string | null;
+    refreshAttemptDurationMs?: number | null;
+    bootstrapAttemptDurationMs?: number | null;
+    timeoutOperationalOccurred?: boolean;
   },
   scheduler: { registered: boolean; intervalMs: number }
 ): ShadowRuntimeDiagnostics {
@@ -182,7 +197,16 @@ export function getShadowRuntimeDiagnostics(
       refreshStuckMs: stuckMs,
       lockStuck,
       schedulerRegisteredButBlocked: !!scheduler.registered && !shadowLoopStarted && refreshPending,
-      timeoutOperationalOccurred: (marketStats.lastRefreshError ?? "").includes("timeout"),
+      timeoutOperationalOccurred:
+        (marketStats.lastRefreshError ?? "").includes("timeout") ||
+        (marketStats.timeoutOperationalOccurred ?? false),
+      lastCompletedStep: marketStats.lastCompletedStep ?? null,
+      lastFailedStep: marketStats.lastFailedStep ?? null,
+      lastStepStartedAt: marketStats.lastStepStartedAt ?? null,
+      lastStepCompletedAt: marketStats.lastStepCompletedAt ?? null,
+      lastRefreshErrorMessage: marketStats.lastRefreshErrorMessage ?? null,
+      refreshAttemptDurationMs: marketStats.refreshAttemptDurationMs ?? null,
+      bootstrapAttemptDurationMs: marketStats.bootstrapAttemptDurationMs ?? null,
     },
   };
 }

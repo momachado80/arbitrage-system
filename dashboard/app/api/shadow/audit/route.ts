@@ -132,6 +132,14 @@ export async function GET() {
       bootstrapPhase: ops?.bootstrapPhase,
       refreshStuckMs: ops?.refreshStuckMs,
       lockStuck: ops?.lockStuck,
+      lastCompletedStep: ops?.lastCompletedStep,
+      lastFailedStep: ops?.lastFailedStep,
+      lastStepStartedAt: ops?.lastStepStartedAt,
+      lastStepCompletedAt: ops?.lastStepCompletedAt,
+      lastRefreshErrorMessage: ops?.lastRefreshErrorMessage,
+      refreshAttemptDurationMs: ops?.refreshAttemptDurationMs,
+      bootstrapAttemptDurationMs: ops?.bootstrapAttemptDurationMs,
+      timeoutOperationalOccurred: ops?.timeoutOperationalOccurred,
     };
 
     const allAuditEntries = buildClosedTradeAuditEntries(profiles, (pid) => {

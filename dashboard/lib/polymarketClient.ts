@@ -86,31 +86,74 @@ async function fetchPage(offset: number): Promise<PolymarketRawMarket[]> {
 
 const TOTAL_FETCH_TIMEOUT_MS = 90_000;
 
-export async function fetchAllMarkets(): Promise<NormalizedMarket[]> {
+export type RefreshStepReporter = (step: string, detail?: { count?: number }) => void;
+
+function withStepTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
+export async function fetchAllMarkets(options?: {
+  reportStep?: RefreshStepReporter;
+  fetchStandardTimeoutMs?: number;
+  parseTimeoutMs?: number;
+  mergeTimeoutMs?: number;
+}): Promise<NormalizedMarket[]> {
   const now = Date.now();
   if (cache.length > 0 && now - cacheTs < CACHE_TTL_MS) {
     return cache;
   }
 
+  const report = options?.reportStep;
+  const fetchTimeout = options?.fetchStandardTimeoutMs ?? 60_000;
+  const parseTimeout = options?.parseTimeoutMs ?? 15_000;
+  const mergeTimeout = options?.mergeTimeoutMs ?? 5_000;
+
   const t0 = Date.now();
-  const all: NormalizedMarket[] = [];
   const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error(`fetchAllMarkets timeout ${TOTAL_FETCH_TIMEOUT_MS}ms`)), TOTAL_FETCH_TIMEOUT_MS)
+    setTimeout(() => reject(new Error(`fetchAllMarkets total timeout ${TOTAL_FETCH_TIMEOUT_MS}ms`)), TOTAL_FETCH_TIMEOUT_MS)
   );
 
-  const fetchPromise = (async () => {
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const raw = await fetchPage(page * PAGE_LIMIT);
-      for (const r of raw) {
+  const doFetch = async (): Promise<NormalizedMarket[]> => {
+    report?.("fetch_standard_begin");
+    const allRaw: PolymarketRawMarket[] = [];
+    const fetchPhase = (async () => {
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const raw = await fetchPage(page * PAGE_LIMIT);
+        allRaw.push(...raw);
+        if (raw.length < PAGE_LIMIT) break;
+      }
+    })();
+    await withStepTimeout(fetchPhase, fetchTimeout, "fetch_standard");
+    report?.("fetch_standard_done", { count: allRaw.length });
+
+    report?.("parse_standard_begin");
+    const parsePhase = (async () => {
+      const all: NormalizedMarket[] = [];
+      for (const r of allRaw) {
         const m = normalize(r);
         if (m && !m.closed && m.active) all.push(m);
       }
-      if (raw.length < PAGE_LIMIT) break;
-    }
-    return all;
-  })();
+      return all;
+    })();
+    const parsed = await withStepTimeout(parsePhase, parseTimeout, "parse_standard");
+    report?.("parse_standard_done", { count: parsed.length });
 
-  const result = await Promise.race([fetchPromise, timeoutPromise]);
+    report?.("fetch_graph_begin");
+    report?.("fetch_graph_done");
+    report?.("merge_begin");
+    const mergePhase = Promise.resolve(parsed);
+    const result = await withStepTimeout(mergePhase, mergeTimeout, "merge");
+    report?.("merge_done", { count: result.length });
+
+    return result;
+  };
+
+  const result = await Promise.race([doFetch(), timeoutPromise]);
   cache = result;
   cacheTs = Date.now();
   console.log(`[PolymarketClient] Fetched ${result.length} markets in ${Date.now() - t0}ms`);
