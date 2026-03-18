@@ -33,6 +33,11 @@ import {
   getStructuralChallengerComparison,
 } from "@/lib/structuralChallengerDiagnostics";
 import {
+  getStructuralRiskManagedDiagnostics,
+  getStructuralRiskManagedComparison,
+  STRUCTURAL_RISK_MANAGED_PROFILE_ID,
+} from "@/lib/structuralRiskManagedDiagnostics";
+import {
   getEntryChallengerDiagnostics,
   getEntryChallengerComparisonDiagnostics,
   getFilteredOpportunityCounterfactual,
@@ -245,6 +250,24 @@ export async function GET() {
       entryChallengerDiagnostics
     );
 
+    const structuralRiskManagedProfile = profiles.find((p) => p.profileId === STRUCTURAL_RISK_MANAGED_PROFILE_ID);
+    const structuralRiskManagedDiagnostics = getStructuralRiskManagedDiagnostics(
+      structuralRiskManagedProfile,
+      allAuditEntries,
+      rejectionCountsByProfile
+    );
+    const structuralRiskManagedComparison: Record<
+      string,
+      import("@/lib/structuralRiskManagedDiagnostics").StructuralRiskManagedComparisonBlock
+    > = {};
+    for (const compareId of ["shadow_1000", "shadow_1000_adapt_captrade_exitrefine_v1"]) {
+      structuralRiskManagedComparison[compareId] = getStructuralRiskManagedComparison(
+        profiles,
+        structuralRiskManagedDiagnostics,
+        compareId
+      );
+    }
+
     return NextResponse.json({
       ...audit,
       maxHoldingTimeMsByProfile,
@@ -265,6 +288,8 @@ export async function GET() {
       narrowChallengerComparison,
       structuralChallengerDiagnostics,
       structuralChallengerComparison,
+      structuralRiskManagedDiagnostics,
+      structuralRiskManagedComparison,
       entryChallengerDiagnostics,
       entryChallengerComparisonDiagnostics,
       filteredOpportunityCounterfactual,

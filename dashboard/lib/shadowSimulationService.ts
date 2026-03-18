@@ -98,6 +98,14 @@ import {
   recordStructuralPassedAllFilters,
 } from "./structuralChallengerDiagnostics";
 import {
+  recordStructuralRiskEvaluated,
+  recordStructuralRiskRejectedByPair,
+  recordStructuralRiskRejectedByFillBucket,
+  recordStructuralRiskRejectedByCapfloor,
+  recordStructuralRiskRejectedByDegRatio,
+  recordStructuralRiskRejectedByOther,
+} from "./structuralRiskManagedDiagnostics";
+import {
   recordEntryChallengerDecision,
   BASELINE_PROFILE_ID,
 } from "./entryChallengerDiagnostics";
@@ -111,6 +119,12 @@ const INITIAL_DELAY_MS = 0;
 
 /** Shadow-only: refuse to open trades with dust fills; audit showed avgFilledCapital e-12, 100% loss rate. */
 const MIN_FILLED_CAPITAL_USD = 0.5;
+
+/** Early thesis-failure monitoring window for structural risk-managed challenger */
+const EARLY_THESIS_MONITORING_WINDOW_MS = 90_000;
+
+/** Per tradeId: consecutive cycles where structural opp was absent */
+const structuralRiskConsecutiveAbsentByTradeId = new Map<string, number>();
 
 /** Registry of enabled adaptive challenger configs — populated by getProfilesForExecution */
 const challengerConfigRegistry = new Map<string, ShadowProfileConfig>();
@@ -657,6 +671,67 @@ function runCycle(): void {
               recordStructuralPassedAllFilters(profile.profileId);
             }
 
+            /** Structural risk-managed: pair + fill + capfloor 4.5% + degratio 0.24 */
+            const structuralRiskTarget = profile.structuralRiskManagedTarget;
+            if (structuralRiskTarget) {
+              recordStructuralRiskEvaluated();
+              if (!isStructuralPairMatch(pairKey ?? null)) {
+                recordStructuralRiskRejectedByPair();
+                recordRejection(profile.profileId, "structural_risk_pair_mismatch");
+                recordEntryDecision(
+                  profile.profileId,
+                  opp.opportunityId,
+                  cycleBucket,
+                  false,
+                  "structural_risk_pair_mismatch",
+                  entryResult.capturableEdgeBeforeImpact
+                );
+                continue;
+              }
+              if (!isStructuralFillBucketMatch(fillRatio)) {
+                recordStructuralRiskRejectedByFillBucket();
+                recordRejection(profile.profileId, "structural_risk_fill_bucket_mismatch");
+                recordEntryDecision(
+                  profile.profileId,
+                  opp.opportunityId,
+                  cycleBucket,
+                  false,
+                  "structural_risk_fill_bucket_mismatch",
+                  entryResult.capturableEdgeBeforeImpact
+                );
+                continue;
+              }
+              const cap = entryResult.capturableEdgeBeforeImpact ?? 0;
+              if (cap < structuralRiskTarget.capfloor) {
+                recordStructuralRiskRejectedByCapfloor();
+                recordRejection(profile.profileId, "structural_risk_capfloor");
+                recordEntryDecision(
+                  profile.profileId,
+                  opp.opportunityId,
+                  cycleBucket,
+                  false,
+                  "structural_risk_capfloor",
+                  entryResult.capturableEdgeBeforeImpact
+                );
+                continue;
+              }
+              const observed = entryResult.observedEdge ?? opp.edge ?? 0;
+              const degRatio = cap / Math.max(0.0001, observed);
+              if (degRatio < structuralRiskTarget.degRatioMin) {
+                recordStructuralRiskRejectedByDegRatio();
+                recordRejection(profile.profileId, "structural_risk_degratio");
+                recordEntryDecision(
+                  profile.profileId,
+                  opp.opportunityId,
+                  cycleBucket,
+                  false,
+                  "structural_risk_degratio",
+                  entryResult.capturableEdgeBeforeImpact
+                );
+                continue;
+              }
+            }
+
             /** Entry capfloor challenger: só abre se capturableEdge >= 0.03 */
             if (profile.entryCapfloorMinCapturableEdge != null) {
               const cap = entryResult.capturableEdgeBeforeImpact ?? 0;
@@ -756,6 +831,20 @@ function runCycle(): void {
             const tradeId = `sst-${profile.profileId}-${Date.now()}-${opened}`;
             const narrowTarget = profile.narrowChallengerTarget;
             const structuralTarget = profile.structuralChallengerTarget;
+            let effectiveFilledCapital = entryResult.filledCapital;
+            let effectiveRequestedCapital = requestedCapital || 0;
+            let capitalMultiplier = 1;
+            if (structuralRiskTarget) {
+              const cap = entryResult.capturableEdgeBeforeImpact ?? 0;
+              const observed = entryResult.observedEdge ?? opp.edge ?? 0;
+              const degRatio = cap / Math.max(0.0001, observed);
+              capitalMultiplier = 1;
+              if (cap < 0.055) capitalMultiplier *= 0.6;
+              if (degRatio < 0.26) capitalMultiplier *= 0.7;
+              capitalMultiplier = Math.max(0.25, Math.min(1, capitalMultiplier));
+              effectiveFilledCapital = Math.max(MIN_FILLED_CAPITAL_USD, entryResult.filledCapital * capitalMultiplier);
+              effectiveRequestedCapital = (requestedCapital || 0) * capitalMultiplier;
+            }
             const trade: ShadowTrade = {
               tradeId,
               opportunityId: opp.opportunityId,
@@ -769,8 +858,8 @@ function runCycle(): void {
               observedEdgeAtEntry: entryResult.observedEdge,
               capturableEdgeAtEntry: entryResult.capturableEdgeBeforeImpact,
               effectiveEntryPrice: entryResult.effectiveEntryPrice,
-              filledCapital: entryResult.filledCapital,
-              requestedCapital: requestedCapital || undefined,
+              filledCapital: effectiveFilledCapital,
+              requestedCapital: effectiveRequestedCapital || requestedCapital || undefined,
               fillRatio: fillRatio ?? null,
               entryImpactBps:
                 entryResult.entrySlippage != null
@@ -799,6 +888,19 @@ function runCycle(): void {
                     ),
                     structuralFilterMatchAtOpen: true,
                     structuralTargetVersion: "v1",
+                  }
+                : {}),
+              ...(structuralRiskTarget
+                ? {
+                    structuralRiskCapitalMultiplierAtOpen: capitalMultiplier,
+                    structuralRiskCapfloorAtOpen: structuralRiskTarget.capfloor,
+                    structuralRiskDegRatioAtOpen:
+                      (entryResult.capturableEdgeBeforeImpact ?? 0) /
+                      Math.max(0.0001, entryResult.observedEdge ?? opp.edge ?? 0),
+                    structuralRiskTargetPairSetAtOpen: [...structuralRiskTarget.pairKeys],
+                    structuralRiskTargetFillBucketAtOpen: structuralRiskTarget.fillRatioBucket,
+                    structuralRiskFilterMatchAtOpen: true,
+                    structuralRiskTargetVersion: "v1",
                   }
                 : {}),
             };
@@ -830,15 +932,47 @@ function runCycle(): void {
             const now = Date.now();
             const holdingMs = now - new Date(t.openedAt).getTime();
             let shouldClose = false;
-            if (holdingMs >= profile.maxHoldingTimeMs) shouldClose = true;
-            else if (latestState) {
-              const exitPrice = 1 - latestState.edge;
-              const pnlPct = (exitPrice - t.effectiveEntryPrice) / Math.max(0.001, t.effectiveEntryPrice);
-              if (pnlPct <= -profile.stopLossPct) shouldClose = true;
-              else if (pnlPct >= profile.takeProfitPct) shouldClose = true;
-              else if (Math.abs(latestState.edge) < 0.005) shouldClose = true;
-            } else {
-              shouldClose = true;
+            let earlyThesisFailureReason: string | null = null;
+
+            if (profile.structuralRiskManagedTarget && holdingMs < EARLY_THESIS_MONITORING_WINDOW_MS) {
+              if (!latestState) {
+                const prev = structuralRiskConsecutiveAbsentByTradeId.get(t.tradeId) ?? 0;
+                structuralRiskConsecutiveAbsentByTradeId.set(t.tradeId, prev + 1);
+                if (prev + 1 >= 2) {
+                  shouldClose = true;
+                  earlyThesisFailureReason = "structural_opportunity_disappeared_2_cycles";
+                  structuralRiskConsecutiveAbsentByTradeId.delete(t.tradeId);
+                }
+              } else {
+                structuralRiskConsecutiveAbsentByTradeId.set(t.tradeId, 0);
+                const capturableAtEntry = t.capturableEdgeAtEntry ?? 0;
+                const observedAtEntry = t.observedEdgeAtEntry ?? 0;
+                const observedNow = latestState.edge;
+                const capturableNowProxy =
+                  observedAtEntry > 0.0001
+                    ? capturableAtEntry * (observedNow / observedAtEntry)
+                    : observedNow;
+                if (capturableAtEntry > 0.0001 && capturableNowProxy <= 0.6 * capturableAtEntry) {
+                  shouldClose = true;
+                  earlyThesisFailureReason = "capturable_edge_decayed";
+                } else if (observedNow <= 0.5 * (profile.structuralRiskManagedTarget?.capfloor ?? 0.045)) {
+                  shouldClose = true;
+                  earlyThesisFailureReason = "net_edge_below_half_threshold";
+                }
+              }
+            }
+
+            if (!shouldClose) {
+              if (holdingMs >= profile.maxHoldingTimeMs) shouldClose = true;
+              else if (latestState) {
+                const exitPrice = 1 - latestState.edge;
+                const pnlPct = (exitPrice - t.effectiveEntryPrice) / Math.max(0.001, t.effectiveEntryPrice);
+                if (pnlPct <= -profile.stopLossPct) shouldClose = true;
+                else if (pnlPct >= profile.takeProfitPct) shouldClose = true;
+                else if (Math.abs(latestState.edge) < 0.005) shouldClose = true;
+              } else {
+                shouldClose = true;
+              }
             }
 
             if (shouldClose) {
@@ -854,13 +988,13 @@ function runCycle(): void {
                   ? exitResult.effectiveExitPrice - t.effectiveEntryPrice
                   : undefined;
 
-              closeShadowTrade(profile.profileId, t.tradeId, {
+              const closeUpdates: Parameters<typeof closeShadowTrade>[2] = {
                 closedAt: exitResult.exitLatencyMs > 0 ? new Date(now + exitResult.exitLatencyMs).toISOString() : new Date().toISOString(),
                 effectiveExitPrice: exitResult.effectiveExitPrice,
                 realizedPnL: exitResult.realizedPnL,
                 realizedReturn: exitResult.realizedReturn,
                 holdingTimeMs: holdingMs,
-                exitReason: exitResult.exitReason,
+                exitReason: earlyThesisFailureReason ? "early_thesis_failure" : exitResult.exitReason,
                 exitImpactBps:
                   exitResult.exitSlippage != null
                     ? Math.round(exitResult.exitSlippage * 10000)
@@ -872,10 +1006,16 @@ function runCycle(): void {
                     : null,
                 entryToExitPriceMove: entryToExitPriceMove ?? null,
                 closeContext: {
-                  exitReason: exitResult.exitReason,
+                  exitReason: earlyThesisFailureReason ?? exitResult.exitReason,
                   edgeAtExit: edgeAtExit ?? undefined,
                 },
-              });
+              };
+              if (earlyThesisFailureReason) {
+                closeUpdates.earlyThesisFailureTriggered = true;
+                closeUpdates.earlyThesisFailureReason = earlyThesisFailureReason;
+                closeUpdates.earlyThesisFailureAtMsFromOpen = holdingMs;
+              }
+              closeShadowTrade(profile.profileId, t.tradeId, closeUpdates);
               closed++;
             }
           }
@@ -1150,6 +1290,34 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
         }
         recordStructuralPassedAllFilters(profile.profileId);
       }
+      // Structural risk-managed: pair + fill + capfloor 4.5% + degratio 0.24
+      const structuralRiskTargetEval = profile.structuralRiskManagedTarget;
+      if (structuralRiskTargetEval) {
+        recordStructuralRiskEvaluated();
+        if (!isStructuralPairMatch(pairKey ?? null)) {
+          recordStructuralRiskRejectedByPair();
+          recordRejection(profile.profileId, "structural_risk_pair_mismatch");
+          continue;
+        }
+        if (!isStructuralFillBucketMatch(fillRatio)) {
+          recordStructuralRiskRejectedByFillBucket();
+          recordRejection(profile.profileId, "structural_risk_fill_bucket_mismatch");
+          continue;
+        }
+        const capEval = entryResult.capturableEdgeBeforeImpact ?? 0;
+        if (capEval < structuralRiskTargetEval.capfloor) {
+          recordStructuralRiskRejectedByCapfloor();
+          recordRejection(profile.profileId, "structural_risk_capfloor");
+          continue;
+        }
+        const observedEval = entryResult.observedEdge ?? opp.edge ?? 0;
+        const degRatioEval = capEval / Math.max(0.0001, observedEval);
+        if (degRatioEval < structuralRiskTargetEval.degRatioMin) {
+          recordStructuralRiskRejectedByDegRatio();
+          recordRejection(profile.profileId, "structural_risk_degratio");
+          continue;
+        }
+      }
       // Entry capfloor challenger: só abre se capturableEdge >= 0.03
       if (profile.entryCapfloorMinCapturableEdge != null) {
         const cap = entryResult.capturableEdgeBeforeImpact ?? 0;
@@ -1169,6 +1337,21 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
       }
       const narrowTarget = profile.narrowChallengerTarget;
       const structuralTarget = profile.structuralChallengerTarget;
+      const structuralRiskTargetEval2 = profile.structuralRiskManagedTarget;
+      let effectiveFilledCapitalEval = entryResult.filledCapital;
+      let effectiveRequestedCapitalEval = requestedCapital || 0;
+      let capitalMultiplierEval = 1;
+      if (structuralRiskTargetEval2) {
+        const capE = entryResult.capturableEdgeBeforeImpact ?? 0;
+        const obsE = entryResult.observedEdge ?? opp.edge ?? 0;
+        const degE = capE / Math.max(0.0001, obsE);
+        capitalMultiplierEval = 1;
+        if (capE < 0.055) capitalMultiplierEval *= 0.6;
+        if (degE < 0.26) capitalMultiplierEval *= 0.7;
+        capitalMultiplierEval = Math.max(0.25, Math.min(1, capitalMultiplierEval));
+        effectiveFilledCapitalEval = Math.max(MIN_FILLED_CAPITAL_USD, entryResult.filledCapital * capitalMultiplierEval);
+        effectiveRequestedCapitalEval = (requestedCapital || 0) * capitalMultiplierEval;
+      }
       const trade: ShadowTrade = {
         tradeId: `sst-${profile.profileId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         opportunityId: opp.opportunityId,
@@ -1182,8 +1365,8 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
         observedEdgeAtEntry: entryResult.observedEdge,
         capturableEdgeAtEntry: entryResult.capturableEdgeBeforeImpact,
         effectiveEntryPrice: entryResult.effectiveEntryPrice,
-        filledCapital: entryResult.filledCapital,
-        requestedCapital: requestedCapital || undefined,
+        filledCapital: effectiveFilledCapitalEval,
+        requestedCapital: effectiveRequestedCapitalEval || requestedCapital || undefined,
         fillRatio: fillRatio ?? null,
         entryImpactBps:
           entryResult.entrySlippage != null
@@ -1212,6 +1395,19 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
               ),
               structuralFilterMatchAtOpen: true,
               structuralTargetVersion: "v1",
+            }
+          : {}),
+        ...(structuralRiskTargetEval2
+          ? {
+              structuralRiskCapitalMultiplierAtOpen: capitalMultiplierEval,
+              structuralRiskCapfloorAtOpen: structuralRiskTargetEval2.capfloor,
+              structuralRiskDegRatioAtOpen:
+                (entryResult.capturableEdgeBeforeImpact ?? 0) /
+                Math.max(0.0001, entryResult.observedEdge ?? opp.edge ?? 0),
+              structuralRiskTargetPairSetAtOpen: [...structuralRiskTargetEval2.pairKeys],
+              structuralRiskTargetFillBucketAtOpen: structuralRiskTargetEval2.fillRatioBucket,
+              structuralRiskFilterMatchAtOpen: true,
+              structuralRiskTargetVersion: "v1",
             }
           : {}),
       };

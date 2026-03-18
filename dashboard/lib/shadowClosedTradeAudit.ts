@@ -39,6 +39,17 @@ export interface ClosedTradeAuditEntry {
   structuralTargetFillBucketAtOpen?: string | null;
   structuralTargetEdgeBucketAtOpen?: string | null;
   structuralTargetVersion?: string | null;
+  /** Structural risk-managed */
+  structuralRiskCapitalMultiplierAtOpen?: number | null;
+  structuralRiskCapfloorAtOpen?: number | null;
+  structuralRiskDegRatioAtOpen?: number | null;
+  structuralRiskTargetPairSetAtOpen?: string[] | null;
+  structuralRiskTargetFillBucketAtOpen?: string | null;
+  structuralRiskFilterMatchAtOpen?: boolean;
+  structuralRiskTargetVersion?: string | null;
+  earlyThesisFailureTriggered?: boolean;
+  earlyThesisFailureReason?: string | null;
+  earlyThesisFailureAtMsFromOpen?: number | null;
 }
 
 export interface ProfileAuditSummary {
@@ -246,6 +257,16 @@ function toAuditEntry(t: ShadowTrade, profileId: string): ClosedTradeAuditEntry 
     structuralTargetFillBucketAtOpen: t.structuralTargetFillBucketAtOpen,
     structuralTargetEdgeBucketAtOpen: t.structuralTargetEdgeBucketAtOpen,
     structuralTargetVersion: t.structuralTargetVersion,
+    structuralRiskCapitalMultiplierAtOpen: t.structuralRiskCapitalMultiplierAtOpen,
+    structuralRiskCapfloorAtOpen: t.structuralRiskCapfloorAtOpen,
+    structuralRiskDegRatioAtOpen: t.structuralRiskDegRatioAtOpen,
+    structuralRiskTargetPairSetAtOpen: t.structuralRiskTargetPairSetAtOpen,
+    structuralRiskTargetFillBucketAtOpen: t.structuralRiskTargetFillBucketAtOpen,
+    structuralRiskFilterMatchAtOpen: t.structuralRiskFilterMatchAtOpen,
+    structuralRiskTargetVersion: t.structuralRiskTargetVersion,
+    earlyThesisFailureTriggered: t.earlyThesisFailureTriggered,
+    earlyThesisFailureReason: t.earlyThesisFailureReason,
+    earlyThesisFailureAtMsFromOpen: t.earlyThesisFailureAtMsFromOpen,
   };
 }
 

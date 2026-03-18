@@ -66,6 +66,18 @@ export interface ShadowTrade {
   structuralObservedEdgeBucketAtOpen?: string | null;
   structuralFilterMatchAtOpen?: boolean;
   structuralTargetVersion?: string | null;
+
+  /** Structural risk-managed challenger */
+  structuralRiskCapitalMultiplierAtOpen?: number | null;
+  structuralRiskCapfloorAtOpen?: number | null;
+  structuralRiskDegRatioAtOpen?: number | null;
+  structuralRiskTargetPairSetAtOpen?: string[] | null;
+  structuralRiskTargetFillBucketAtOpen?: string | null;
+  structuralRiskFilterMatchAtOpen?: boolean;
+  structuralRiskTargetVersion?: string | null;
+  earlyThesisFailureTriggered?: boolean;
+  earlyThesisFailureReason?: string | null;
+  earlyThesisFailureAtMsFromOpen?: number | null;
 }
 
 export interface ShadowProfileState {
