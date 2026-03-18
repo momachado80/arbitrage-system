@@ -49,6 +49,7 @@ import {
   getExitKillWindow180CausalAudit,
   STRUCTURAL_EXIT_KILL_WINDOW180_PROFILE_ID,
 } from "@/lib/structuralExitKillWindow180Diagnostics";
+import { getExitKillComparativeProximityAudit } from "@/lib/exitKillComparativeProximityAudit";
 import {
   getEntryChallengerDiagnostics,
   getEntryChallengerComparisonDiagnostics,
@@ -354,6 +355,7 @@ export async function GET() {
       structuralExitKillWindow180Diagnostics,
       structuralExitKillWindow180Comparison,
       structuralExitKillWindow180CausalAudit,
+      exitKillComparativeProximityAudit: getExitKillComparativeProximityAudit(profiles),
       entryChallengerDiagnostics,
       entryChallengerComparisonDiagnostics,
       filteredOpportunityCounterfactual,
