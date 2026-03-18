@@ -54,6 +54,11 @@ import {
   getStructuralLateExitComparison,
   STRUCTURAL_LATE_EXIT_PROFILE_ID,
 } from "@/lib/structuralLateExitDiagnostics";
+import {
+  getStructuralLateExitTighterDiagnostics,
+  getStructuralLateExitTighterComparison,
+  STRUCTURAL_LATE_EXIT_TIGHTER_PROFILE_ID,
+} from "@/lib/structuralLateExitTighterDiagnostics";
 import { getStructuralLateExitCausalAudit } from "@/lib/structuralLateExitCausalAudit";
 import { getExitKillComparativeProximityAudit } from "@/lib/exitKillComparativeProximityAudit";
 import {
@@ -357,6 +362,38 @@ export async function GET() {
       );
     }
 
+    const structuralLateExitTighterProfile = profiles.find((p) => p.profileId === STRUCTURAL_LATE_EXIT_TIGHTER_PROFILE_ID);
+    const structuralLateExitTighterDiagnostics = getStructuralLateExitTighterDiagnostics(
+      structuralLateExitTighterProfile,
+      allAuditEntries,
+      rejectionCountsByProfile
+    );
+    const structuralLateExitTighterCausalAudit = getStructuralLateExitCausalAudit(
+      structuralLateExitTighterProfile,
+      {
+        profileId: STRUCTURAL_LATE_EXIT_TIGHTER_PROFILE_ID,
+        stagnantEdgeFloor: 0.045,
+        netEdgeProlongedFloor: 0.03,
+      }
+    );
+    const structuralLateExitTighterComparison: Record<
+      string,
+      import("@/lib/structuralLateExitTighterDiagnostics").StructuralLateExitTighterComparisonBlock
+    > = {};
+    for (const compareId of [
+      "shadow_1000",
+      "shadow_1000_structural_riskmanaged_v1",
+      "shadow_1000_structural_exitkill_v1",
+      "shadow_1000_structural_exitkill_window180_v1",
+      "shadow_1000_structural_lateexit_nonreversion_v1",
+    ]) {
+      structuralLateExitTighterComparison[compareId] = getStructuralLateExitTighterComparison(
+        profiles,
+        structuralLateExitTighterDiagnostics,
+        compareId
+      );
+    }
+
     return NextResponse.json({
       ...audit,
       maxHoldingTimeMsByProfile,
@@ -388,6 +425,9 @@ export async function GET() {
       structuralLateExitDiagnostics,
       structuralLateExitComparison,
       structuralLateExitCausalAudit,
+      structuralLateExitTighterDiagnostics,
+      structuralLateExitTighterComparison,
+      structuralLateExitTighterCausalAudit,
       exitKillComparativeProximityAudit: getExitKillComparativeProximityAudit(profiles),
       entryChallengerDiagnostics,
       entryChallengerComparisonDiagnostics,

@@ -80,6 +80,12 @@ export interface StructuralLateExitCausalAuditBlock {
   };
 }
 
+export interface LateExitCausalAuditOpts {
+  profileId: string;
+  stagnantEdgeFloor: number;
+  netEdgeProlongedFloor: number;
+}
+
 function computePerTrade(
   t: {
     tradeId: string;
@@ -89,7 +95,8 @@ function computePerTrade(
     observedEdgeAtEntry?: number | null;
     edgeAtExit?: number | null;
   },
-  profileId: string
+  profileId: string,
+  opts: LateExitCausalAuditOpts
 ): LateExitPerTradeEntry {
   const capEntry = t.capturableEdgeAtEntry ?? 0;
   const obsEntry = t.observedEdgeAtEntry ?? 0;
@@ -107,8 +114,8 @@ function computePerTrade(
     holdingMs >= MIN_OBSERVATION_MS && holdingMs < MAX_HOLDING_MS;
 
   const distToNonReversion = observedAtClose - reversionThreshold;
-  const distToNetEdgeFloor = observedAtClose - NET_EDGE_PROLONGED_FLOOR;
-  const distToStagnantFloor = observedAtClose - STAGNANT_EDGE_FLOOR;
+  const distToNetEdgeFloor = observedAtClose - opts.netEdgeProlongedFloor;
+  const distToStagnantFloor = observedAtClose - opts.stagnantEdgeFloor;
 
   const ratioToEntry = obsEntry > 0.0001 ? observedAtClose / obsEntry : 1;
   const nearNonReversion =
@@ -121,9 +128,9 @@ function computePerTrade(
 
   const wouldHaveTriggeredNonReversion =
     obsEntry > 0.0001 && observedAtClose < REVERSION_MIN_FRACTION * obsEntry;
-  const wouldHaveTriggeredNetEdge = observedAtClose <= NET_EDGE_PROLONGED_FLOOR;
+  const wouldHaveTriggeredNetEdge = observedAtClose <= opts.netEdgeProlongedFloor;
   const wouldHaveTriggeredStagnant =
-    observedAtClose <= STAGNANT_EDGE_FLOOR;
+    observedAtClose <= opts.stagnantEdgeFloor;
 
   const absDist = [
     { k: "non_reversion" as const, v: Math.abs(distToNonReversion) },
@@ -168,8 +175,15 @@ function computePerTrade(
 }
 
 export function getStructuralLateExitCausalAudit(
-  profile: ShadowProfileState | undefined
+  profile: ShadowProfileState | undefined,
+  opts?: LateExitCausalAuditOpts
 ): StructuralLateExitCausalAuditBlock {
+  const effectiveOpts: LateExitCausalAuditOpts = opts ?? {
+    profileId: STRUCTURAL_LATE_EXIT_PROFILE_ID,
+    stagnantEdgeFloor: STAGNANT_EDGE_FLOOR,
+    netEdgeProlongedFloor: NET_EDGE_PROLONGED_FLOOR,
+  };
+
   const closed = (profile?.closedTrades ?? []).filter(
     (t) =>
       t.status === "closed" &&
@@ -178,7 +192,7 @@ export function getStructuralLateExitCausalAudit(
   );
 
   const perTrade = closed.map((t) =>
-    computePerTrade(t, STRUCTURAL_LATE_EXIT_PROFILE_ID)
+    computePerTrade(t, effectiveOpts.profileId, effectiveOpts)
   );
 
   const closedInWindow = perTrade.filter((e) => e.inLateExitWindow).length;
@@ -234,7 +248,7 @@ export function getStructuralLateExitCausalAudit(
   ).length;
 
   const aggregate: LateExitCausalAggregate = {
-    profileId: STRUCTURAL_LATE_EXIT_PROFILE_ID,
+    profileId: effectiveOpts.profileId,
     totalClosed: perTrade.length,
     closedInLateExitWindow: closedInWindow,
     closedByMaxHolding,
@@ -283,7 +297,7 @@ export function getStructuralLateExitCausalAudit(
       if (wouldTriggerExcludingNull > 0) {
         causeMostLikely = "thresholds_satisfeitos_no_close_mas_janela_pulada";
         evidenceSummary += ` No momento do close, ${wouldTriggerExcludingNull} trades (com edge disponível) satisfariam algum critério. Possível: edge só cai no final.`;
-      } else if (avgObservedAtClose > STAGNANT_EDGE_FLOOR + 0.02) {
+      } else if (avgObservedAtClose > effectiveOpts.stagnantEdgeFloor + 0.02) {
         causeMostLikely = "observed_edge_mantem_alto";
         evidenceSummary += ` avgObservedAtClose=${(avgObservedAtClose * 100).toFixed(2)}% >> stagnantFloor 3%. Edge permanece alto durante 90-300s. Thresholds frouxos para o regime.`;
         thresholdsFrouxos = true;

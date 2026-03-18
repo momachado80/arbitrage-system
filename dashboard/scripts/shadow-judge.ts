@@ -49,6 +49,8 @@ interface Snapshot {
   structuralExitKillWindow180Comparison?: Record<string, Record<string, unknown>> | null;
   structuralLateExitDiagnostics?: Record<string, unknown> | null;
   structuralLateExitComparison?: Record<string, Record<string, unknown>> | null;
+  structuralLateExitTighterDiagnostics?: Record<string, unknown> | null;
+  structuralLateExitTighterComparison?: Record<string, Record<string, unknown>> | null;
   exitKillProfileSummary?: Record<string, unknown> | null;
   exitKillWindow180ProfileSummary?: Record<string, unknown> | null;
   lateExitProfileSummary?: Record<string, unknown> | null;
@@ -504,6 +506,96 @@ function run(): void {
     process.stdout.write(`lateExitTriggeredCount: ${leLateExitCount}\n`);
     process.stdout.write(`Reason: ${leReason}\n`);
     process.stdout.write(`Saved: ${leOutPath}\n`);
+  }
+
+  // Late exit tighter challenger
+  const lateExitTighterDiag = snapshot.structuralLateExitTighterDiagnostics as Record<string, unknown> | null | undefined;
+  const lateExitTighterComp = snapshot.structuralLateExitTighterComparison as Record<string, Record<string, unknown>> | null | undefined;
+  if (lateExitTighterDiag != null && lateExitTighterComp != null) {
+    const letClosed = num(lateExitTighterDiag.closedTradeCount);
+    const letLateExitCount = num(lateExitTighterDiag.lateExitTriggeredCount);
+    const compVs1000 = lateExitTighterComp["shadow_1000"];
+    const compVsNonReversion = lateExitTighterComp["shadow_1000_structural_lateexit_nonreversion_v1"];
+    const letChallengerAvg = num(lateExitTighterDiag.avgRealizedPnL);
+    const letDefenseActivated = letLateExitCount > 0;
+
+    let letStatus: ChallengerStatus;
+    let letReason: string;
+    let letEvidenceGrade: EvidenceGrade = letClosed >= THRESHOLDS.minimumClosedForBaselineComparison ? "MODERATE" : letClosed >= THRESHOLDS.minimumClosedForReadableEconomics ? "WEAK" : "NONE";
+    if (letClosed >= 50) letEvidenceGrade = "STRONG";
+
+    if (letClosed === 0) {
+      letStatus = "NOT_READABLE_YET";
+      letReason = "challenger_closed_zero — nenhum trade fechado.";
+    } else if (letClosed < THRESHOLDS.minimumClosedForReadableEconomics) {
+      letStatus = "SAMPLE_TOO_SMALL";
+      letReason = `closed=${letClosed}. Amostra insuficiente.`;
+    } else if (!letDefenseActivated && letChallengerAvg < 0) {
+      letStatus = "DEFENSIVE_LOGIC_NOT_ENGAGED";
+      letReason = "lateExitTriggeredCount=0. Thresholds apertados não acionaram e challenger negativo.";
+    } else if (compVsNonReversion != null && letClosed >= THRESHOLDS.minimumClosedForBaselineComparison) {
+      const nonRevAvg = num(compVsNonReversion.baselineAvgRealizedPnL);
+      const improvement = nonRevAvg === 0 ? 0 : (letChallengerAvg - nonRevAvg) / Math.abs(nonRevAvg);
+      if (nonRevAvg >= 0 && letChallengerAvg < 0) {
+        letStatus = "WORSE_THAN_BASELINE";
+        letReason = "Non-reversion positivo, tighter negativo.";
+      } else if (nonRevAvg < 0 && letChallengerAvg >= 0) {
+        letStatus = "LESS_BAD_THAN_BASELINE";
+        letReason = "Tighter positivo vs non-reversion negativo.";
+      } else if (improvement >= THRESHOLDS.minimumRelativeImprovementToCallLessBad) {
+        letStatus = "LESS_BAD_THAN_BASELINE";
+        letReason = `Tighter ${(improvement * 100).toFixed(1)}% menos ruim que non-reversion.`;
+      } else if (improvement <= -THRESHOLDS.minimumRelativeImprovementToCallLessBad) {
+        letStatus = "WORSE_THAN_BASELINE";
+        letReason = `Tighter ${(-improvement * 100).toFixed(1)}% pior que non-reversion.`;
+      } else {
+        letStatus = "OPERABLE_BUT_UNPROVEN";
+        letReason = "Diferença vs non-reversion dentro da banda de ruído.";
+      }
+    } else if (compVs1000 != null && letClosed >= THRESHOLDS.minimumClosedForBaselineComparison) {
+      const baselineAvg = num(compVs1000.baselineAvgRealizedPnL);
+      const improvement = baselineAvg === 0 ? 0 : (letChallengerAvg - baselineAvg) / Math.abs(baselineAvg);
+      if (baselineAvg >= 0 && letChallengerAvg < 0) {
+        letStatus = "WORSE_THAN_BASELINE";
+        letReason = "Baseline positivo, tighter negativo.";
+      } else if (baselineAvg < 0 && letChallengerAvg >= 0) {
+        letStatus = "LESS_BAD_THAN_BASELINE";
+        letReason = "Tighter positivo vs baseline negativo.";
+      } else if (improvement >= THRESHOLDS.minimumRelativeImprovementToCallLessBad) {
+        letStatus = "LESS_BAD_THAN_BASELINE";
+        letReason = `Tighter ${(improvement * 100).toFixed(1)}% menos ruim que baseline.`;
+      } else if (improvement <= -THRESHOLDS.minimumRelativeImprovementToCallLessBad) {
+        letStatus = "WORSE_THAN_BASELINE";
+        letReason = `Tighter ${(-improvement * 100).toFixed(1)}% pior que baseline.`;
+      } else {
+        letStatus = "OPERABLE_BUT_UNPROVEN";
+        letReason = "Diferença vs baseline dentro da banda de ruído.";
+      }
+    } else {
+      letStatus = "OPERABLE_BUT_UNPROVEN";
+      letReason = "Aguardar amostra. Objetivo: verificar se lateExitTriggeredCount > 0 com thresholds apertados.";
+    }
+
+    const letJudgment: Judgment = {
+      status: letStatus,
+      reason: letReason,
+      evidenceGrade: letEvidenceGrade,
+      dominantFailureMode: letStatus === "WORSE_THAN_BASELINE" ? "worse_than_baseline" : letStatus === "DEFENSIVE_LOGIC_NOT_ENGAGED" ? "defenses_not_engaged" : "no_clear_failure_mode",
+      timestamp: new Date().toISOString(),
+      snapshotSource: snapshotFile,
+      thresholds: {
+        minClosedReadable: THRESHOLDS.minimumClosedForReadableEconomics,
+        minClosedCompare: THRESHOLDS.minimumClosedForBaselineComparison,
+        minImprovementPct: THRESHOLDS.minimumRelativeImprovementToCallLessBad,
+      },
+    };
+    const letOutPath = path.join(outDir, "judgment_lateexit_tighter_latest.json");
+    fs.writeFileSync(letOutPath, JSON.stringify(letJudgment, null, 2), "utf-8");
+    process.stdout.write(`\n[lateexit_tighter] ${letStatus}\n`);
+    process.stdout.write(`evidenceGrade: ${letEvidenceGrade}\n`);
+    process.stdout.write(`lateExitTriggeredCount: ${letLateExitCount}\n`);
+    process.stdout.write(`Reason: ${letReason}\n`);
+    process.stdout.write(`Saved: ${letOutPath}\n`);
   }
 }
 

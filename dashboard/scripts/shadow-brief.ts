@@ -36,10 +36,13 @@ interface Snapshot {
   structuralExitKillWindow180CausalAudit?: Record<string, unknown> | null;
   structuralLateExitDiagnostics?: Record<string, unknown> | null;
   structuralLateExitComparison?: Record<string, Record<string, unknown>> | null;
+  structuralLateExitTighterDiagnostics?: Record<string, unknown> | null;
+  structuralLateExitTighterComparison?: Record<string, Record<string, unknown>> | null;
   profileSummary: Record<string, unknown> | null;
   exitKillProfileSummary?: Record<string, unknown> | null;
   exitKillWindow180ProfileSummary?: Record<string, unknown> | null;
   lateExitProfileSummary?: Record<string, unknown> | null;
+  lateExitTighterProfileSummary?: Record<string, unknown> | null;
   metrics: {
     openedTradeCount: number;
     closedTradeCount: number;
@@ -312,6 +315,25 @@ ${
 | avgHoldingTimeMs | ${num(snapshot.structuralLateExitDiagnostics.avgHoldingTimeMs).toFixed(0)} ms |
 | avgHoldingMsLateExit | ${num(snapshot.structuralLateExitDiagnostics.avgHoldingMsLateExit).toFixed(0)} ms |
 | lateExitReasonCounts | ${JSON.stringify(snapshot.structuralLateExitDiagnostics.lateExitReasonCounts ?? {})} |
+`
+    : ""
+}
+${
+  snapshot.structuralLateExitTighterDiagnostics != null
+    ? `
+---
+
+## Late Exit Tighter (shadow_1000_structural_lateexit_tighter_v1)
+
+| Métrica | Valor |
+|---------|-------|
+| closedTradeCount | ${num(snapshot.structuralLateExitTighterDiagnostics.closedTradeCount)} |
+| lateExitTriggeredCount | ${num(snapshot.structuralLateExitTighterDiagnostics.lateExitTriggeredCount)} |
+| avgRealizedPnL | ${num(snapshot.structuralLateExitTighterDiagnostics.avgRealizedPnL).toFixed(4)} |
+| totalRealizedPnL | ${num(snapshot.structuralLateExitTighterDiagnostics.totalRealizedPnL).toFixed(4)} |
+| avgHoldingTimeMs | ${num(snapshot.structuralLateExitTighterDiagnostics.avgHoldingTimeMs).toFixed(0)} ms |
+| avgHoldingMsLateExit | ${num(snapshot.structuralLateExitTighterDiagnostics.avgHoldingMsLateExit).toFixed(0)} ms |
+| lateExitReasonCounts | ${JSON.stringify(snapshot.structuralLateExitTighterDiagnostics.lateExitReasonCounts ?? {})} |
 `
     : ""
 }
