@@ -180,11 +180,14 @@ export async function GET() {
         openedTradeCount: d.funnel.openedTradeCount,
       };
     }
+    // Re-fetch profiles immediately before aging diagnostics to avoid snapshot desalignment
+    // (profiles was captured before await; runCycle may have mutated profileStates during the await)
+    const profilesForAging = getAllShadowProfiles();
     const activeTradeAgingDiagnostics = getActiveTradeAgingDiagnostics(
-      profiles.map((p) => ({
+      profilesForAging.map((p) => ({
         profileId: p.profileId,
         label: p.label,
-        activeTrades: p.activeTrades,
+        activeTrades: [...(p.activeTrades ?? [])],
         closedTradesCount: p.closedTrades.filter((t) => t.status === "closed" && t.closedAt).length,
       })),
       (pid) => getProfileById(pid) ?? getProfileConfig(pid) ?? undefined,

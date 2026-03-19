@@ -189,14 +189,16 @@ export function getActiveTradeAgingDiagnostics(
     const avgNet =
       netEdges.length > 0 ? netEdges.reduce((a, b) => a + b, 0) / netEdges.length : null;
 
+    // Single source of truth: all aggregates derived from entries (same snapshot as activeTradesAging)
+    const n = entries.length;
     const d: ProfileActiveTradeAgingDiagnostics = {
       profileId: p.profileId,
       label: p.label,
-      activeTradesCount: active.length,
+      activeTradesCount: n,
       activeTradesAging: entries,
       oldestActiveTradeMs: oldestMs,
-      avgActiveTradeMs: active.length > 0 ? sumMs / active.length : 0,
-      activeTradeIds: active.map((t) => t.tradeId),
+      avgActiveTradeMs: n > 0 ? sumMs / n : 0,
+      activeTradeIds: entries.map((e) => e.tradeId),
       avgObservedEdgeCurrent: avgObserved,
       avgNetEdgeCurrent: avgNet,
       likelyExitReasonIfClosedNow: dominantExitReason,
