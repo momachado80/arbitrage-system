@@ -131,9 +131,9 @@ export function getShadowRuntimeConsistencyDebug(params: {
   }
 
   const allProfileIds = new Set([
-    ...economicMutationByProfile.keys(),
-    ...heartbeatMutationByProfile.keys(),
-    ...funnelMutationByProfile.keys(),
+    ...Array.from(economicMutationByProfile.keys()),
+    ...Array.from(heartbeatMutationByProfile.keys()),
+    ...Array.from(funnelMutationByProfile.keys()),
     ...params.profiles.map((p) => p.profileId),
   ]);
 
