@@ -85,6 +85,7 @@ import { getProfileObservabilityConsistency } from "@/lib/profileObservabilityCo
 import { getStructuralRecalibrationReview } from "@/lib/structuralRecalibrationReview";
 import { getStructuralEvidenceReadiness } from "@/lib/structuralEvidenceReadiness";
 import { getActiveTradeAgingDiagnostics } from "@/lib/activeTradeAgingDiagnostics";
+import { buildProfileAtomicSnapshot } from "@/lib/profileAtomicSnapshot";
 
 export const dynamic = "force-dynamic";
 
@@ -92,8 +93,10 @@ export async function GET() {
   try {
     ensureShadowSimulation();
     getProfilesForExecution(); // Materialize enabled challengers before audit (ensureProfileState for challengers)
-    const profiles = getAllShadowProfiles();
     const rejectionCountsByProfile = getRejectionCountsByProfile();
+    // Single snapshot: await first, then fetch profiles once — avoids desalignment between blocks
+    const currentOpportunitiesMap = await getMergedOpportunitiesForAging();
+    const profiles = getAllShadowProfiles();
     const structuralFamilyOperationalDiagnostics = getStructuralFamilyOperationalDiagnostics(profiles);
     const profileEligibilityDiagnostics = getProfileEligibilityDiagnostics(
       profiles.map((p) => p.profileId),
@@ -172,7 +175,6 @@ export async function GET() {
         lastCycleProcessedAt: p.lastCycleProcessedAt,
       })),
     });
-    const currentOpportunitiesMap = await getMergedOpportunitiesForAging();
     const funnelByProfile: Record<string, { finalCandidateCount: number; openedTradeCount: number }> = {};
     for (const [pid, d] of Object.entries(profileEligibilityDiagnostics)) {
       funnelByProfile[pid] = {
@@ -180,11 +182,8 @@ export async function GET() {
         openedTradeCount: d.funnel.openedTradeCount,
       };
     }
-    // Re-fetch profiles immediately before aging diagnostics to avoid snapshot desalignment
-    // (profiles was captured before await; runCycle may have mutated profileStates during the await)
-    const profilesForAging = getAllShadowProfiles();
     const activeTradeAgingDiagnostics = getActiveTradeAgingDiagnostics(
-      profilesForAging.map((p) => ({
+      profiles.map((p) => ({
         profileId: p.profileId,
         label: p.label,
         activeTrades: [...(p.activeTrades ?? [])],
@@ -193,6 +192,14 @@ export async function GET() {
       (pid) => getProfileById(pid) ?? getProfileConfig(pid) ?? undefined,
       currentOpportunitiesMap,
       funnelByProfile
+    );
+    const profileAtomicSnapshot = buildProfileAtomicSnapshot(
+      profiles.map((p) => p.profileId),
+      (pid) => profileObservabilityConsistency.byProfile[pid] ?? null,
+      (pid) => profileEligibilityDiagnostics[pid] ?? null,
+      (pid) => activeTradeAgingDiagnostics.byProfile[pid] ?? null,
+      (pid) => profiles.find((p) => p.profileId === pid)?.lastCycleProcessedAt ?? null,
+      (pid) => profiles.find((p) => p.profileId === pid)?.label ?? getProfileById(pid)?.label
     );
     const marketSourceDiagnostics = getMarketSourceDiagnostics();
     const effectiveEntryThresholdByProfile: Record<string, number> = {};
@@ -517,6 +524,7 @@ export async function GET() {
       eligibilityCounterRuntimeDebug,
       shadowRuntimeConsistencyDebug,
       activeTradeAgingDiagnostics,
+      profileAtomicSnapshot,
       structuralRecalibrationReview,
       structuralEvidenceReadiness,
       exitKillComparativeProximityAudit: getExitKillComparativeProximityAudit(profiles),
