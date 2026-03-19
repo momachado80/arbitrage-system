@@ -1614,6 +1614,20 @@ export function ensureShadowSimulation(): void {
   }
 }
 
+/** Merged opportunities for audit diagnostics (current edge lookup). */
+export async function getMergedOpportunitiesForAging(): Promise<Map<string, { edge: number }>> {
+  const [stdOpps, graphOpps] = await Promise.all([
+    fetchStandardOpportunities(),
+    Promise.resolve(fetchGraphOpportunities()),
+  ]);
+  const merged = [...graphOpps, ...stdOpps];
+  const map = new Map<string, { edge: number }>();
+  for (const o of merged) {
+    map.set(o.opportunityId, { edge: o.edge ?? 0 });
+  }
+  return map;
+}
+
 export function getShadowSystemStatus(): {
   status: string;
   lastUpdate: string | null;

@@ -5,7 +5,13 @@
  */
 
 import { NextResponse } from "next/server";
-import { ensureShadowSimulation, getShadowSystemStatus, getProfileConfig, getProfilesForExecution } from "@/lib/shadowSimulationService";
+import {
+  ensureShadowSimulation,
+  getShadowSystemStatus,
+  getProfileConfig,
+  getProfilesForExecution,
+  getMergedOpportunitiesForAging,
+} from "@/lib/shadowSimulationService";
 import { getAllShadowProfiles, getRejectionCountsByProfile, getPersistenceStatus, getRehydratedTradeIds } from "@/lib/shadowSimulationStore";
 import {
   computeClosedTradeAudit,
@@ -78,6 +84,7 @@ import { getProfileEligibilityJudgements } from "@/lib/profileEligibilityJudge";
 import { getProfileObservabilityConsistency } from "@/lib/profileObservabilityConsistency";
 import { getStructuralRecalibrationReview } from "@/lib/structuralRecalibrationReview";
 import { getStructuralEvidenceReadiness } from "@/lib/structuralEvidenceReadiness";
+import { getActiveTradeAgingDiagnostics } from "@/lib/activeTradeAgingDiagnostics";
 
 export const dynamic = "force-dynamic";
 
@@ -165,6 +172,25 @@ export async function GET() {
         lastCycleProcessedAt: p.lastCycleProcessedAt,
       })),
     });
+    const currentOpportunitiesMap = await getMergedOpportunitiesForAging();
+    const funnelByProfile: Record<string, { finalCandidateCount: number; openedTradeCount: number }> = {};
+    for (const [pid, d] of Object.entries(profileEligibilityDiagnostics)) {
+      funnelByProfile[pid] = {
+        finalCandidateCount: d.funnel.finalCandidateCount,
+        openedTradeCount: d.funnel.openedTradeCount,
+      };
+    }
+    const activeTradeAgingDiagnostics = getActiveTradeAgingDiagnostics(
+      profiles.map((p) => ({
+        profileId: p.profileId,
+        label: p.label,
+        activeTrades: p.activeTrades,
+        closedTradesCount: p.closedTrades.filter((t) => t.status === "closed" && t.closedAt).length,
+      })),
+      (pid) => getProfileById(pid) ?? getProfileConfig(pid) ?? undefined,
+      currentOpportunitiesMap,
+      funnelByProfile
+    );
     const marketSourceDiagnostics = getMarketSourceDiagnostics();
     const effectiveEntryThresholdByProfile: Record<string, number> = {};
     for (const p of profiles) {
@@ -487,6 +513,7 @@ export async function GET() {
       profileObservabilityConsistency,
       eligibilityCounterRuntimeDebug,
       shadowRuntimeConsistencyDebug,
+      activeTradeAgingDiagnostics,
       structuralRecalibrationReview,
       structuralEvidenceReadiness,
       exitKillComparativeProximityAudit: getExitKillComparativeProximityAudit(profiles),
