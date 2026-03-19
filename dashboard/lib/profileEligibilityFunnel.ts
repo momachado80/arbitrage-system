@@ -17,9 +17,14 @@ export interface ProfileFunnelState {
   closedTradeCount: number;
   realizedPnlTotal: number;
   realizedPnlAvg: number;
+  /** Runtime debug: última vez que qualquer counter foi incrementado */
+  lastCounterMutationAt?: string | null;
+  countersEverUpdated?: boolean;
 }
 
 const funnelState = new Map<string, ProfileFunnelState>();
+let storeInitializedAt: string | null = null;
+let lastAnyCounterMutationAt: string | null = null;
 
 function ensureProfile(profileId: string): ProfileFunnelState {
   let s = funnelState.get(profileId);
@@ -39,62 +44,81 @@ function ensureProfile(profileId: string): ProfileFunnelState {
       realizedPnlAvg: 0,
     };
     funnelState.set(profileId, s);
+    if (!storeInitializedAt) storeInitializedAt = new Date().toISOString();
   }
   return s;
+}
+
+function markCounterMutation(profileId: string): void {
+  const s = funnelState.get(profileId);
+  if (s) {
+    s.lastCounterMutationAt = new Date().toISOString();
+    s.countersEverUpdated = true;
+    lastAnyCounterMutationAt = s.lastCounterMutationAt;
+  }
 }
 
 /** Chamado uma vez por profile por ciclo, no início do processamento do profile */
 export function recordCycleProcessed(profileId: string): void {
   const s = ensureProfile(profileId);
   s.cyclesProcessed++;
+  markCounterMutation(profileId);
 }
 
 /** Chamado no início da avaliação de cada (profile, opportunity) — antes de qualquer continue */
 export function recordRawOpportunitySeen(profileId: string): void {
   const s = ensureProfile(profileId);
   s.rawOpportunitiesSeen++;
+  markCounterMutation(profileId);
 }
 
 /** Chamado quando passa no filtro de pair set (structural risk) */
 export function recordPairEligible(profileId: string): void {
   const s = ensureProfile(profileId);
   s.pairEligibleCount++;
+  markCounterMutation(profileId);
 }
 
 /** Chamado quando passa no filtro de fill bucket */
 export function recordFillEligible(profileId: string): void {
   const s = ensureProfile(profileId);
   s.fillEligibleCount++;
+  markCounterMutation(profileId);
 }
 
 /** Chamado quando passa no filtro de capfloor */
 export function recordCapfloorEligible(profileId: string): void {
   const s = ensureProfile(profileId);
   s.capfloorEligibleCount++;
+  markCounterMutation(profileId);
 }
 
 /** Chamado quando passa no filtro de degratio */
 export function recordDegratioEligible(profileId: string): void {
   const s = ensureProfile(profileId);
   s.degratioEligibleCount++;
+  markCounterMutation(profileId);
 }
 
 /** Chamado imediatamente antes de addShadowTrade — passou todos os gates */
 export function recordFinalCandidate(profileId: string): void {
   const s = ensureProfile(profileId);
   s.finalCandidateCount++;
+  markCounterMutation(profileId);
 }
 
 /** Chamado imediatamente antes de addShadowTrade */
 export function recordOpenAttempt(profileId: string): void {
   const s = ensureProfile(profileId);
   s.openAttemptCount++;
+  markCounterMutation(profileId);
 }
 
 /** Chamado após addShadowTrade bem-sucedido */
 export function recordOpened(profileId: string): void {
   const s = ensureProfile(profileId);
   s.openedTradeCount++;
+  markCounterMutation(profileId);
 }
 
 /** Atualiza closedTradeCount e realizedPnL a partir do estado atual do store */
@@ -299,5 +323,79 @@ export function getProfileFunnelSummary(
     realizedPnlTotal: updated.realizedPnlTotal,
     realizedPnlAvg: updated.realizedPnlAvg,
     chokePointSummary: computeChokePointSummary(updated, discardReasonCounts ?? {}),
+  };
+}
+
+export interface EligibilityCounterRuntimeDebug {
+  processIdentity: string;
+  runtimeInstanceId: string;
+  storeInitializedAt: string | null;
+  totalProfilesWithCounters: number;
+  totalCyclesRecorded: number;
+  totalRawOpportunitiesRecorded: number;
+  profilesWithNonZeroCycles: string[];
+  profilesWithNonZeroRawOpportunities: string[];
+  lastAnyCounterMutationAt: string | null;
+  shadowLoopHeartbeatCount: number;
+  byProfile: Record<
+    string,
+    {
+      lastCounterMutationAt: string | null;
+      countersEverUpdated: boolean;
+      cyclesProcessed: number;
+      rawOpportunitiesSeen: number;
+    }
+  >;
+  summary: string;
+  generatedAt: string;
+}
+
+export function getEligibilityCounterRuntimeDebug(params: {
+  shadowLoopHeartbeatCount: number;
+}): EligibilityCounterRuntimeDebug {
+  const entries = Array.from(funnelState.entries());
+  const totalCyclesRecorded = entries.reduce((s, [, s2]) => s + s2.cyclesProcessed, 0);
+  const totalRawOpportunitiesRecorded = entries.reduce((s, [, s2]) => s + s2.rawOpportunitiesSeen, 0);
+  const profilesWithNonZeroCycles = entries.filter(([, s]) => s.cyclesProcessed > 0).map(([p]) => p);
+  const profilesWithNonZeroRawOpportunities = entries.filter(([, s]) => s.rawOpportunitiesSeen > 0).map(([p]) => p);
+
+  const byProfile: EligibilityCounterRuntimeDebug["byProfile"] = {};
+  for (const [pid, s] of entries) {
+    byProfile[pid] = {
+      lastCounterMutationAt: s.lastCounterMutationAt ?? null,
+      countersEverUpdated: s.countersEverUpdated ?? false,
+      cyclesProcessed: s.cyclesProcessed,
+      rawOpportunitiesSeen: s.rawOpportunitiesSeen,
+    };
+  }
+
+  const hasLoop = params.shadowLoopHeartbeatCount > 0;
+  const hasCounters = totalCyclesRecorded > 0 || totalRawOpportunitiesRecorded > 0;
+  let summary: string;
+  if (!hasLoop && !hasCounters) {
+    summary = "Shadow loop nunca completou ciclo neste runtime; funnel counters zerados.";
+  } else if (hasLoop && !hasCounters) {
+    summary =
+      "Shadow loop rodando (heartbeat>0) mas funnel counters zerados — possível multi-instância (API lê de instância diferente do writer) ou record* não alcançados.";
+  } else if (!hasLoop && hasCounters) {
+    summary = "Funnel counters presentes mas shadow loop heartbeat zerado — inconsistente.";
+  } else {
+    summary = "Loop e funnel consistentes; counters materializados.";
+  }
+
+  return {
+    processIdentity: `pid=${process.pid}`,
+    runtimeInstanceId: `node-${process.pid}-${Date.now().toString(36)}`,
+    storeInitializedAt,
+    totalProfilesWithCounters: entries.length,
+    totalCyclesRecorded,
+    totalRawOpportunitiesRecorded,
+    profilesWithNonZeroCycles,
+    profilesWithNonZeroRawOpportunities,
+    lastAnyCounterMutationAt,
+    shadowLoopHeartbeatCount: params.shadowLoopHeartbeatCount,
+    byProfile,
+    summary,
+    generatedAt: new Date().toISOString(),
   };
 }

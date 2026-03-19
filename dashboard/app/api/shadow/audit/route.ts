@@ -69,7 +69,10 @@ import {
   getEntryChallengerMetricsSummary,
   BASELINE_PROFILE_ID,
 } from "@/lib/entryChallengerDiagnostics";
-import { getProfileEligibilityDiagnostics } from "@/lib/profileEligibilityFunnel";
+import {
+  getProfileEligibilityDiagnostics,
+  getEligibilityCounterRuntimeDebug,
+} from "@/lib/profileEligibilityFunnel";
 import { getProfileEligibilityJudgements } from "@/lib/profileEligibilityJudge";
 import { getProfileObservabilityConsistency } from "@/lib/profileObservabilityConsistency";
 import { getStructuralRecalibrationReview } from "@/lib/structuralRecalibrationReview";
@@ -151,6 +154,9 @@ export async function GET() {
       },
       { registered: true, intervalMs: 10_000 }
     );
+    const eligibilityCounterRuntimeDebug = getEligibilityCounterRuntimeDebug({
+      shadowLoopHeartbeatCount: shadowRuntimeDiagnostics.shadowLoopHeartbeatCount,
+    });
     const marketSourceDiagnostics = getMarketSourceDiagnostics();
     const effectiveEntryThresholdByProfile: Record<string, number> = {};
     for (const p of profiles) {
@@ -471,6 +477,7 @@ export async function GET() {
       profileEligibilityDiagnostics,
       profileEligibilityJudgements,
       profileObservabilityConsistency,
+      eligibilityCounterRuntimeDebug,
       structuralRecalibrationReview,
       structuralEvidenceReadiness,
       exitKillComparativeProximityAudit: getExitKillComparativeProximityAudit(profiles),

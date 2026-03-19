@@ -279,7 +279,9 @@ export function rehydrateFromPersistence(): void {
         ? curve.slice(-MAX_EQUITY_CURVE_POINTS)
         : curve;
     state.lastUpdate = new Date().toISOString();
-    state.lastCycleProcessedAt = new Date().toISOString();
+    /** Não definir lastCycleProcessedAt na reidratação — heartbeat falsifica "profile processado".
+     * Profile só deve ter heartbeat quando runCycle realmente processar. Caso contrário,
+     * hasHeartbeat=true + funnel zerado gera inconsistência (rehydration vs funnel volátil). */
 
     totalRestored += toRestore.length;
   }
