@@ -150,42 +150,46 @@ function computeChokePointSummary(
   state: ProfileFunnelState,
   discardReasonCounts: Record<string, number>
 ): string {
+  const hasEconomicHistory = state.closedTradeCount > 0 || state.realizedPnlTotal !== 0;
   if (state.cyclesProcessed === 0) {
-    return "profile não processado";
+    if (hasEconomicHistory) {
+      return "sem counters de funil materializados, apesar de histórico econômico existente";
+    }
+    return "profile novo ainda sem dados";
   }
   if (state.rawOpportunitiesSeen === 0) {
-    return "nenhuma oportunidade bruta vista";
+    return "profile processado com choke: nenhuma oportunidade bruta vista";
   }
   if (state.pairEligibleCount === 0 && discardReasonCounts["structural_risk_pair_mismatch"] != null) {
-    return "choke em pair set";
+    return "profile processado com choke em pair set";
   }
   if (state.fillEligibleCount === 0 && state.pairEligibleCount > 0) {
-    return "choke em fill bucket";
+    return "profile processado com choke em fill bucket";
   }
   if (state.capfloorEligibleCount === 0 && state.fillEligibleCount > 0) {
-    return "choke em capfloor";
+    return "profile processado com choke em capfloor";
   }
   if (state.degratioEligibleCount === 0 && state.capfloorEligibleCount > 0) {
-    return "choke em degratio";
+    return "profile processado com choke em degratio";
   }
   if (state.finalCandidateCount === 0 && state.degratioEligibleCount > 0) {
-    return "choke em gates pós-structural (capfloor/degratio entry ou outros)";
+    return "profile processado com choke em gates pós-structural";
   }
   const topDiscard = Object.entries(discardReasonCounts)
     .sort((a, b) => b[1] - a[1])[0];
   if (topDiscard && topDiscard[1] > state.finalCandidateCount) {
-    return `principal descarte: ${topDiscard[0]} (${topDiscard[1]})`;
+    return `profile processado com choke: principal descarte ${topDiscard[0]} (${topDiscard[1]})`;
   }
   if (state.openedTradeCount === 0 && state.finalCandidateCount > 0) {
-    return "chegou a candidate mas não abriu (bug?)";
+    return "profile processado com choke: chegou a candidate mas não abriu (bug?)";
   }
   if (state.closedTradeCount === 0 && state.openedTradeCount > 0) {
-    return "abriu mas nenhum close ainda";
+    return "profile processado: abriu mas nenhum close ainda";
   }
   if (state.realizedPnlTotal < 0 && state.closedTradeCount > 0) {
-    return "economia destruída no close (PnL negativo)";
+    return "profile processado: economia destruída no close (PnL negativo)";
   }
-  return "fluxo ativo";
+  return "profile processado: fluxo ativo";
 }
 
 /** Mescla discardReasonCounts do funnel com rejectionCounts do store para diagnóstico completo */

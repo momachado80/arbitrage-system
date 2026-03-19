@@ -71,6 +71,7 @@ import {
 } from "@/lib/entryChallengerDiagnostics";
 import { getProfileEligibilityDiagnostics } from "@/lib/profileEligibilityFunnel";
 import { getProfileEligibilityJudgements } from "@/lib/profileEligibilityJudge";
+import { getProfileObservabilityConsistency } from "@/lib/profileObservabilityConsistency";
 import { getStructuralRecalibrationReview } from "@/lib/structuralRecalibrationReview";
 import { getStructuralEvidenceReadiness } from "@/lib/structuralEvidenceReadiness";
 
@@ -103,6 +104,16 @@ export async function GET() {
     );
     const structuralEvidenceReadiness = getStructuralEvidenceReadiness(
       structuralRecalibrationReview,
+      profileEligibilityDiagnostics
+    );
+    const profileObservabilityConsistency = getProfileObservabilityConsistency(
+      profiles.map((p) => ({
+        profileId: p.profileId,
+        label: p.label,
+        lastCycleProcessedAt: p.lastCycleProcessedAt,
+        closedTradesCount: p.closedTrades.filter((t) => t.status === "closed" && t.closedAt).length,
+        realizedPnL: p.realizedPnL ?? 0,
+      })),
       profileEligibilityDiagnostics
     );
     const audit = computeClosedTradeAudit(profiles, getProfileConfig);
@@ -459,6 +470,7 @@ export async function GET() {
       structuralFamilyOperationalDiagnostics,
       profileEligibilityDiagnostics,
       profileEligibilityJudgements,
+      profileObservabilityConsistency,
       structuralRecalibrationReview,
       structuralEvidenceReadiness,
       exitKillComparativeProximityAudit: getExitKillComparativeProximityAudit(profiles),
