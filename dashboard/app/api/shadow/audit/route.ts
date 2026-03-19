@@ -73,6 +73,7 @@ import {
   getProfileEligibilityDiagnostics,
   getEligibilityCounterRuntimeDebug,
 } from "@/lib/profileEligibilityFunnel";
+import { getShadowRuntimeConsistencyDebug } from "@/lib/shadowRuntimeConsistencyDiagnostics";
 import { getProfileEligibilityJudgements } from "@/lib/profileEligibilityJudge";
 import { getProfileObservabilityConsistency } from "@/lib/profileObservabilityConsistency";
 import { getStructuralRecalibrationReview } from "@/lib/structuralRecalibrationReview";
@@ -156,6 +157,13 @@ export async function GET() {
     );
     const eligibilityCounterRuntimeDebug = getEligibilityCounterRuntimeDebug({
       shadowLoopHeartbeatCount: shadowRuntimeDiagnostics.shadowLoopHeartbeatCount,
+    });
+    const shadowRuntimeConsistencyDebug = getShadowRuntimeConsistencyDebug({
+      profiles: profiles.map((p) => ({
+        profileId: p.profileId,
+        closedTrades: p.closedTrades,
+        lastCycleProcessedAt: p.lastCycleProcessedAt,
+      })),
     });
     const marketSourceDiagnostics = getMarketSourceDiagnostics();
     const effectiveEntryThresholdByProfile: Record<string, number> = {};
@@ -478,6 +486,7 @@ export async function GET() {
       profileEligibilityJudgements,
       profileObservabilityConsistency,
       eligibilityCounterRuntimeDebug,
+      shadowRuntimeConsistencyDebug,
       structuralRecalibrationReview,
       structuralEvidenceReadiness,
       exitKillComparativeProximityAudit: getExitKillComparativeProximityAudit(profiles),

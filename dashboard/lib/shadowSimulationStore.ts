@@ -13,6 +13,10 @@ import {
   getPersistencePath,
 } from "./shadowClosedTradePersistence";
 import { getProfileById, SHADOW_PROFILES } from "./shadowSimulationProfiles";
+import {
+  recordEconomicMutation,
+  recordHeartbeatMutation,
+} from "./shadowRuntimeConsistencyDiagnostics";
 
 export interface ShadowTrade {
   tradeId: string;
@@ -390,6 +394,9 @@ export function closeShadowTrade(
       state.equityCurve = state.equityCurve.slice(-MAX_EQUITY_CURVE_POINTS);
     }
     state.lastUpdate = new Date().toISOString();
+    state.lastCycleProcessedAt = new Date().toISOString();
+    recordEconomicMutation(profileId);
+    recordHeartbeatMutation(profileId);
 
     const byProfile: Record<string, ShadowTrade[]> = {};
     for (const [, s] of Array.from(profileStates.entries())) {
@@ -417,6 +424,7 @@ export function updateProfileHeartbeat(profileId: string): void {
   const state = profileStates.get(profileId);
   if (!state) return;
   state.lastCycleProcessedAt = new Date().toISOString();
+  recordHeartbeatMutation(profileId);
 }
 
 export function recordRejection(profileId: string, reason: string): void {

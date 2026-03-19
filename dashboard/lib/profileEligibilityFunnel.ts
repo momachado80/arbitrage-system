@@ -4,6 +4,8 @@
  * morre economicamente no fluxo. Não altera lógica econômica.
  */
 
+import { recordFunnelMutation } from "./shadowRuntimeConsistencyDiagnostics";
+
 export interface ProfileFunnelState {
   cyclesProcessed: number;
   rawOpportunitiesSeen: number;
@@ -55,6 +57,7 @@ function markCounterMutation(profileId: string): void {
     s.lastCounterMutationAt = new Date().toISOString();
     s.countersEverUpdated = true;
     lastAnyCounterMutationAt = s.lastCounterMutationAt;
+    recordFunnelMutation(profileId);
   }
 }
 
