@@ -1,0 +1,12 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "dashboard/Dockerfile.crossVenueAnchor1823789PaperExecutionWorker",
+    "watchPatterns": ["dashboard/lib/**", "dashboard/scripts/**"]
+  },
+  "deploy": {
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}
