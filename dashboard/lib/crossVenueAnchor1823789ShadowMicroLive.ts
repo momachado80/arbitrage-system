@@ -72,3 +72,24 @@ export function buildCrossVenueAnchor1823789ShadowTargetLiveOrder(args: {
     impliedEdgeVersusFair: r6(gate.refinedFairValue - gate.polymarketPriceObserved),
   };
 }
+
+/**
+ * Guardrail defensivo central. Lança se algum payload de auditoria tentar marcar
+ * realSubmission/wouldSubmit/shadowRealSubmission como verdadeiro. Sem efeitos
+ * colaterais quando todos os campos forem ausentes/false.
+ */
+export function assertShadowOnlyNoRealSubmission(payload: {
+  realSubmission?: unknown;
+  wouldSubmit?: unknown;
+  shadowRealSubmission?: unknown;
+}): void {
+  if (payload.realSubmission === true) {
+    throw new Error("shadow_only_violation_realSubmission_must_be_false");
+  }
+  if (payload.wouldSubmit === true) {
+    throw new Error("shadow_only_violation_wouldSubmit_must_be_false");
+  }
+  if (payload.shadowRealSubmission === true) {
+    throw new Error("shadow_only_violation_shadowRealSubmission_must_be_false");
+  }
+}
