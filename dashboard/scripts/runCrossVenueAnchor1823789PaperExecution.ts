@@ -26,6 +26,7 @@ import {
 import {
   buildCrossVenueAnchor1823789ShadowTargetLiveOrder,
   SHADOW_MICRO_LIVE_PROBE_VERSION,
+  assertShadowOnlyNoRealSubmission,
   type CrossVenueAnchor1823789ShadowTargetLiveOrder,
 } from "../lib/crossVenueAnchor1823789ShadowMicroLive";
 import { runCrossVenueAnchor1823789ClobConnectivityProbe } from "../lib/crossVenueAnchor1823789ClobConnectivityProbe";
@@ -266,6 +267,7 @@ async function appendCycle(): Promise<void> {
     const sdir = path.dirname(sfp);
     fs.mkdirSync(sdir, { recursive: true });
     try {
+      assertShadowOnlyNoRealSubmission(shadowRow);
       fs.appendFileSync(sfp, `${JSON.stringify(shadowRow)}\n`, { encoding: "utf8" });
       if (!ok) {
         console.log(`[1823789-paper-exec] shadow audit appended blocked_by_gate → ${sfp}`);
@@ -289,6 +291,7 @@ async function appendCycle(): Promise<void> {
         paperExecutionVerdict,
         shadowRealSubmission: false as const,
       };
+      assertShadowOnlyNoRealSubmission(fallback);
       fs.appendFileSync(sfp, `${JSON.stringify(fallback)}\n`, { encoding: "utf8" });
       console.error("[1823789-paper-exec] shadow audit fallback line (stringify failed) →", sfp);
     }
