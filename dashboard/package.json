@@ -17,7 +17,10 @@
     "shadow:brief": "npx ts-node -P tsconfig.worker.json scripts/shadow-brief.ts",
     "shadow:judge": "npx ts-node -P tsconfig.worker.json scripts/shadow-judge.ts",
     "shadow:full-check": "npx ts-node -P tsconfig.worker.json scripts/shadow-full-check.ts",
-    "check:shadow-only": "ts-node -P tsconfig.worker.json scripts/assertCrossVenueAnchor1823789ShadowOnly.ts"
+    "check:shadow-only": "ts-node -P tsconfig.worker.json scripts/assertCrossVenueAnchor1823789ShadowOnly.ts",
+    "readiness:microcapital": "ts-node -P tsconfig.worker.json scripts/readiness/microcapital-readiness.ts",
+    "test": "ts-node -P tsconfig.worker.json tests/readiness/run-readiness-tests.ts",
+    "test:readiness": "ts-node -P tsconfig.worker.json tests/readiness/run-readiness-tests.ts"
   },
   "dependencies": {
     "next": "13.5.6",
