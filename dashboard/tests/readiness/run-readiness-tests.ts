@@ -15,6 +15,7 @@ import "./microcapitalFailureModes.test";
 import "./prohibitedExecutionTerms.test";
 import "./paperRiskGuards.test";
 import "./markoutFollowupProducer.test";
+import "./paperExecutionAssessmentParser.test";
 
 async function main(): Promise<void> {
   const registry = getRegistry();

@@ -33,6 +33,10 @@ import {
   type PaperCycleOutcome,
 } from "./paperRiskGuards";
 import type { ExecutionRealismSample } from "./executionRealismHarness";
+import {
+  readPaperExecutionAssessmentsFromJsonl,
+  summarizePaperExecutionAssessments,
+} from "./paperExecutionAssessmentParser";
 
 export interface ComposeOptions {
   /** Project root used for prohibited-terms scanner. Defaults to dashboard root. */
@@ -241,6 +245,14 @@ export function composeMicrocapitalReadinessDossier(
 
   const prohibitedTermsScan = scanProhibitedTerms(projectRoot);
 
+  // Read paper execution assessment JSONL (paper/shadow only, read-only).
+  const paperExecHistoryPath = path.join(
+    stateDir,
+    PAPER_TRAIL_FILENAMES.crossVenueAnchor1823789PaperExecutionHistory,
+  );
+  const assessments = readPaperExecutionAssessmentsFromJsonl(paperExecHistoryPath);
+  const paperExecutionAssessments = summarizePaperExecutionAssessments(assessments);
+
   const input: AnalyzerInput = {
     systemIdentity,
     paperAnalytics: paperData.analytics,
@@ -256,6 +268,7 @@ export function composeMicrocapitalReadinessDossier(
     reliability,
     observability,
     riskLimits,
+    paperExecutionAssessments,
   };
 
   return analyzeMicrocapitalReadiness(input);

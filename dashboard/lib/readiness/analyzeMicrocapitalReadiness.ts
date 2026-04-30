@@ -22,6 +22,7 @@ import {
   pickWorstVerdict,
   type ConfidenceLevel,
   type EconomicReadiness,
+  type PaperAssessmentEvidence,
   type ExecutionRealism,
   type MicrocapitalReadinessDossier,
   type ObservabilityReadiness,
@@ -37,6 +38,10 @@ import {
   SHADOW_ONLY_POLICY_TAG,
 } from "./microcapitalReadinessThresholds";
 import type { ProhibitedTermsScanResult } from "./prohibitedTermsScanner";
+import {
+  EMPTY_PAPER_EXECUTION_ASSESSMENT_SUMMARY,
+  type PaperExecutionAssessmentSummary,
+} from "./paperExecutionAssessmentParser";
 
 export interface ReliabilityProbeInput {
   restartRecoveryPassed: boolean;
@@ -113,6 +118,12 @@ export interface AnalyzerInput {
   reliability: ReliabilityProbeInput;
   observability: ObservabilityProbeInput;
   riskLimits: RiskLimitsProbeInput;
+  /**
+   * Optional summary of paper-execution assessments (worker-emitted JSONL).
+   * The analyzer surfaces this as descriptive evidence; assessments are
+   * NEVER counted as realized PnL or as closed cycles.
+   */
+  paperExecutionAssessments?: PaperExecutionAssessmentSummary;
 }
 
 function median(nums: number[]): number {
@@ -281,8 +292,46 @@ function buildEconomicReadiness(input: AnalyzerInput): EconomicReadiness {
     }
   }
 
+  // Paper execution assessment summary — purely descriptive evidence; we do
+  // NOT count assessments as closed cycles or as realized PnL.
+  const assessmentSummary =
+    input.paperExecutionAssessments ?? EMPTY_PAPER_EXECUTION_ASSESSMENT_SUMMARY;
+  const evidence: PaperAssessmentEvidence = (() => {
+    const hasAny = assessmentSummary.paperExecutionAssessmentCount > 0;
+    const hasPositive = assessmentSummary.paperCyclePositiveCount > 0;
+    const majorityBlocked =
+      hasAny && assessmentSummary.blockedByGateRate > 0.5;
+    let label: PaperAssessmentEvidence["label"] = "no_assessments_present";
+    if (!hasAny) label = "no_assessments_present";
+    else if (!hasPositive) label = "assessments_present_no_positive";
+    else if (majorityBlocked) label = "positive_assessments_present_majority_blocked";
+    else label = "positive_assessments_present";
+    return {
+      label,
+      hasAnyAssessment: hasAny,
+      hasAnyPositiveAssessment: hasPositive,
+      majorityBlockedByGate: majorityBlocked,
+    };
+  })();
+
+  if (assessmentSummary.paperExecutionAssessmentCount > 0 && total === 0) {
+    notes.push(
+      `paper execution assessment positive evidence exists, but no closed paper cycles yet (assessments=${assessmentSummary.paperExecutionAssessmentCount}, positive=${assessmentSummary.paperCyclePositiveCount})`,
+    );
+  }
+  if (
+    assessmentSummary.paperExecutionAssessmentCount > 0 &&
+    (assessmentSummary.positiveAssessmentRate < 0.2 ||
+      assessmentSummary.blockedByGateRate > 0.7)
+  ) {
+    notes.push(
+      `paper execution assessments exist, but most cycles are blocked by gate (positiveRate=${(assessmentSummary.positiveAssessmentRate * 100).toFixed(1)}%, blockedByGateRate=${(assessmentSummary.blockedByGateRate * 100).toFixed(1)}%)`,
+    );
+  }
+
   return {
     totalCyclesObserved: total,
+    closedPaperCycles: total,
     positiveCycles: positives,
     negativeCycles: negatives,
     positiveCycleRate: positiveRate,
@@ -298,6 +347,8 @@ function buildEconomicReadiness(input: AnalyzerInput): EconomicReadiness {
     profitFactorPaper,
     falsePositiveEstimate: null,
     confidenceLevel,
+    paperExecutionAssessments: assessmentSummary,
+    paperAssessmentEvidence: evidence,
     economicVerdict: verdict,
     notes,
   };

@@ -74,15 +74,41 @@ export function renderMicrocapitalReadinessExecutiveSummary(
 
   lines.push("--- ECONOMIC METRICS (paper) ---");
   const e = d.economicReadiness;
-  lines.push(`  cycles observed: ${e.totalCyclesObserved} (positives ${e.positiveCycles}, negatives ${e.negativeCycles})`);
-  lines.push(`  positive cycle rate: ${fmtPct(e.positiveCycleRate)}`);
-  lines.push(`  net edge total (paper): ${fmtNum(e.netEdgeTotal)}`);
-  lines.push(`  fees / slippage (sim): ${fmtNum(e.estimatedFeesTotal)} / ${fmtNum(e.estimatedSlippageTotal)}`);
-  lines.push(`  net after fees+slippage: ${fmtNum(e.netAfterFeesAndSlippage)}`);
-  lines.push(`  median / worst / best cycle PnL: ${fmtNum(e.medianNetEdge)} / ${fmtNum(e.worstCycleNetEdge)} / ${fmtNum(e.bestCycleNetEdge)}`);
+  lines.push(`  closed paper cycles: ${e.closedPaperCycles}`);
+  const a = e.paperExecutionAssessments;
+  lines.push(`  paper execution assessments: ${a.paperExecutionAssessmentCount}`);
+  lines.push(`  paper positive assessments: ${a.paperCyclePositiveCount}`);
+  lines.push(`  blocked by gate: ${a.paperBlockedByGateCount}`);
+  lines.push(`  blocked by execution: ${a.paperBlockedByExecutionCount}`);
+  lines.push(`  not viable under stress: ${a.paperNotViableUnderStressCount}`);
+  lines.push(`  clob unavailable: ${a.clobUnavailableCount}`);
+  lines.push(
+    `  estimated net after paper execution total: ${fmtNum(a.estimatedNetAfterPaperExecutionTotal, 6)}`,
+  );
+  lines.push(
+    `  positive-only paper-net total: ${fmtNum(a.estimatedNetAfterPaperExecutionPositiveTotal, 6)}`,
+  );
+  lines.push(
+    `  paper-net median / best / worst: ${fmtNum(a.estimatedNetAfterPaperExecutionMedian, 6)} / ${fmtNum(a.estimatedNetAfterPaperExecutionBest, 6)} / ${fmtNum(a.estimatedNetAfterPaperExecutionWorst, 6)}`,
+  );
+  lines.push(
+    `  positiveAssessmentRate / blockedByGateRate: ${fmtPct(a.positiveAssessmentRate)} / ${fmtPct(a.blockedByGateRate)}`,
+  );
+  lines.push(`  assessment evidence: ${e.paperAssessmentEvidence.label}`);
+  lines.push("");
+  lines.push(`  closed-trade positives / negatives: ${e.positiveCycles} / ${e.negativeCycles}`);
+  lines.push(`  positive cycle rate (closed): ${fmtPct(e.positiveCycleRate)}`);
+  lines.push(`  net edge total (closed): ${fmtNum(e.netEdgeTotal)}`);
+  lines.push(`  fees / slippage (sim, closed): ${fmtNum(e.estimatedFeesTotal)} / ${fmtNum(e.estimatedSlippageTotal)}`);
+  lines.push(`  net after fees+slippage (closed): ${fmtNum(e.netAfterFeesAndSlippage)}`);
+  lines.push(`  median / worst / best cycle PnL (closed): ${fmtNum(e.medianNetEdge)} / ${fmtNum(e.worstCycleNetEdge)} / ${fmtNum(e.bestCycleNetEdge)}`);
   lines.push(`  max drawdown (paper): ${fmtNum(e.maxDrawdownPaper)}`);
   lines.push(`  profit factor (paper): ${fmtNum(e.profitFactorPaper)}`);
-  lines.push(`  confidence: ${e.confidenceLevel}`);
+  if (e.closedPaperCycles === 0 && a.paperExecutionAssessmentCount > 0) {
+    lines.push(`  confidence: ${e.confidenceLevel} because no closed paper cycles yet`);
+  } else {
+    lines.push(`  confidence: ${e.confidenceLevel}`);
+  }
   lines.push("");
 
   lines.push("--- EXECUTION REALISM (simulated) ---");

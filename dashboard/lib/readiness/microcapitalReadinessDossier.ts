@@ -40,8 +40,41 @@ export interface SafetyStatus {
   notes: string[];
 }
 
+export interface PaperAssessmentSummaryView {
+  paperExecutionAssessmentCount: number;
+  paperCyclePositiveCount: number;
+  paperBlockedByGateCount: number;
+  paperNotViableUnderStressCount: number;
+  paperBlockedByExecutionCount: number;
+  clobUnavailableCount: number;
+  estimatedNetAfterPaperExecutionTotal: number;
+  estimatedNetAfterPaperExecutionPositiveTotal: number;
+  estimatedNetAfterPaperExecutionMedian: number;
+  estimatedNetAfterPaperExecutionBest: number;
+  estimatedNetAfterPaperExecutionWorst: number;
+  positiveAssessmentRate: number;
+  blockedByGateRate: number;
+  firstAssessmentAt: string | null;
+  lastAssessmentAt: string | null;
+}
+
+export type PaperAssessmentEvidenceLabel =
+  | "no_assessments_present"
+  | "assessments_present_no_positive"
+  | "positive_assessments_present_majority_blocked"
+  | "positive_assessments_present";
+
+export interface PaperAssessmentEvidence {
+  label: PaperAssessmentEvidenceLabel;
+  hasAnyAssessment: boolean;
+  hasAnyPositiveAssessment: boolean;
+  majorityBlockedByGate: boolean;
+}
+
 export interface EconomicReadiness {
   totalCyclesObserved: number;
+  /** Number of fully closed paper trades observed (NOT assessments). */
+  closedPaperCycles: number;
   positiveCycles: number;
   negativeCycles: number;
   positiveCycleRate: number;
@@ -57,6 +90,9 @@ export interface EconomicReadiness {
   profitFactorPaper: number;
   falsePositiveEstimate: number | null;
   confidenceLevel: ConfidenceLevel;
+  /** Aggregate of paper-execution assessments (worker-emitted JSONL). NEVER counted as realized PnL. */
+  paperExecutionAssessments: PaperAssessmentSummaryView;
+  paperAssessmentEvidence: PaperAssessmentEvidence;
   economicVerdict: ReadinessVerdict;
   notes: string[];
 }
