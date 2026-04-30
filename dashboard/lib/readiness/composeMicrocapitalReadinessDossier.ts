@@ -104,28 +104,56 @@ function defaultObservability(stateDir: string): ObservabilityProbeInput {
 
 /**
  * The current dispatcher (lib/executionDispatcher.ts) is a synchronous, single-pass
- * audit-only path. It does not maintain a queue / leases / retries — failure-mode
- * probes for those concepts are reported as "not failing" only when the analyzer
- * has explicit synthetic evidence (tests). Defaults below report the *current*
- * shape: synchronous dispatch, no real submission, but no full reliability
- * machinery either.
+ * audit-only path. It has no queue, no leases, no retries, no breaker. Reporting
+ * those as a "failed probe" would be misleading — no probe has actually been run.
+ *
+ * The honest classification is `insufficient_evidence` per probe: the mechanism
+ * is simply not wired yet. We mark only `workerSurvivesDispatcherFailure` as
+ * `pass` because the worker's try/catch in lib/executionWorker.ts is observable
+ * code today.
  */
 function defaultReliability(): ReliabilityProbeInput {
   return {
-    restartRecoveryPassed: true,
-    idempotencyPassed: true,
-    duplicatePreventionPassed: true,
-    leaseRecoveryPassed: true,
-    retryFinitePassed: true,
-    permanentErrorsBecomeDeadPassed: true,
+    restartRecoveryPassed: false,
+    idempotencyPassed: false,
+    duplicatePreventionPassed: false,
+    leaseRecoveryPassed: false,
+    retryFinitePassed: false,
+    permanentErrorsBecomeDeadPassed: false,
     circuitBreakerPassed: false,
     workerSurvivesDispatcherFailurePassed: true,
+    probeStatus: {
+      restartRecovery: "insufficient_evidence",
+      idempotency: "insufficient_evidence",
+      duplicatePrevention: "insufficient_evidence",
+      leaseRecovery: "insufficient_evidence",
+      retryFinite: "insufficient_evidence",
+      permanentErrorsBecomeDead: "insufficient_evidence",
+      circuitBreaker: "insufficient_evidence",
+      workerSurvivesDispatcherFailure: "pass",
+    },
   };
 }
 
+/**
+ * Detects pre-existing simulated risk-limit mechanisms in the project.
+ *
+ * - Kill-switch: env `CROSS_VENUE_ANCHOR_1823789_MICRO_LIVE_HALT` is honored by
+ *   `lib/crossVenueAnchor1823789ExecutionMode.ts` to roll execution back to
+ *   `controlled_paper` (paper-only). Presence of that env-var contract counts as
+ *   a simulated kill-switch.
+ * - Cooldown-after-loss: not present anywhere in the project today. Reported false.
+ * - Exposure-limit: capital caps live in paperTradeEngine policies (paper-only).
+ *
+ * All three are SIMULATED guarantees — none authorize real submission.
+ */
 function defaultRiskLimits(): RiskLimitsProbeInput {
+  // The kill-switch CONTRACT is present in code regardless of whether the env is
+  // set right now: pulling the env (or not) only changes the active state, not
+  // whether the mechanism exists. The readiness gate cares about presence.
+  const killSwitchSimulated = true;
   return {
-    killSwitchSimulated: false,
+    killSwitchSimulated,
     cooldownAfterLossSimulated: false,
     exposureLimitSimulated: true,
     maxConsecutiveNegativeCycles: 0,

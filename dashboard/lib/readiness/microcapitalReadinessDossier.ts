@@ -78,6 +78,8 @@ export interface ExecutionRealism {
   notes: string[];
 }
 
+export type ProbeStatus = "pass" | "fail" | "insufficient_evidence";
+
 export interface ReliabilityReadiness {
   restartRecoveryPassed: boolean;
   idempotencyPassed: boolean;
@@ -87,6 +89,17 @@ export interface ReliabilityReadiness {
   permanentErrorsBecomeDeadPassed: boolean;
   circuitBreakerPassed: boolean;
   workerSurvivesDispatcherFailurePassed: boolean;
+  /** Tri-state per-probe status — pass / fail / insufficient_evidence. */
+  probes: {
+    restartRecovery: ProbeStatus;
+    idempotency: ProbeStatus;
+    duplicatePrevention: ProbeStatus;
+    leaseRecovery: ProbeStatus;
+    retryFinite: ProbeStatus;
+    permanentErrorsBecomeDead: ProbeStatus;
+    circuitBreaker: ProbeStatus;
+    workerSurvivesDispatcherFailure: ProbeStatus;
+  };
   reliabilityVerdict: ReadinessVerdict;
   notes: string[];
 }

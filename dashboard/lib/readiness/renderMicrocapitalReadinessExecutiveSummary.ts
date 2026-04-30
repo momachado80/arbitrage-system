@@ -97,14 +97,15 @@ export function renderMicrocapitalReadinessExecutiveSummary(
 
   lines.push("--- FAILURE-MODE PROBES ---");
   const r = d.reliabilityReadiness;
-  lines.push(`  restartRecovery: ${r.restartRecoveryPassed}`);
-  lines.push(`  idempotency: ${r.idempotencyPassed}`);
-  lines.push(`  duplicatePrevention: ${r.duplicatePreventionPassed}`);
-  lines.push(`  leaseRecovery: ${r.leaseRecoveryPassed}`);
-  lines.push(`  retryFinite: ${r.retryFinitePassed}`);
-  lines.push(`  permanentErrorsBecomeDead: ${r.permanentErrorsBecomeDeadPassed}`);
-  lines.push(`  circuitBreaker: ${r.circuitBreakerPassed}`);
-  lines.push(`  workerSurvivesDispatcherFailure: ${r.workerSurvivesDispatcherFailurePassed}`);
+  const p = r.probes;
+  lines.push(`  restartRecovery: ${p?.restartRecovery ?? r.restartRecoveryPassed}`);
+  lines.push(`  idempotency: ${p?.idempotency ?? r.idempotencyPassed}`);
+  lines.push(`  duplicatePrevention: ${p?.duplicatePrevention ?? r.duplicatePreventionPassed}`);
+  lines.push(`  leaseRecovery: ${p?.leaseRecovery ?? r.leaseRecoveryPassed}`);
+  lines.push(`  retryFinite: ${p?.retryFinite ?? r.retryFinitePassed}`);
+  lines.push(`  permanentErrorsBecomeDead: ${p?.permanentErrorsBecomeDead ?? r.permanentErrorsBecomeDeadPassed}`);
+  lines.push(`  circuitBreaker: ${p?.circuitBreaker ?? r.circuitBreakerPassed}`);
+  lines.push(`  workerSurvivesDispatcherFailure: ${p?.workerSurvivesDispatcherFailure ?? r.workerSurvivesDispatcherFailurePassed}`);
   lines.push("");
 
   lines.push("--- NEXT TECHNICAL STEPS ---");

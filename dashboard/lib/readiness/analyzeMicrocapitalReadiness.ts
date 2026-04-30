@@ -26,6 +26,7 @@ import {
   type MicrocapitalReadinessDossier,
   type ObservabilityReadiness,
   type ReadinessVerdict,
+  type ProbeStatus,
   type ReliabilityReadiness,
   type RiskLimitsSimulated,
   type SafetyStatus,
@@ -46,6 +47,22 @@ export interface ReliabilityProbeInput {
   permanentErrorsBecomeDeadPassed: boolean;
   circuitBreakerPassed: boolean;
   workerSurvivesDispatcherFailurePassed: boolean;
+  /**
+   * Optional per-probe tri-state status. When provided, the analyzer uses these
+   * to distinguish "fail" from "insufficient_evidence" (mechanism not yet wired)
+   * — preventing honest gaps from being misclassified as hard reliability failures.
+   * If a probe is missing here, the boolean *Passed flag governs (legacy path).
+   */
+  probeStatus?: Partial<{
+    restartRecovery: ProbeStatus;
+    idempotency: ProbeStatus;
+    duplicatePrevention: ProbeStatus;
+    leaseRecovery: ProbeStatus;
+    retryFinite: ProbeStatus;
+    permanentErrorsBecomeDead: ProbeStatus;
+    circuitBreaker: ProbeStatus;
+    workerSurvivesDispatcherFailure: ProbeStatus;
+  }>;
 }
 
 export interface ObservabilityProbeInput {
@@ -348,16 +365,36 @@ function buildExecutionRealism(
 function buildReliability(input: AnalyzerInput): ReliabilityReadiness {
   const r = input.reliability;
   const notes: string[] = [];
-  const failed: string[] = [];
 
-  if (!r.restartRecoveryPassed) failed.push("restartRecovery");
-  if (!r.idempotencyPassed) failed.push("idempotency");
-  if (!r.duplicatePreventionPassed) failed.push("duplicatePrevention");
-  if (!r.leaseRecoveryPassed) failed.push("leaseRecovery");
-  if (!r.retryFinitePassed) failed.push("retryFinite");
-  if (!r.permanentErrorsBecomeDeadPassed) failed.push("permanentErrorsBecomeDead");
-  if (!r.circuitBreakerPassed) failed.push("circuitBreaker");
-  if (!r.workerSurvivesDispatcherFailurePassed) failed.push("workerSurvivesDispatcherFailure");
+  function status(name: keyof NonNullable<typeof r.probeStatus>, passed: boolean): ProbeStatus {
+    const explicit = r.probeStatus?.[name];
+    if (explicit) return explicit;
+    return passed ? "pass" : "fail";
+  }
+
+  const probes = {
+    restartRecovery: status("restartRecovery", r.restartRecoveryPassed),
+    idempotency: status("idempotency", r.idempotencyPassed),
+    duplicatePrevention: status("duplicatePrevention", r.duplicatePreventionPassed),
+    leaseRecovery: status("leaseRecovery", r.leaseRecoveryPassed),
+    retryFinite: status("retryFinite", r.retryFinitePassed),
+    permanentErrorsBecomeDead: status(
+      "permanentErrorsBecomeDead",
+      r.permanentErrorsBecomeDeadPassed,
+    ),
+    circuitBreaker: status("circuitBreaker", r.circuitBreakerPassed),
+    workerSurvivesDispatcherFailure: status(
+      "workerSurvivesDispatcherFailure",
+      r.workerSurvivesDispatcherFailurePassed,
+    ),
+  };
+
+  const failed = Object.entries(probes)
+    .filter(([, s]) => s === "fail")
+    .map(([k]) => k);
+  const insufficient = Object.entries(probes)
+    .filter(([, s]) => s === "insufficient_evidence")
+    .map(([k]) => k);
 
   let verdict: ReadinessVerdict = "APPROVED_FOR_SHADOW_READINESS";
   if (failed.length > 0) {
@@ -365,6 +402,10 @@ function buildReliability(input: AnalyzerInput): ReliabilityReadiness {
     const blockingSubset = ["restartRecovery", "idempotency", "duplicatePrevention"];
     if (failed.some(f => blockingSubset.includes(f))) verdict = "BLOCKED_TECHNICAL_RISK";
     else verdict = "APPROVED_WITH_REMARKS";
+  }
+  if (insufficient.length > 0) {
+    notes.push(`Insufficient evidence (mechanism not wired): ${insufficient.join(", ")}`);
+    if (verdict === "APPROVED_FOR_SHADOW_READINESS") verdict = "APPROVED_WITH_REMARKS";
   }
 
   return {
@@ -376,6 +417,7 @@ function buildReliability(input: AnalyzerInput): ReliabilityReadiness {
     permanentErrorsBecomeDeadPassed: r.permanentErrorsBecomeDeadPassed,
     circuitBreakerPassed: r.circuitBreakerPassed,
     workerSurvivesDispatcherFailurePassed: r.workerSurvivesDispatcherFailurePassed,
+    probes,
     reliabilityVerdict: verdict,
     notes,
   };
