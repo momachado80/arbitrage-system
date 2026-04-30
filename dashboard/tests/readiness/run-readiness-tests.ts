@@ -13,6 +13,8 @@ import "./microcapitalReadinessDossier.test";
 import "./executionRealismHarness.test";
 import "./microcapitalFailureModes.test";
 import "./prohibitedExecutionTerms.test";
+import "./paperRiskGuards.test";
+import "./markoutFollowupProducer.test";
 
 async function main(): Promise<void> {
   const registry = getRegistry();

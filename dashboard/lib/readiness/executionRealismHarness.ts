@@ -151,6 +151,30 @@ export function buildExecutionRealismSample(
   };
 }
 
+/**
+ * Merge a base realism sample input with a markout price-set produced by
+ * `markoutFollowupProducer.toMarkoutPriceSet()`. Pure helper — does NOT touch
+ * networks, wallets, or signers.
+ *
+ * If no follow-ups are present, the result keeps `priceAfter*` undefined and
+ * the harness will report `markoutStatus = "insufficient_data"`.
+ */
+export function applyMarkoutPriceSet(
+  base: ExecutionRealismSampleInput,
+  prices: {
+    priceAfter5s?: number;
+    priceAfter30s?: number;
+    priceAfter60s?: number;
+  },
+): ExecutionRealismSampleInput {
+  return {
+    ...base,
+    priceAfter5s: prices.priceAfter5s ?? base.priceAfter5s,
+    priceAfter30s: prices.priceAfter30s ?? base.priceAfter30s,
+    priceAfter60s: prices.priceAfter60s ?? base.priceAfter60s,
+  };
+}
+
 export interface ExecutionRealismAggregate {
   sampleCount: number;
   averageSignalToEnqueueLatencyMs: number | null;
