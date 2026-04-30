@@ -28,6 +28,10 @@ import type {
   SystemIdentity,
 } from "./microcapitalReadinessDossier";
 import { scanProhibitedTerms } from "./prohibitedTermsScanner";
+import {
+  computePaperCooldownState,
+  type PaperCycleOutcome,
+} from "./paperRiskGuards";
 import type { ExecutionRealismSample } from "./executionRealismHarness";
 
 export interface ComposeOptions {
@@ -142,22 +146,59 @@ function defaultReliability(): ReliabilityProbeInput {
  *   `lib/crossVenueAnchor1823789ExecutionMode.ts` to roll execution back to
  *   `controlled_paper` (paper-only). Presence of that env-var contract counts as
  *   a simulated kill-switch.
- * - Cooldown-after-loss: not present anywhere in the project today. Reported false.
+ * - Cooldown-after-loss: paper-only `paperRiskGuards.ts` exists (mechanism
+ *   present + tested). The composer replays closed paper trades through the
+ *   guard to compute current state.
  * - Exposure-limit: capital caps live in paperTradeEngine policies (paper-only).
  *
  * All three are SIMULATED guarantees — none authorize real submission.
  */
-function defaultRiskLimits(): RiskLimitsProbeInput {
-  // The kill-switch CONTRACT is present in code regardless of whether the env is
-  // set right now: pulling the env (or not) only changes the active state, not
-  // whether the mechanism exists. The readiness gate cares about presence.
+function defaultRiskLimits(closedTrades: PaperTrade[]): RiskLimitsProbeInput {
   const killSwitchSimulated = true;
+
+  const cycles: PaperCycleOutcome[] = [];
+  for (const t of closedTrades) {
+    if (
+      typeof t.realizedPnL === "number" &&
+      Number.isFinite(t.realizedPnL) &&
+      typeof t.closedAt === "string" &&
+      t.closedAt
+    ) {
+      const ts = Date.parse(t.closedAt);
+      if (Number.isFinite(ts)) {
+        cycles.push({ cycleId: t.tradeId, pnl: t.realizedPnL, timestamp: ts });
+      }
+    }
+  }
+
+  const cooldownState = computePaperCooldownState({
+    closedCycles: cycles,
+    nowMs: Date.now(),
+  });
+
+  let consecutiveNegative = 0;
+  for (let i = closedTrades.length - 1; i >= 0; i--) {
+    const t = closedTrades[i];
+    if (typeof t.realizedPnL === "number" && t.realizedPnL < 0) consecutiveNegative++;
+    else break;
+  }
+
+  let worstSingleLoss = 0;
+  for (const t of closedTrades) {
+    if (typeof t.realizedPnL === "number" && t.realizedPnL < worstSingleLoss) {
+      worstSingleLoss = t.realizedPnL;
+    }
+  }
+
   return {
     killSwitchSimulated,
-    cooldownAfterLossSimulated: false,
+    cooldownAfterLossSimulated: true, // mechanism present + tested
+    cooldownActiveNow: cooldownState.cooldownActive,
+    cooldownActiveUntilMs: cooldownState.cooldownActiveUntilMs,
+    cooldownEvidence: cycles.length > 0 ? "pass" : "insufficient_evidence",
     exposureLimitSimulated: true,
-    maxConsecutiveNegativeCycles: 0,
-    maxPaperLossPerCycle: 0,
+    maxConsecutiveNegativeCycles: consecutiveNegative,
+    maxPaperLossPerCycle: Math.abs(worstSingleLoss),
     maxPaperDailyLoss: 0,
   };
 }
@@ -191,7 +232,7 @@ export function composeMicrocapitalReadinessDossier(
   const paperData = opts.paperData ?? loadPaperData();
   const observability = opts.observability ?? defaultObservability(stateDir);
   const reliability = opts.reliability ?? defaultReliability();
-  const riskLimits = opts.riskLimits ?? defaultRiskLimits();
+  const riskLimits = opts.riskLimits ?? defaultRiskLimits(paperData.closedTrades);
 
   const systemIdentity: SystemIdentity = {
     ...defaultSystemIdentity(stateDir),

@@ -80,6 +80,12 @@ export interface ObservabilityProbeInput {
 export interface RiskLimitsProbeInput {
   killSwitchSimulated: boolean;
   cooldownAfterLossSimulated: boolean;
+  /** Whether the simulated cooldown is currently active (paper-only). */
+  cooldownActiveNow?: boolean;
+  /** Epoch ms at which the simulated cooldown expires; null/undefined when not active. */
+  cooldownActiveUntilMs?: number | null;
+  /** Tri-state evidence flag for the cooldown mechanism. Defaults to insufficient_evidence. */
+  cooldownEvidence?: ProbeStatus;
   exposureLimitSimulated: boolean;
   maxConsecutiveNegativeCycles: number;
   maxPaperLossPerCycle: number;
@@ -459,9 +465,20 @@ function buildRiskLimits(input: AnalyzerInput): RiskLimitsSimulated {
     notes.push("Simulated kill-switch not present");
     verdict = "APPROVED_WITH_REMARKS";
   }
+  const cooldownEvidence: ProbeStatus = r.cooldownEvidence ?? "insufficient_evidence";
   if (!r.cooldownAfterLossSimulated) {
-    notes.push("Simulated cooldown-after-loss not present");
-    verdict = "APPROVED_WITH_REMARKS";
+    if (cooldownEvidence === "insufficient_evidence") {
+      notes.push(
+        "Simulated cooldown-after-loss: insufficient evidence (mechanism not wired or never observed)",
+      );
+    } else {
+      notes.push("Simulated cooldown-after-loss not present");
+    }
+    if (verdict === "APPROVED_FOR_SHADOW_READINESS") verdict = "APPROVED_WITH_REMARKS";
+  } else if (r.cooldownActiveNow) {
+    notes.push(
+      `Simulated cooldown-after-loss currently ACTIVE (until ${r.cooldownActiveUntilMs ?? "?"})`,
+    );
   }
   if (!r.exposureLimitSimulated) {
     notes.push("Simulated exposure-limit not present");
@@ -474,6 +491,9 @@ function buildRiskLimits(input: AnalyzerInput): RiskLimitsSimulated {
     maxConsecutiveNegativeCycles: r.maxConsecutiveNegativeCycles,
     killSwitchSimulated: r.killSwitchSimulated,
     cooldownAfterLossSimulated: r.cooldownAfterLossSimulated,
+    cooldownActiveNow: r.cooldownActiveNow ?? false,
+    cooldownActiveUntilMs: r.cooldownActiveUntilMs ?? null,
+    cooldownEvidence,
     exposureLimitSimulated: r.exposureLimitSimulated,
     riskVerdict: verdict,
     notes,

@@ -44,6 +44,16 @@ export const MICROCAPITAL_READINESS_THRESHOLDS = {
   /** Latency budgets (ms) for enqueue-to-dispatch path. */
   MAX_AVG_DISPATCH_LATENCY_MS: 500,
   MAX_P95_DISPATCH_LATENCY_MS: 1_500,
+  /** Paper cooldown-after-loss guard — N consecutive paper losses trigger cooldown. */
+  MAX_CONSECUTIVE_LOSSES_PAPER: 3,
+  /** Paper cooldown-after-loss guard — single-cycle loss this large or worse triggers cooldown. */
+  SEVERE_PAPER_LOSS_USD: 200,
+  /** Paper cooldown duration (ms) once the guard triggers. */
+  PAPER_COOLDOWN_DURATION_MS: 60_000,
+  /** Ring-buffer size used by the paper cooldown guard. */
+  PAPER_COOLDOWN_RING_SIZE: 32,
+  /** Markout horizons (ms) for the paper-only follow-up producer. */
+  MARKOUT_HORIZONS_MS: [5_000, 30_000, 60_000] as const,
 } as const;
 
 export type MicrocapitalReadinessThresholds = typeof MICROCAPITAL_READINESS_THRESHOLDS;
@@ -86,11 +96,15 @@ export const PROHIBITED_TERMS_WHITELIST: ReadonlyArray<string> = [
   "lib/readiness/renderMicrocapitalReadinessExecutiveSummary.ts",
   "lib/readiness/prohibitedTermsScanner.ts",
   "lib/readiness/composeMicrocapitalReadinessDossier.ts",
+  "lib/readiness/paperRiskGuards.ts",
+  "lib/readiness/markoutFollowupProducer.ts",
   "app/api/readiness/microcapital/route.ts",
   "scripts/readiness/microcapital-readiness.ts",
   "tests/readiness/microcapitalReadinessDossier.test.ts",
   "tests/readiness/executionRealismHarness.test.ts",
   "tests/readiness/microcapitalFailureModes.test.ts",
   "tests/readiness/prohibitedExecutionTerms.test.ts",
+  "tests/readiness/paperRiskGuards.test.ts",
+  "tests/readiness/markoutFollowupProducer.test.ts",
   "tests/readiness/run-readiness-tests.ts",
 ];

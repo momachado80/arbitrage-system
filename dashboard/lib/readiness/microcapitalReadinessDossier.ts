@@ -124,6 +124,12 @@ export interface RiskLimitsSimulated {
   maxConsecutiveNegativeCycles: number;
   killSwitchSimulated: boolean;
   cooldownAfterLossSimulated: boolean;
+  /** Whether the simulated cooldown is currently engaged (paper-only state). */
+  cooldownActiveNow: boolean;
+  /** Epoch ms at which the simulated cooldown expires; null if not active. */
+  cooldownActiveUntilMs: number | null;
+  /** Tri-state evidence for the cooldown mechanism. */
+  cooldownEvidence: ProbeStatus;
   exposureLimitSimulated: boolean;
   riskVerdict: ReadinessVerdict;
   notes: string[];
