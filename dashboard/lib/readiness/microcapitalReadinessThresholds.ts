@@ -121,6 +121,7 @@ export const PROHIBITED_TERMS_WHITELIST: ReadonlyArray<string> = [
   "scripts/readiness/collect-markout-followups.ts",
   "app/api/readiness/microcapital/route.ts",
   "scripts/readiness/microcapital-readiness.ts",
+  "scripts/readiness/watch-markout-followups.ts",
   "tests/readiness/microcapitalReadinessDossier.test.ts",
   "tests/readiness/executionRealismHarness.test.ts",
   "tests/readiness/microcapitalFailureModes.test.ts",
@@ -131,5 +132,6 @@ export const PROHIBITED_TERMS_WHITELIST: ReadonlyArray<string> = [
   "tests/readiness/paperCycleLifecycle.test.ts",
   "tests/readiness/reliabilityProbeRunner.test.ts",
   "tests/readiness/markoutFollowupCollector.test.ts",
+  "tests/readiness/markoutWatcher.test.ts",
   "tests/readiness/run-readiness-tests.ts",
 ];

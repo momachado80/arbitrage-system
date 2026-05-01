@@ -19,6 +19,7 @@ import "./paperExecutionAssessmentParser.test";
 import "./paperCycleLifecycle.test";
 import "./reliabilityProbeRunner.test";
 import "./markoutFollowupCollector.test";
+import "./markoutWatcher.test";
 
 async function main(): Promise<void> {
   const registry = getRegistry();

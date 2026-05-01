@@ -21,6 +21,8 @@
     "readiness:microcapital": "ts-node -P tsconfig.worker.json scripts/readiness/microcapital-readiness.ts",
     "readiness:microcapital:probes": "ENABLE_READINESS_SYNTHETIC_PROBES=true ts-node -P tsconfig.worker.json scripts/readiness/microcapital-readiness.ts",
     "readiness:collect-markouts": "ts-node -P tsconfig.worker.json scripts/readiness/collect-markout-followups.ts",
+    "readiness:watch-markouts": "ts-node -P tsconfig.worker.json scripts/readiness/watch-markout-followups.ts --watch",
+    "readiness:watch-markouts:once": "ts-node -P tsconfig.worker.json scripts/readiness/watch-markout-followups.ts --once",
     "test": "ts-node -P tsconfig.worker.json tests/readiness/run-readiness-tests.ts",
     "test:readiness": "ts-node -P tsconfig.worker.json tests/readiness/run-readiness-tests.ts"
   },
