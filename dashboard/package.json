@@ -19,6 +19,8 @@
     "shadow:full-check": "npx ts-node -P tsconfig.worker.json scripts/shadow-full-check.ts",
     "check:shadow-only": "ts-node -P tsconfig.worker.json scripts/assertCrossVenueAnchor1823789ShadowOnly.ts",
     "readiness:microcapital": "ts-node -P tsconfig.worker.json scripts/readiness/microcapital-readiness.ts",
+    "readiness:microcapital:probes": "ENABLE_READINESS_SYNTHETIC_PROBES=true ts-node -P tsconfig.worker.json scripts/readiness/microcapital-readiness.ts",
+    "readiness:collect-markouts": "ts-node -P tsconfig.worker.json scripts/readiness/collect-markout-followups.ts",
     "test": "ts-node -P tsconfig.worker.json tests/readiness/run-readiness-tests.ts",
     "test:readiness": "ts-node -P tsconfig.worker.json tests/readiness/run-readiness-tests.ts"
   },

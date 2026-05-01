@@ -32,11 +32,26 @@ import {
   computePaperCooldownState,
   type PaperCycleOutcome,
 } from "./paperRiskGuards";
-import type { ExecutionRealismSample } from "./executionRealismHarness";
+import {
+  applyMarkoutPriceSet,
+  buildExecutionRealismSample,
+  type ExecutionRealismSample,
+} from "./executionRealismHarness";
 import {
   readPaperExecutionAssessmentsFromJsonl,
   summarizePaperExecutionAssessments,
 } from "./paperExecutionAssessmentParser";
+import {
+  summarizePaperCycleLifecycle,
+} from "./paperCycleLifecycle";
+import { runReliabilityProbes } from "./reliabilityProbeRunner";
+import {
+  MICROCAPITAL_READINESS_THRESHOLDS,
+} from "./microcapitalReadinessThresholds";
+import type {
+  MarkoutFollowupRecord,
+  MarkoutHorizonMs,
+} from "./markoutFollowupProducer";
 
 export interface ComposeOptions {
   /** Project root used for prohibited-terms scanner. Defaults to dashboard root. */
@@ -157,6 +172,68 @@ function defaultReliability(): ReliabilityProbeInput {
  *
  * All three are SIMULATED guarantees — none authorize real submission.
  */
+/**
+ * Read markout followups (paper-only) from JSONL. Skips blank/invalid lines and
+ * "historical_followup_unavailable" placeholders (those carry no usable price).
+ * Returns an empty list if the file does not exist.
+ */
+function readMarkoutFollowupsFromJsonl(filePath: string): MarkoutFollowupRecord[] {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(filePath, "utf8");
+  } catch {
+    return [];
+  }
+  const out: MarkoutFollowupRecord[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const t = line.trim();
+    if (t.length === 0) continue;
+    let obj: Record<string, unknown>;
+    try {
+      obj = JSON.parse(t) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (obj.markoutStatus === "historical_followup_unavailable") continue;
+    if (obj.type !== "markout_followup") continue;
+    const cycleId = typeof obj.cycleId === "string" ? obj.cycleId : null;
+    const marketId = typeof obj.marketId === "string" ? obj.marketId : null;
+    const baseObservedAt = typeof obj.baseObservedAt === "number" ? obj.baseObservedAt : null;
+    const followupObservedAt =
+      typeof obj.followupObservedAt === "number" ? obj.followupObservedAt : null;
+    const horizonMs = typeof obj.horizonMs === "number" ? obj.horizonMs : null;
+    const basePrice = typeof obj.basePrice === "number" ? obj.basePrice : null;
+    const followupPrice = typeof obj.followupPrice === "number" ? obj.followupPrice : null;
+    const markout = typeof obj.markout === "number" ? obj.markout : null;
+    if (
+      !cycleId ||
+      !marketId ||
+      baseObservedAt === null ||
+      followupObservedAt === null ||
+      horizonMs === null ||
+      basePrice === null ||
+      followupPrice === null ||
+      markout === null
+    ) {
+      continue;
+    }
+    if (horizonMs !== 5_000 && horizonMs !== 30_000 && horizonMs !== 60_000) continue;
+    out.push({
+      type: "markout_followup",
+      cycleId,
+      marketId,
+      baseObservedAt,
+      followupObservedAt,
+      horizonMs: horizonMs as MarkoutHorizonMs,
+      basePrice,
+      followupPrice,
+      markout,
+      source: "paper_shadow_readonly",
+    });
+  }
+  return out;
+}
+
 function defaultRiskLimits(closedTrades: PaperTrade[]): RiskLimitsProbeInput {
   const killSwitchSimulated = true;
 
@@ -253,22 +330,87 @@ export function composeMicrocapitalReadinessDossier(
   const assessments = readPaperExecutionAssessmentsFromJsonl(paperExecHistoryPath);
   const paperExecutionAssessments = summarizePaperExecutionAssessments(assessments);
 
+  // Read markout followups (paper-only) and join with assessments via lifecycle.
+  const followupsPath = path.join(
+    stateDir,
+    MICROCAPITAL_READINESS_THRESHOLDS.MARKOUT_FOLLOWUPS_FILENAME,
+  );
+  const followups = readMarkoutFollowupsFromJsonl(followupsPath);
+  const paperCycleLifecycle = summarizePaperCycleLifecycle(assessments, followups);
+
+  // Synthesize realism samples from positive assessments + followups (paper-only).
+  const realismSamples: ExecutionRealismSample[] = opts.realismSamples ?? [];
+  if (followups.length > 0 && realismSamples.length === 0) {
+    const positives = assessments.filter(
+      a =>
+        (a.paperExecutionVerdict ?? "").toLowerCase() === "paper_cycle_positive",
+    );
+    for (const a of positives) {
+      const baseTs = a.isoTimestamp ? Date.parse(a.isoTimestamp) : NaN;
+      const basePrice =
+        a.clobMid ??
+        (a.clobBestBid !== null && a.clobBestAsk !== null
+          ? (a.clobBestBid + a.clobBestAsk) / 2
+          : null);
+      if (!Number.isFinite(baseTs) || basePrice === null) continue;
+      const cycleId = `pc::${a.marketId ?? "unknown"}::${a.isoTimestamp}`;
+      const cf = followups.filter(f => f.cycleId === cycleId);
+      const priceSet: { priceAfter5s?: number; priceAfter30s?: number; priceAfter60s?: number } = {};
+      for (const r of cf) {
+        if (r.horizonMs === 5_000) priceSet.priceAfter5s = r.followupPrice;
+        else if (r.horizonMs === 30_000) priceSet.priceAfter30s = r.followupPrice;
+        else if (r.horizonMs === 60_000) priceSet.priceAfter60s = r.followupPrice;
+      }
+      const merged = applyMarkoutPriceSet(
+        {
+          cycleId,
+          signalTimestamp: baseTs,
+          enqueueTimestamp: baseTs,
+          observedPriceOrProbabilitySnapshot: basePrice,
+          notionalPaperUsd: 100,
+        },
+        priceSet,
+      );
+      realismSamples.push(buildExecutionRealismSample(merged));
+    }
+  }
+
+  // Optionally run synthetic reliability probes (gated by env var).
+  const synthetic = runReliabilityProbes();
+  const effectiveReliability = synthetic.enabled
+    ? {
+        ...reliability,
+        restartRecoveryPassed: synthetic.probes.restartRecovery === "pass",
+        idempotencyPassed: synthetic.probes.idempotency === "pass",
+        duplicatePreventionPassed: synthetic.probes.duplicatePrevention === "pass",
+        leaseRecoveryPassed: synthetic.probes.leaseRecovery === "pass",
+        retryFinitePassed: synthetic.probes.retryFinite === "pass",
+        permanentErrorsBecomeDeadPassed:
+          synthetic.probes.permanentErrorsBecomeDead === "pass",
+        circuitBreakerPassed: synthetic.probes.circuitBreaker === "pass",
+        workerSurvivesDispatcherFailurePassed:
+          synthetic.probes.workerSurvivesDispatcherFailure === "pass",
+        probeStatus: { ...reliability.probeStatus, ...synthetic.probes },
+      }
+    : reliability;
+
   const input: AnalyzerInput = {
     systemIdentity,
     paperAnalytics: paperData.analytics,
     closedTrades: paperData.closedTrades,
     activeTrades: paperData.activeTrades,
-    realismSamples: opts.realismSamples ?? [],
+    realismSamples,
     prohibitedTermsScan,
     apiSubmitAllowedTrueAnywhere: prohibitedTermsScan.findings.some(
       f => f.matchedTerm === "apiSubmitAllowed: true",
     ),
     dispatcherAuditOnly: true,
     payloadSafetyPresent: true,
-    reliability,
+    reliability: effectiveReliability,
     observability,
     riskLimits,
     paperExecutionAssessments,
+    paperCycleLifecycle,
   };
 
   return analyzeMicrocapitalReadiness(input);

@@ -42,6 +42,10 @@ import {
   EMPTY_PAPER_EXECUTION_ASSESSMENT_SUMMARY,
   type PaperExecutionAssessmentSummary,
 } from "./paperExecutionAssessmentParser";
+import {
+  EMPTY_PAPER_CYCLE_LIFECYCLE_SUMMARY,
+  type PaperCycleLifecycleSummary,
+} from "./paperCycleLifecycle";
 
 export interface ReliabilityProbeInput {
   restartRecoveryPassed: boolean;
@@ -124,6 +128,12 @@ export interface AnalyzerInput {
    * NEVER counted as realized PnL or as closed cycles.
    */
   paperExecutionAssessments?: PaperExecutionAssessmentSummary;
+  /**
+   * Optional paper cycle lifecycle summary derived from assessments + markout
+   * followups. Only `paper_cycle_closed` events count as "closed via markout";
+   * NEVER realized PnL.
+   */
+  paperCycleLifecycle?: PaperCycleLifecycleSummary;
 }
 
 function median(nums: number[]): number {
@@ -329,6 +339,20 @@ function buildEconomicReadiness(input: AnalyzerInput): EconomicReadiness {
     );
   }
 
+  // Paper cycle lifecycle (markout-backed). Closed-via-markout cycles are
+  // statistical observation only — NEVER realized PnL.
+  const lifecycle = input.paperCycleLifecycle ?? EMPTY_PAPER_CYCLE_LIFECYCLE_SUMMARY;
+  if (lifecycle.closedPaperCycles > 0) {
+    notes.push(
+      `markout-backed paper cycles closed: ${lifecycle.closedPaperCycles} (positives ${lifecycle.simulatedClosedCyclePositiveCount}, negatives ${lifecycle.simulatedClosedCycleNegativeCount}, simulatedNetTotal=${lifecycle.simulatedClosedCycleNetTotal.toFixed(6)})`,
+    );
+  }
+  if (lifecycle.insufficientEvidencePaperCycles > 0) {
+    notes.push(
+      `paper cycles with insufficient markout evidence: ${lifecycle.insufficientEvidencePaperCycles}`,
+    );
+  }
+
   return {
     totalCyclesObserved: total,
     closedPaperCycles: total,
@@ -349,6 +373,13 @@ function buildEconomicReadiness(input: AnalyzerInput): EconomicReadiness {
     confidenceLevel,
     paperExecutionAssessments: assessmentSummary,
     paperAssessmentEvidence: evidence,
+    openedPaperCycles: lifecycle.openedPaperCycles,
+    closedPaperCyclesViaMarkout: lifecycle.closedPaperCycles,
+    insufficientEvidencePaperCycles: lifecycle.insufficientEvidencePaperCycles,
+    simulatedClosedCycleNetTotal: lifecycle.simulatedClosedCycleNetTotal,
+    simulatedClosedCyclePositiveCount: lifecycle.simulatedClosedCyclePositiveCount,
+    simulatedClosedCycleNegativeCount: lifecycle.simulatedClosedCycleNegativeCount,
+    markoutBackedCycleCount: lifecycle.markoutBackedCycleCount,
     economicVerdict: verdict,
     notes,
   };

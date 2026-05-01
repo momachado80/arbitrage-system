@@ -54,6 +54,23 @@ export const MICROCAPITAL_READINESS_THRESHOLDS = {
   PAPER_COOLDOWN_RING_SIZE: 32,
   /** Markout horizons (ms) for the paper-only follow-up producer. */
   MARKOUT_HORIZONS_MS: [5_000, 30_000, 60_000] as const,
+  /**
+   * Tolerance window per horizon when joining a positive assessment with later
+   * same-market assessments to derive paper-only followup prices.
+   * Indexed by horizon (ms). Values in ms.
+   */
+  MARKOUT_JOIN_TOLERANCE_MS: {
+    5_000: 10_000,
+    30_000: 30_000,
+    60_000: 60_000,
+  } as const,
+  /** Minimum age (ms) of a positive assessment before we declare its window historical. */
+  MARKOUT_HISTORICAL_AGE_MS: 60_000,
+  /** Filename written by the paper-only markout collector script. */
+  MARKOUT_FOLLOWUPS_FILENAME:
+    "cross-venue-anchor-1823789-markout-followups.jsonl",
+  /** Synthetic probe flag (env var). When unset/false, probes report insufficient_evidence. */
+  SYNTHETIC_PROBES_ENV: "ENABLE_READINESS_SYNTHETIC_PROBES",
 } as const;
 
 export type MicrocapitalReadinessThresholds = typeof MICROCAPITAL_READINESS_THRESHOLDS;
@@ -99,6 +116,9 @@ export const PROHIBITED_TERMS_WHITELIST: ReadonlyArray<string> = [
   "lib/readiness/paperRiskGuards.ts",
   "lib/readiness/markoutFollowupProducer.ts",
   "lib/readiness/paperExecutionAssessmentParser.ts",
+  "lib/readiness/paperCycleLifecycle.ts",
+  "lib/readiness/reliabilityProbeRunner.ts",
+  "scripts/readiness/collect-markout-followups.ts",
   "app/api/readiness/microcapital/route.ts",
   "scripts/readiness/microcapital-readiness.ts",
   "tests/readiness/microcapitalReadinessDossier.test.ts",
@@ -108,5 +128,8 @@ export const PROHIBITED_TERMS_WHITELIST: ReadonlyArray<string> = [
   "tests/readiness/paperRiskGuards.test.ts",
   "tests/readiness/markoutFollowupProducer.test.ts",
   "tests/readiness/paperExecutionAssessmentParser.test.ts",
+  "tests/readiness/paperCycleLifecycle.test.ts",
+  "tests/readiness/reliabilityProbeRunner.test.ts",
+  "tests/readiness/markoutFollowupCollector.test.ts",
   "tests/readiness/run-readiness-tests.ts",
 ];

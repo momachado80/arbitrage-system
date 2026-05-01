@@ -16,6 +16,9 @@ import "./prohibitedExecutionTerms.test";
 import "./paperRiskGuards.test";
 import "./markoutFollowupProducer.test";
 import "./paperExecutionAssessmentParser.test";
+import "./paperCycleLifecycle.test";
+import "./reliabilityProbeRunner.test";
+import "./markoutFollowupCollector.test";
 
 async function main(): Promise<void> {
   const registry = getRegistry();

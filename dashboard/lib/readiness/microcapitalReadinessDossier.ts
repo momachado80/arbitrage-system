@@ -93,6 +93,16 @@ export interface EconomicReadiness {
   /** Aggregate of paper-execution assessments (worker-emitted JSONL). NEVER counted as realized PnL. */
   paperExecutionAssessments: PaperAssessmentSummaryView;
   paperAssessmentEvidence: PaperAssessmentEvidence;
+  /** Paper cycle lifecycle counters derived from assessments + markout followups. */
+  openedPaperCycles: number;
+  /** Paper cycles that have been formally CLOSED via markout evidence. NOT realized PnL. */
+  closedPaperCyclesViaMarkout: number;
+  insufficientEvidencePaperCycles: number;
+  /** Sum of simulated PnL across markout-closed cycles (paper-only, never capital). */
+  simulatedClosedCycleNetTotal: number;
+  simulatedClosedCyclePositiveCount: number;
+  simulatedClosedCycleNegativeCount: number;
+  markoutBackedCycleCount: number;
   economicVerdict: ReadinessVerdict;
   notes: string[];
 }

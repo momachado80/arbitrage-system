@@ -96,6 +96,14 @@ export function renderMicrocapitalReadinessExecutiveSummary(
   );
   lines.push(`  assessment evidence: ${e.paperAssessmentEvidence.label}`);
   lines.push("");
+  lines.push(`  opened paper cycles: ${e.openedPaperCycles}`);
+  lines.push(`  closed paper cycles (markout-backed): ${e.closedPaperCyclesViaMarkout}`);
+  lines.push(`  insufficient evidence cycles: ${e.insufficientEvidencePaperCycles}`);
+  lines.push(`  markout-backed cycles: ${e.markoutBackedCycleCount}`);
+  lines.push(
+    `  simulated closed-cycle net total: ${fmtNum(e.simulatedClosedCycleNetTotal, 6)} (positives ${e.simulatedClosedCyclePositiveCount}, negatives ${e.simulatedClosedCycleNegativeCount})`,
+  );
+  lines.push("");
   lines.push(`  closed-trade positives / negatives: ${e.positiveCycles} / ${e.negativeCycles}`);
   lines.push(`  positive cycle rate (closed): ${fmtPct(e.positiveCycleRate)}`);
   lines.push(`  net edge total (closed): ${fmtNum(e.netEdgeTotal)}`);
