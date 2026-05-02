@@ -134,6 +134,11 @@ export interface AnalyzerInput {
    * NEVER realized PnL.
    */
   paperCycleLifecycle?: PaperCycleLifecycleSummary;
+  /**
+   * Optional follow-up stats (read-only tally over the markout JSONL). Surfaced
+   * as descriptive metrics in the executionRealism section.
+   */
+  markoutFollowupStats?: import("./microcapitalReadinessDossier").MarkoutFollowupStats;
 }
 
 function median(nums: number[]): number {
@@ -432,6 +437,20 @@ function buildExecutionRealism(
     else fillQuality = "poor";
   }
 
+  if (input.markoutFollowupStats) {
+    const s = input.markoutFollowupStats;
+    if (s.priceUnavailableRate > 0.5 && verdict === "APPROVED_FOR_SHADOW_READINESS") {
+      verdict = "APPROVED_WITH_REMARKS";
+    }
+    notes.push(
+      `Markout sampler: ok=${s.okFollowups}, price_unavailable=${s.priceUnavailableFollowups}, sampler_error=${s.samplerErrorFollowups}, unavailableRate=${(s.priceUnavailableRate * 100).toFixed(1)}%`,
+    );
+    const sourceList = Object.entries(s.priceSourcesUsed)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(", ");
+    if (sourceList.length > 0) notes.push(`priceSourcesUsed: ${sourceList}`);
+  }
+
   return {
     averageSignalToEnqueueLatencyMs: agg.averageSignalToEnqueueLatencyMs,
     p95SignalToEnqueueLatencyMs: agg.p95SignalToEnqueueLatencyMs,
@@ -445,6 +464,9 @@ function buildExecutionRealism(
     markout5s: agg.markout5s,
     markout30s: agg.markout30s,
     markout60s: agg.markout60s,
+    ...(input.markoutFollowupStats
+      ? { markoutFollowupStats: input.markoutFollowupStats }
+      : {}),
     realismVerdict: verdict,
     notes,
   };

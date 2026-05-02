@@ -127,6 +127,18 @@ export function renderMicrocapitalReadinessExecutiveSummary(
   lines.push(`  fill quality (sim): ${x.simulatedFillQuality}`);
   lines.push(`  slippage bps (sim): ${fmtNum(x.simulatedSlippageBps, 1)}`);
   lines.push(`  markout 5s / 30s / 60s: ${x.markout5s ?? "n/a"} / ${x.markout30s ?? "n/a"} / ${x.markout60s ?? "n/a"}`);
+  if (x.markoutFollowupStats) {
+    const s = x.markoutFollowupStats;
+    lines.push(
+      `  followups: ok=${s.okFollowups}, price_unavailable=${s.priceUnavailableFollowups}, sampler_error=${s.samplerErrorFollowups}, unavailableRate=${fmtPct(s.priceUnavailableRate)}`,
+    );
+    const srcs = Object.entries(s.priceSourcesUsed);
+    if (srcs.length > 0) {
+      lines.push(
+        `  priceSourcesUsed: ${srcs.map(([k, v]) => `${k}=${v}`).join(", ")}`,
+      );
+    }
+  }
   lines.push("");
 
   lines.push("--- FAILURE-MODE PROBES ---");

@@ -13,6 +13,7 @@ import path from "path";
 
 import {
   createStubPriceSampler,
+  extractGammaPublicPriceWithFallback,
   runOnce,
   runWatchLoop,
   WATCH_STATE_FILENAME,
@@ -284,5 +285,177 @@ describe("tests/readiness/markoutWatcher.test.ts", () => {
       assertEqual(row.type, "markout_followup", "type=markout_followup");
     }
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  // -------------------------- Fallback chain tests --------------------------
+
+  test("fallback: bid + ask present → bid_ask_mid", () => {
+    const e = extractGammaPublicPriceWithFallback({ bestBid: 0.49, bestAsk: 0.51 });
+    assertTrue(e !== null, "extracted");
+    assertEqual(e!.priceSource, "bid_ask_mid", "source = bid_ask_mid");
+    assertTrue(Math.abs(e!.price - 0.5) < 1e-9, "price = (0.49+0.51)/2");
+    assertEqual(e!.rawPriceFieldsSeen.includes("bestBid"), true, "saw bestBid");
+    assertEqual(e!.rawPriceFieldsSeen.includes("bestAsk"), true, "saw bestAsk");
+  });
+
+  test("fallback: only bestAsk valid → best_ask_only", () => {
+    const e = extractGammaPublicPriceWithFallback({ bestAsk: 0.6 });
+    assertTrue(e !== null, "extracted");
+    assertEqual(e!.priceSource, "best_ask_only", "source = best_ask_only");
+    assertEqual(e!.price, 0.6, "price = bestAsk");
+  });
+
+  test("fallback: only bestBid valid → best_bid_only", () => {
+    const e = extractGammaPublicPriceWithFallback({ bestBid: 0.4 });
+    assertTrue(e !== null, "extracted");
+    assertEqual(e!.priceSource, "best_bid_only", "source = best_bid_only");
+    assertEqual(e!.price, 0.4, "price = bestBid");
+  });
+
+  test("fallback: lastTradePrice falls through bid/ask", () => {
+    const e = extractGammaPublicPriceWithFallback({ lastTradePrice: 0.55 });
+    assertTrue(e !== null, "extracted");
+    assertEqual(e!.priceSource, "last_trade_price", "source = last_trade_price");
+    assertEqual(e!.price, 0.55, "price = lastTradePrice");
+  });
+
+  test("fallback: lastPrice when bid/ask/lastTradePrice absent", () => {
+    const e = extractGammaPublicPriceWithFallback({ lastPrice: 0.62 });
+    assertTrue(e !== null, "extracted");
+    assertEqual(e!.priceSource, "last_price", "source = last_price");
+    assertEqual(e!.price, 0.62, "price = lastPrice");
+  });
+
+  test("fallback: top-level price field", () => {
+    const e = extractGammaPublicPriceWithFallback({ price: 0.42 });
+    assertTrue(e !== null, "extracted");
+    assertEqual(e!.priceSource, "price", "source = price");
+    assertEqual(e!.price, 0.42, "price = price field");
+  });
+
+  test("fallback: outcomePrices array (with YES outcome)", () => {
+    const e = extractGammaPublicPriceWithFallback({
+      outcomes: ["No", "Yes"],
+      outcomePrices: ["0.3", "0.7"],
+    });
+    assertTrue(e !== null, "extracted");
+    assertEqual(e!.priceSource, "outcome_prices", "source = outcome_prices");
+    assertEqual(e!.price, 0.7, "yes outcome picked");
+  });
+
+  test("fallback: outcomePrices as JSON-stringified array", () => {
+    const e = extractGammaPublicPriceWithFallback({
+      outcomes: '["Yes","No"]',
+      outcomePrices: '["0.65","0.35"]',
+    });
+    assertTrue(e !== null, "extracted");
+    assertEqual(e!.priceSource, "outcome_prices", "source");
+    assertEqual(e!.price, 0.65, "first outcome (Yes) selected");
+  });
+
+  test("fallback: tokens with embedded price", () => {
+    const e = extractGammaPublicPriceWithFallback({
+      tokens: [
+        { outcome: "Yes", price: 0.58 },
+        { outcome: "No", price: 0.42 },
+      ],
+    });
+    assertTrue(e !== null, "extracted");
+    assertEqual(e!.priceSource, "tokens_outcomes_price", "source = tokens_outcomes_price");
+    assertEqual(e!.price, 0.58, "first usable token price");
+  });
+
+  test("fallback: nothing usable → null", () => {
+    const e = extractGammaPublicPriceWithFallback({});
+    assertEqual(e, null, "no extraction");
+    const e2 = extractGammaPublicPriceWithFallback({ bestBid: 0, bestAsk: 0 });
+    assertEqual(e2, null, "zero bid/ask rejected");
+    const e3 = extractGammaPublicPriceWithFallback({ price: 1.5 });
+    assertEqual(e3, null, "out-of-range price rejected");
+  });
+
+  test("watcher emits priceSource + rawPriceFieldsSeen on JSONL rows", async () => {
+    const dir = makeStateDir(POSITIVE_LINE_AT_T0);
+    const sampler = createStubPriceSampler(new Map(), {
+      gammaPayloads: new Map<string, Record<string, unknown>>([
+        [
+          "1823789",
+          { bestBid: 0.49, bestAsk: 0.51, lastTradePrice: 0.5 },
+        ],
+      ]),
+    });
+    await runOnce({ paperStateDir: dir, sampler, nowMs: T0 + 1_000 });
+    await runOnce({ paperStateDir: dir, sampler, nowMs: T0 + 90_000 });
+    const rows = readJsonl(path.join(dir, FOLLOWUPS_FILENAME));
+    assertEqual(rows.length, 3, "3 rows");
+    for (const row of rows) {
+      assertEqual(row.priceSource, "bid_ask_mid", "priceSource on row");
+      assertTrue(
+        Array.isArray(row.rawPriceFieldsSeen),
+        "rawPriceFieldsSeen is array",
+      );
+      const seen = row.rawPriceFieldsSeen as string[];
+      assertEqual(seen.includes("bestBid"), true, "saw bestBid");
+      assertEqual(seen.includes("bestAsk"), true, "saw bestAsk");
+    }
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("watcher records price_unavailable when payload has no usable price", async () => {
+    const dir = makeStateDir(POSITIVE_LINE_AT_T0);
+    const sampler = createStubPriceSampler(new Map(), {
+      gammaPayloads: new Map<string, Record<string, unknown>>([
+        ["1823789", { description: "no price fields here" }],
+      ]),
+    });
+    await runOnce({ paperStateDir: dir, sampler, nowMs: T0 + 1_000 });
+    await runOnce({ paperStateDir: dir, sampler, nowMs: T0 + 90_000 });
+    const rows = readJsonl(path.join(dir, FOLLOWUPS_FILENAME));
+    for (const row of rows) {
+      assertEqual(
+        row.samplerStatus,
+        "price_unavailable",
+        "no usable price → unavailable",
+      );
+      assertEqual(
+        row.errorMessage,
+        "no_usable_public_price",
+        "errorMessage set",
+      );
+    }
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("safety: source code does NOT contain submit/order/wallet/signer/privateKey/mnemonic/seed phrase", () => {
+    const src = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        "..",
+        "..",
+        "scripts",
+        "readiness",
+        "watch-markout-followups.ts",
+      ),
+      "utf8",
+    );
+    const stripped = src
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/.*$/gm, "");
+    assertTrue(
+      !/\bsubmitOrder\b|\bplaceOrder\b|\bexecuteTrade\b|\brealSubmit\b|microLiveSubmit/.test(
+        stripped,
+      ),
+      "no submit verbs",
+    );
+    assertTrue(
+      !/sendTransaction|signTypedData|\bbroadcast\b/.test(stripped),
+      "no transaction verbs",
+    );
+    assertTrue(!/\bprivateKey\b|\bMNEMONIC\b/i.test(stripped), "no private key / mnemonic");
+    assertTrue(!/seed\s*phrase|seedPhrase/i.test(stripped), "no seed phrase");
+    assertTrue(
+      !/\bwalletAddress\b|\bsignerAddress\b/.test(stripped),
+      "no wallet/signer address",
+    );
   });
 });

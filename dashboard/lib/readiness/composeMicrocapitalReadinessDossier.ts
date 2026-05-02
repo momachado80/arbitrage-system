@@ -177,6 +177,75 @@ function defaultReliability(): ReliabilityProbeInput {
  * "historical_followup_unavailable" placeholders (those carry no usable price).
  * Returns an empty list if the file does not exist.
  */
+/**
+ * Tally markout follow-up samplerStatus and priceSource across the JSONL.
+ *
+ * Counts `ok` / `price_unavailable` / `sampler_error` rows separately. Skips
+ * `historical_followup_unavailable` placeholders (those are not sampler runs).
+ * Returns null if the file does not exist.
+ */
+function tallyMarkoutFollowupStats(
+  filePath: string,
+): {
+  okFollowups: number;
+  priceUnavailableFollowups: number;
+  samplerErrorFollowups: number;
+  priceUnavailableRate: number;
+  priceSourcesUsed: Record<string, number>;
+} | null {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(filePath, "utf8");
+  } catch {
+    return null;
+  }
+  let ok = 0;
+  let priceUnavail = 0;
+  let samplerErr = 0;
+  const sources: Record<string, number> = {};
+  for (const line of raw.split(/\r?\n/)) {
+    const t = line.trim();
+    if (t.length === 0) continue;
+    let obj: Record<string, unknown>;
+    try {
+      obj = JSON.parse(t) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (obj.type !== "markout_followup") continue;
+    if (obj.markoutStatus === "historical_followup_unavailable") continue;
+    const status =
+      typeof obj.samplerStatus === "string" ? (obj.samplerStatus as string) : null;
+    if (status === "ok") {
+      ok++;
+      const src = typeof obj.priceSource === "string" ? (obj.priceSource as string) : "unknown";
+      sources[src] = (sources[src] ?? 0) + 1;
+    } else if (status === "price_unavailable") {
+      priceUnavail++;
+    } else if (status === "sampler_error") {
+      samplerErr++;
+    } else {
+      // Legacy rows from the historical collector (no samplerStatus): treat
+      // as `ok` if the row has a usable markout, otherwise skip.
+      const followupPrice = typeof obj.followupPrice === "number" ? obj.followupPrice : null;
+      const markout = typeof obj.markout === "number" ? obj.markout : null;
+      if (followupPrice !== null && markout !== null) {
+        ok++;
+        const src = "legacy_collector";
+        sources[src] = (sources[src] ?? 0) + 1;
+      }
+    }
+  }
+  const totalSampler = ok + priceUnavail + samplerErr;
+  return {
+    okFollowups: ok,
+    priceUnavailableFollowups: priceUnavail,
+    samplerErrorFollowups: samplerErr,
+    priceUnavailableRate: totalSampler > 0 ? priceUnavail / totalSampler : 0,
+    priceSourcesUsed: sources,
+  };
+}
+
 function readMarkoutFollowupsFromJsonl(filePath: string): MarkoutFollowupRecord[] {
   let raw: string;
   try {
@@ -337,6 +406,7 @@ export function composeMicrocapitalReadinessDossier(
   );
   const followups = readMarkoutFollowupsFromJsonl(followupsPath);
   const paperCycleLifecycle = summarizePaperCycleLifecycle(assessments, followups);
+  const markoutFollowupStats = tallyMarkoutFollowupStats(followupsPath) ?? undefined;
 
   // Synthesize realism samples from positive assessments + followups (paper-only).
   const realismSamples: ExecutionRealismSample[] = opts.realismSamples ?? [];
@@ -411,6 +481,7 @@ export function composeMicrocapitalReadinessDossier(
     riskLimits,
     paperExecutionAssessments,
     paperCycleLifecycle,
+    markoutFollowupStats,
   };
 
   return analyzeMicrocapitalReadiness(input);

@@ -107,6 +107,20 @@ export interface EconomicReadiness {
   notes: string[];
 }
 
+/**
+ * Stats over the markout follow-up JSONL stream (paper-only). Optional —
+ * present only when the composer has read the followups file. NEVER counted
+ * as realized PnL.
+ */
+export interface MarkoutFollowupStats {
+  okFollowups: number;
+  priceUnavailableFollowups: number;
+  samplerErrorFollowups: number;
+  priceUnavailableRate: number;
+  /** Map of priceSource → count for the `ok` rows. */
+  priceSourcesUsed: Record<string, number>;
+}
+
 export interface ExecutionRealism {
   averageSignalToEnqueueLatencyMs: number | null;
   p95SignalToEnqueueLatencyMs: number | null;
@@ -120,6 +134,8 @@ export interface ExecutionRealism {
   markout5s: number | null;
   markout30s: number | null;
   markout60s: number | null;
+  /** Optional follow-up stats, populated when markout JSONL is read. */
+  markoutFollowupStats?: MarkoutFollowupStats;
   realismVerdict: ReadinessVerdict;
   notes: string[];
 }

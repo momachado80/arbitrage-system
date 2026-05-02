@@ -36,10 +36,7 @@ import {
 } from "../../lib/readiness/paperExecutionAssessmentParser";
 import { MICROCAPITAL_READINESS_THRESHOLDS } from "../../lib/readiness/microcapitalReadinessThresholds";
 import { buildPaperCycleId } from "../../lib/readiness/paperCycleLifecycle";
-import {
-  extractGammaBestBidAsk,
-  fetchGammaMarketRawJson,
-} from "../../lib/clobMicrostructure";
+import { fetchGammaMarketRawJson } from "../../lib/clobMicrostructure";
 
 export const WATCH_STATE_FILENAME =
   "cross-venue-anchor-1823789-markout-watch-state.json" as const;
@@ -47,10 +44,27 @@ export const WATCH_SCHEMA_VERSION = "v1" as const;
 
 export type SamplerStatus = "ok" | "price_unavailable" | "sampler_error";
 
+export type PriceSource =
+  | "bid_ask_mid"
+  | "best_ask_only"
+  | "best_bid_only"
+  | "last_trade_price"
+  | "last_price"
+  | "price"
+  | "outcome_prices"
+  | "tokens_outcomes_price";
+
 export interface SamplerResult {
   status: SamplerStatus;
   price: number | null;
   errorMessage?: string;
+  /** Which public field the price came from. Present when status === "ok". */
+  priceSource?: PriceSource;
+  /**
+   * Short list of price-related field names actually observed in the public
+   * payload. NEVER includes the raw payload itself; only field-name strings.
+   */
+  rawPriceFieldsSeen?: string[];
 }
 
 export interface ReadonlyPriceSampler {
@@ -59,6 +73,158 @@ export interface ReadonlyPriceSampler {
    * Implementations MUST be read-only — no submit, no signing, no wallet.
    */
   samplePrice(marketId: string): Promise<SamplerResult>;
+}
+
+/* ------------------------- public-payload extraction ------------------------ */
+
+function asNumber(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string") {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function isProbabilityish(n: number): boolean {
+  return Number.isFinite(n) && n > 0 && n < 1;
+}
+
+function parseStringArrayField(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(v => String(v)).filter(Boolean);
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return Array.isArray(parsed) ? parsed.map(v => String(v)).filter(Boolean) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+interface PublicPriceExtraction {
+  price: number;
+  priceSource: PriceSource;
+  rawPriceFieldsSeen: string[];
+}
+
+/**
+ * Read-only fallback chain over public Gamma payload fields.
+ *
+ * Priority:
+ *   1. bid + ask both valid     → (bid+ask)/2 with priceSource="bid_ask_mid"
+ *   2. only valid bestAsk       → bestAsk          ("best_ask_only")
+ *   3. only valid bestBid       → bestBid          ("best_bid_only")
+ *   4. lastTradePrice valid     → lastTradePrice   ("last_trade_price")
+ *   5. lastPrice valid          → lastPrice        ("last_price")
+ *   6. top-level `price` valid  → price            ("price")
+ *   7. outcomePrices array      → first valid      ("outcome_prices")
+ *   8. tokens[] / outcomes[].price valid → ("tokens_outcomes_price")
+ *
+ * Returns null when no usable public price exists. NEVER touches private data.
+ */
+export function extractGammaPublicPriceWithFallback(
+  raw: Record<string, unknown>,
+): PublicPriceExtraction | null {
+  const seen: string[] = [];
+
+  const bid = asNumber(raw.bestBid);
+  const ask = asNumber(raw.bestAsk);
+  const bidValid = bid !== null && isProbabilityish(bid);
+  const askValid = ask !== null && isProbabilityish(ask);
+  if (bid !== null) seen.push("bestBid");
+  if (ask !== null) seen.push("bestAsk");
+
+  if (bidValid && askValid && (ask as number) > (bid as number)) {
+    return {
+      price: ((bid as number) + (ask as number)) / 2,
+      priceSource: "bid_ask_mid",
+      rawPriceFieldsSeen: seen,
+    };
+  }
+  if (askValid && !bidValid) {
+    return {
+      price: ask as number,
+      priceSource: "best_ask_only",
+      rawPriceFieldsSeen: seen,
+    };
+  }
+  if (bidValid && !askValid) {
+    return {
+      price: bid as number,
+      priceSource: "best_bid_only",
+      rawPriceFieldsSeen: seen,
+    };
+  }
+
+  const lastTrade = asNumber(raw.lastTradePrice);
+  if (lastTrade !== null) seen.push("lastTradePrice");
+  if (lastTrade !== null && isProbabilityish(lastTrade)) {
+    return {
+      price: lastTrade,
+      priceSource: "last_trade_price",
+      rawPriceFieldsSeen: seen,
+    };
+  }
+
+  const lastPrice = asNumber(raw.lastPrice);
+  if (lastPrice !== null) seen.push("lastPrice");
+  if (lastPrice !== null && isProbabilityish(lastPrice)) {
+    return {
+      price: lastPrice,
+      priceSource: "last_price",
+      rawPriceFieldsSeen: seen,
+    };
+  }
+
+  const topLevelPrice = asNumber(raw.price);
+  if (topLevelPrice !== null) seen.push("price");
+  if (topLevelPrice !== null && isProbabilityish(topLevelPrice)) {
+    return {
+      price: topLevelPrice,
+      priceSource: "price",
+      rawPriceFieldsSeen: seen,
+    };
+  }
+
+  const outcomePrices = parseStringArrayField(raw.outcomePrices);
+  if (outcomePrices.length > 0) seen.push("outcomePrices");
+  if (outcomePrices.length > 0) {
+    // Pair with outcomes; prefer the YES slot if identifiable.
+    const outcomes = parseStringArrayField(raw.outcomes);
+    let chosenIdx = 0;
+    if (outcomes.length === outcomePrices.length) {
+      const yesIdx = outcomes.findIndex(o => /^yes$/i.test(o.trim()));
+      if (yesIdx >= 0) chosenIdx = yesIdx;
+    }
+    const candidate = asNumber(outcomePrices[chosenIdx]);
+    if (candidate !== null && isProbabilityish(candidate)) {
+      return {
+        price: candidate,
+        priceSource: "outcome_prices",
+        rawPriceFieldsSeen: seen,
+      };
+    }
+  }
+
+  // tokens / outcomes objects with embedded price fields.
+  const tokens = Array.isArray(raw.tokens) ? (raw.tokens as unknown[]) : [];
+  if (tokens.length > 0) seen.push("tokens");
+  for (const t of tokens) {
+    if (typeof t !== "object" || t === null) continue;
+    const tObj = t as Record<string, unknown>;
+    const candidate = asNumber(tObj.price);
+    if (candidate !== null && isProbabilityish(candidate)) {
+      return {
+        price: candidate,
+        priceSource: "tokens_outcomes_price",
+        rawPriceFieldsSeen: seen,
+      };
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -76,17 +242,24 @@ export function createGammaPriceSampler(): ReadonlyPriceSampler {
             status: "price_unavailable",
             price: null,
             errorMessage: "gamma_returned_null",
+            rawPriceFieldsSeen: [],
           };
         }
-        const ba = extractGammaBestBidAsk(raw);
-        if (!ba) {
+        const extraction = extractGammaPublicPriceWithFallback(raw);
+        if (!extraction) {
           return {
             status: "price_unavailable",
             price: null,
-            errorMessage: "no_bid_ask_pair",
+            errorMessage: "no_usable_public_price",
+            rawPriceFieldsSeen: [],
           };
         }
-        return { status: "ok", price: (ba.bid + ba.ask) / 2 };
+        return {
+          status: "ok",
+          price: extraction.price,
+          priceSource: extraction.priceSource,
+          rawPriceFieldsSeen: extraction.rawPriceFieldsSeen,
+        };
       } catch (err) {
         return {
           status: "sampler_error",
@@ -101,10 +274,25 @@ export function createGammaPriceSampler(): ReadonlyPriceSampler {
 /**
  * Stub sampler for tests. `prices` maps marketId → price. A `null` value
  * yields `price_unavailable`; missing keys yield `price_unavailable`.
+ *
+ * Optionally `pricesAdvanced` provides a per-market `priceSource` /
+ * `rawPriceFieldsSeen` so tests can exercise the fallback chain shape
+ * end-to-end without going through the network.
+ *
+ * Optionally `gammaPayloads` provides a per-market raw payload that the
+ * stub feeds through the real {@link extractGammaPublicPriceWithFallback}
+ * helper — exercising the production extraction in tests.
  */
 export function createStubPriceSampler(
   prices: ReadonlyMap<string, number | null>,
-  opts: { errorOnMarketIds?: ReadonlySet<string> } = {},
+  opts: {
+    errorOnMarketIds?: ReadonlySet<string>;
+    pricesAdvanced?: ReadonlyMap<
+      string,
+      { price: number; priceSource: PriceSource; rawPriceFieldsSeen: string[] }
+    >;
+    gammaPayloads?: ReadonlyMap<string, Record<string, unknown>>;
+  } = {},
 ): ReadonlyPriceSampler {
   return {
     async samplePrice(marketId: string): Promise<SamplerResult> {
@@ -113,6 +301,33 @@ export function createStubPriceSampler(
           status: "sampler_error",
           price: null,
           errorMessage: "stub_forced_error",
+        };
+      }
+      if (opts.gammaPayloads?.has(marketId)) {
+        const payload = opts.gammaPayloads.get(marketId)!;
+        const extraction = extractGammaPublicPriceWithFallback(payload);
+        if (!extraction) {
+          return {
+            status: "price_unavailable",
+            price: null,
+            errorMessage: "no_usable_public_price",
+            rawPriceFieldsSeen: [],
+          };
+        }
+        return {
+          status: "ok",
+          price: extraction.price,
+          priceSource: extraction.priceSource,
+          rawPriceFieldsSeen: extraction.rawPriceFieldsSeen,
+        };
+      }
+      if (opts.pricesAdvanced?.has(marketId)) {
+        const adv = opts.pricesAdvanced.get(marketId)!;
+        return {
+          status: "ok",
+          price: adv.price,
+          priceSource: adv.priceSource,
+          rawPriceFieldsSeen: adv.rawPriceFieldsSeen,
         };
       }
       if (!prices.has(marketId)) {
@@ -126,7 +341,12 @@ export function createStubPriceSampler(
       if (p === null || p === undefined) {
         return { status: "price_unavailable", price: null };
       }
-      return { status: "ok", price: p };
+      return {
+        status: "ok",
+        price: p,
+        priceSource: "bid_ask_mid",
+        rawPriceFieldsSeen: ["bestBid", "bestAsk"],
+      };
     },
   };
 }
@@ -243,6 +463,10 @@ interface MarkoutFollowupRowV1 {
   markout: number | null;
   samplerStatus: SamplerStatus;
   errorMessage?: string;
+  /** Which public field the price came from. Present when samplerStatus="ok". */
+  priceSource?: PriceSource;
+  /** Short list of price-related field names actually observed (no payload). */
+  rawPriceFieldsSeen?: string[];
 }
 
 function appendJsonl(filePath: string, rows: ReadonlyArray<object>): void {
@@ -403,6 +627,10 @@ export async function runOnce(opts: RunWatchOptions = {}): Promise<RunOnceResult
       markout,
       samplerStatus: sample.status,
       ...(sample.errorMessage ? { errorMessage: sample.errorMessage } : {}),
+      ...(sample.priceSource ? { priceSource: sample.priceSource } : {}),
+      ...(sample.rawPriceFieldsSeen
+        ? { rawPriceFieldsSeen: sample.rawPriceFieldsSeen.slice(0, 12) }
+        : {}),
     };
 
     appendJsonl(followupsPath, [row]);
