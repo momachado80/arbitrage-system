@@ -121,6 +121,24 @@ export interface MarkoutFollowupStats {
   priceSourcesUsed: Record<string, number>;
 }
 
+export type MarkoutInformativenessVerdict =
+  | "INFORMATIVE"
+  | "WEAK_FLAT_MARKOUTS"
+  | "INSUFFICIENT_MARKOUTS";
+
+/** Qualidade económica vs fechamentos puramente estruturais dos markouts. */
+export interface MarkoutInformativenessStats {
+  markoutBackedCycleCount: number;
+  informativeMarkoutCycleCount: number;
+  flatMarkoutCycleCount: number;
+  nonZeroMarkoutFollowupCount: number;
+  zeroMarkoutFollowupCount: number;
+  allHorizonsFlatCycleCount: number;
+  bestAskOnlyCycleCount: number;
+  lowPricePinnedCycleCount: number;
+  markoutInformativenessVerdict: MarkoutInformativenessVerdict;
+}
+
 export interface ExecutionRealism {
   averageSignalToEnqueueLatencyMs: number | null;
   p95SignalToEnqueueLatencyMs: number | null;
@@ -134,8 +152,10 @@ export interface ExecutionRealism {
   markout5s: number | null;
   markout30s: number | null;
   markout60s: number | null;
-  /** Optional follow-up stats, populated when markout JSONL is read. */
+  /** Follow-up stats, populated when markout JSONL is read. */
   markoutFollowupStats?: MarkoutFollowupStats;
+  /** Fechamentos técnicos vs markouts economicamente informativos. */
+  markoutInformativenessStats?: MarkoutInformativenessStats;
   realismVerdict: ReadinessVerdict;
   notes: string[];
 }

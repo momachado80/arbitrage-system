@@ -44,6 +44,7 @@ import {
 import {
   summarizePaperCycleLifecycle,
 } from "./paperCycleLifecycle";
+import { computeMarkoutInformativenessStats } from "./markoutInformativenessStats";
 import { runReliabilityProbes } from "./reliabilityProbeRunner";
 import {
   MICROCAPITAL_READINESS_THRESHOLDS,
@@ -407,6 +408,8 @@ export function composeMicrocapitalReadinessDossier(
   const followups = readMarkoutFollowupsFromJsonl(followupsPath);
   const paperCycleLifecycle = summarizePaperCycleLifecycle(assessments, followups);
   const markoutFollowupStats = tallyMarkoutFollowupStats(followupsPath) ?? undefined;
+  const markoutInformativenessStats =
+    computeMarkoutInformativenessStats(paperCycleLifecycle, followupsPath) ?? undefined;
 
   // Synthesize realism samples from positive assessments + followups (paper-only).
   const realismSamples: ExecutionRealismSample[] = opts.realismSamples ?? [];
@@ -482,6 +485,7 @@ export function composeMicrocapitalReadinessDossier(
     paperExecutionAssessments,
     paperCycleLifecycle,
     markoutFollowupStats,
+    markoutInformativenessStats,
   };
 
   return analyzeMicrocapitalReadiness(input);

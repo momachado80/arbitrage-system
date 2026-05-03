@@ -139,6 +139,10 @@ export interface AnalyzerInput {
    * as descriptive metrics in the executionRealism section.
    */
   markoutFollowupStats?: import("./microcapitalReadinessDossier").MarkoutFollowupStats;
+  /**
+   * Estatísticas de informatividade (markout económico vs fechamento estrutural).
+   */
+  markoutInformativenessStats?: import("./microcapitalReadinessDossier").MarkoutInformativenessStats;
 }
 
 function median(nums: number[]): number {
@@ -451,6 +455,22 @@ function buildExecutionRealism(
     if (sourceList.length > 0) notes.push(`priceSourcesUsed: ${sourceList}`);
   }
 
+  if (input.markoutInformativenessStats) {
+    const m = input.markoutInformativenessStats;
+    notes.push(
+      `markout informativeness: informative=${m.informativeMarkoutCycleCount}, flat=${m.flatMarkoutCycleCount}, lowPricePinned=${m.lowPricePinnedCycleCount}, verdict=${m.markoutInformativenessVerdict}`,
+    );
+    notes.push(
+      `Markout quality detail: nonzeroFollowups=${m.nonZeroMarkoutFollowupCount}, zeroFollowups=${m.zeroMarkoutFollowupCount}, allHorizonsFlatCycles=${m.allHorizonsFlatCycleCount}, bestAskOnlyClosedCycles=${m.bestAskOnlyCycleCount}`,
+    );
+    if (m.markoutInformativenessVerdict === "WEAK_FLAT_MARKOUTS") {
+      notes.push(
+        "REMARK: cycles close structurally via markouts, but sampled prices remain flat/low-pinned — markout realism is economically weak.",
+      );
+      if (verdict === "APPROVED_FOR_SHADOW_READINESS") verdict = "APPROVED_WITH_REMARKS";
+    }
+  }
+
   return {
     averageSignalToEnqueueLatencyMs: agg.averageSignalToEnqueueLatencyMs,
     p95SignalToEnqueueLatencyMs: agg.p95SignalToEnqueueLatencyMs,
@@ -466,6 +486,9 @@ function buildExecutionRealism(
     markout60s: agg.markout60s,
     ...(input.markoutFollowupStats
       ? { markoutFollowupStats: input.markoutFollowupStats }
+      : {}),
+    ...(input.markoutInformativenessStats
+      ? { markoutInformativenessStats: input.markoutInformativenessStats }
       : {}),
     realismVerdict: verdict,
     notes,

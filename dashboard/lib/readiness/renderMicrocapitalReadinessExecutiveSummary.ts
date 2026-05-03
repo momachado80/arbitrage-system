@@ -139,6 +139,15 @@ export function renderMicrocapitalReadinessExecutiveSummary(
       );
     }
   }
+  if (x.markoutInformativenessStats) {
+    const m = x.markoutInformativenessStats;
+    lines.push(
+      `  markout informativeness: informative=${m.informativeMarkoutCycleCount}, flat=${m.flatMarkoutCycleCount}, lowPricePinned=${m.lowPricePinnedCycleCount}, verdict=${m.markoutInformativenessVerdict}`,
+    );
+    lines.push(
+      `  markout quality: nonzeroFollowups=${m.nonZeroMarkoutFollowupCount}, zeroFollowups=${m.zeroMarkoutFollowupCount}, allHorizonsFlatCycles=${m.allHorizonsFlatCycleCount}, bestAskOnlyClosedCycles=${m.bestAskOnlyCycleCount}, backedCycles=${m.markoutBackedCycleCount}`,
+    );
+  }
   lines.push("");
 
   lines.push("--- FAILURE-MODE PROBES ---");
