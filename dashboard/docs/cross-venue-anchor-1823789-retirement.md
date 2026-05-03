@@ -1,28 +1,33 @@
-# Aposentadoria do track `crossVenueAnchor1823789` (mercado 1823789)
+/**
+ * Retirement note — crossVenueAnchor1823789
+ *
+ * Formal retirement of Gamma market **1823789** como *economic proof track* vivo.
+ */
 
-## Mercado
+## Identificação
 
-**Pergunta:** Will Ethereum reach $4,000 in April?  
-**Gamma market id:** `1823789`
+| Campo | Valor |
+| ----- | ----- |
+| **marketId** | `1823789` |
+| **Pergunta** | Will Ethereum reach $4,000 in April? |
+| **Data da decisão** | 2026-05-03 |
+| **Decisão** | **Retired as economic proof track** — não usar como evidência económica viva. |
 
-## Motivo
+## Motivo principal
 
-Mercado temporalmente **expirado** em contexto económico vivo: referência abril 2026, com avaliação a **3 de maio de 2026** já fora da janela do evento. Não deve servir como prova de readiness **económica atual**.
+Mercado **temporalmente vencido** em maio relativamente ao evento nominal (April), com sintomas estruturais de ilíquidez/markouts não informativos.
 
 ## Sintomas observados
 
-- **markoutInformativenessVerdict** = `WEAK_FLAT_MARKOUTS`
-- **informativeMarkoutCycleCount** = `0`; **flatMarkoutCycleCount** = `8`
-- **lowPricePinnedCycleCount** = `8`; **bestAskOnlyCycleCount** = `8`
-- Followups marcados como ok com **basePrice/followupPrice** presos em **0.001** e **markouts zero**
-- **`clob_book_unavailable`** recorrente no worker / gate narrow
+- `markoutInformativenessVerdict` = **`WEAK_FLAT_MARKOUTS`**
+- **8** ciclos fechados via markout; **0** informativos
+- **24** `okFollowups`, todos com **markout zero**
+- `best_ask_only` como **única** fonte de preço recuperável nos followups
+- `lowPricePinnedCycleCount` = **8**
+- Preço efectivo ~**0.001** (“pinned” observacional)
+- `clob_book_unavailable` recorrente no pipeline paper/shadow observado
 
-## Decisão operacional
+## Regras aprendidas
 
-- **Não** usar `1823789` como evidência para microcapital económico vivo.
-- Manter apenas como **caso histórico** ou fixture de pipeline / testes, se necessário.
-- Novos candidatos a candidatura microcapital devem passar pela **Market Suitability Gate** (read-only) antes de serem considerados.
-
-## Regra aprendida
-
-Mercado temporalmente **vencido**, **resolve** ou **estruturalmente ilíquido / preso a tick mínimo** não pode ser premissa para **readiness económica viva**.
+1. Mercado **vencido**, **fec** **resolvido** ou **estruturalmente degenerado em micro-preço/livro** não pode ser premissa para **prova económica viva**.
+2. **Market suitability** (read-only) vem **antes** de worker, watcher, readiness económico vivente ou discussão microcapital — *mercado primeiro, código depois*.
