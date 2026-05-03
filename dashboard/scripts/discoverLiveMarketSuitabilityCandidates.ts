@@ -4,6 +4,10 @@
  * apenas resumo truncado como JSON único em stdout.
  */
 
+import {
+  enrichDiscoverySuitableRow,
+  finalizeDiscoveryRankingSplit,
+} from "../lib/liveMarketDiscoveryRanking";
 import type { ClobBookStructureHint } from "../lib/marketSuitabilityGate";
 import { evaluateMarketSuitability } from "../lib/marketSuitabilityGate";
 
@@ -137,6 +141,7 @@ async function loadGammaRows(): Promise<Record<string, unknown>[]> {
 async function main(): Promise<void> {
   const nowIso = new Date().toISOString();
   const rows = await loadGammaRows();
+  let stdoutFieldsTruncated = false;
 
   const rowsOut: Array<{
     summary: Record<string, unknown>;
@@ -144,6 +149,8 @@ async function main(): Promise<void> {
   }> = [];
 
   const verdictCounts: Record<string, number> = {};
+
+  const markTruncate = (full: string, max: number) => full.length > max;
 
   for (const r of rows) {
     const tok = pickYesToken(r);
@@ -157,22 +164,50 @@ async function main(): Promise<void> {
       typeof r.id === "string" || typeof r.id === "number" ? String(r.id) : null;
     const qRaw = typeof r.question === "string" ? r.question : typeof r.title === "string" ? r.title : null;
 
+    let questionOut: string | null = null;
+    if (qRaw) {
+      if (markTruncate(qRaw, Q_TRUNC)) stdoutFieldsTruncated = true;
+      questionOut = truncStr(qRaw, Q_TRUNC);
+    }
+
+    const slugSrc =
+      typeof r.slug === "string" ? r.slug : typeof r.market_slug === "string" ? (r.market_slug as string) : null;
+    let slugOut: string | null = null;
+    if (slugSrc) {
+      if (markTruncate(slugSrc, 120)) stdoutFieldsTruncated = true;
+      slugOut = truncStr(slugSrc, 120);
+    }
+
+    let outcomePricesField = r.outcomePrices ?? null;
+    if (typeof r.outcomePrices === "string" && markTruncate(r.outcomePrices, 160)) stdoutFieldsTruncated = true;
+    if (typeof r.outcomePrices === "string") outcomePricesField = truncStr(r.outcomePrices, 160);
+
+    let clobTokField = r.clobTokenIds ?? null;
+    if (typeof r.clobTokenIds === "string" && markTruncate(r.clobTokenIds, 220)) stdoutFieldsTruncated = true;
+    if (typeof r.clobTokenIds === "string") clobTokField = truncStr(r.clobTokenIds, 220);
+
+    let tagsField = r.tags != null ? String(r.tags) : null;
+    if (tagsField && markTruncate(tagsField, 120)) stdoutFieldsTruncated = true;
+    if (tagsField) tagsField = truncStr(tagsField, 120);
+
+    if (tok && tok.length > 18) stdoutFieldsTruncated = true;
+
     const summary = {
       id: mid,
-      question: qRaw ? truncStr(qRaw, Q_TRUNC) : null,
-      slug: typeof r.slug === "string" ? truncStr(r.slug, 120) : (r.market_slug as string | undefined) ?? null,
+      question: questionOut,
+      slug: slugOut,
       active: r.active ?? null,
       closed: r.closed ?? null,
       resolved: r.resolved ?? r.isResolved ?? r.marketResolved ?? null,
       endDate: r.endDate ?? r.end_date ?? null,
       volume: r.volume ?? null,
       liquidity: r.liquidity ?? null,
-      outcomePrices: typeof r.outcomePrices === "string" ? truncStr(r.outcomePrices, 160) : r.outcomePrices ?? null,
-      clobTokenIds: typeof r.clobTokenIds === "string" ? truncStr(r.clobTokenIds, 220) : r.clobTokenIds ?? null,
+      outcomePrices: outcomePricesField,
+      clobTokenIds: clobTokField,
       conditionId: r.conditionId ?? r.condition_id ?? null,
       updatedAt: r.updatedAt ?? r.updated_at ?? null,
       category: r.category ?? null,
-      tags: r.tags != null ? truncStr(String(r.tags), 120) : null,
+      tags: tagsField,
       yesTokenPrefix: book.yesTokenPrefix,
       clobBookStructure: book.bookStructure,
       bestBidUsed: bidComb,
@@ -211,16 +246,21 @@ async function main(): Promise<void> {
   }
 
   const suitable = rowsOut.filter(x => x.evaluation.canUseForPaperShadowCandidate);
-  const topCandidates = suitable
-    .slice()
-    .sort((a, b) => {
-      const va = numLike(a.summary.volume) ?? 0;
-      const vb = numLike(b.summary.volume) ?? 0;
-      return vb - va;
-    })
-    .slice(0, 10)
+  const enrichedSuitable = suitable.map(x =>
+    enrichDiscoverySuitableRow({
+      ...(x.summary as Record<string, unknown>),
+      suitabilityVerdict: x.evaluation.suitabilityVerdict,
+      reasons: x.evaluation.reasons,
+    }),
+  );
+  const { candidatesSorted, topCandidates } = finalizeDiscoveryRankingSplit(enrichedSuitable);
+
+  const rejected = rowsOut
+    .filter(x => !x.evaluation.canUseForPaperShadowCandidate)
     .map(x => ({
-      ...x.summary,
+      id: x.summary.id,
+      question: x.summary.question,
+      slug: x.summary.slug,
       suitabilityVerdict: x.evaluation.suitabilityVerdict,
       reasons: x.evaluation.reasons,
     }));
@@ -230,17 +270,26 @@ async function main(): Promise<void> {
     .map(([verdict, count]) => ({ verdict, count }))
     .sort((a, b) => b.count - a.count);
 
-  const report = {
+  const baseReport = {
     scannedAtUtc: nowIso,
     totalMarketsScanned: rows.length,
     suitableForPaperShadowCount: suitable.length,
     rejectedCount: rows.length - suitable.length,
     topRejectionReasons,
-    candidates: topCandidates,
+    candidates: candidatesSorted,
+    topCandidates,
+    rejected,
+    topCandidatesCount: topCandidates.length,
     note: "read_only_discovery_no_execution",
+    ...(stdoutFieldsTruncated
+      ? {
+          truncationNotice:
+            "stdout_fields_truncated: question_slug_outcomePrices_clobTokenIds_tags_yesTokenPrefix_capped_for_safe_json;",
+        }
+      : {}),
   };
 
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify(baseReport, null, 2)}\n`);
 }
 
 main().catch(err => {
