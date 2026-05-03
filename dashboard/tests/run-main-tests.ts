@@ -1,6 +1,7 @@
 import { getRegistry } from "./_assert";
 
 import "./gamma1823789MarketsResponseNormalize.test";
+import "./marketSuitabilityGate.test";
 
 async function main(): Promise<void> {
   const registry = getRegistry();
