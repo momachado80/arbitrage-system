@@ -3,6 +3,8 @@
  * Executa no mesmo runtime do worker paper-exec para capturar falhas de rede reais desse ambiente.
  */
 
+import { normalizeGamma1823789MarketRow } from "./gamma1823789MarketsResponseNormalize";
+
 const GAMMA_MARKETS_URL = "https://gamma-api.polymarket.com/markets";
 const CLOB_BOOK_URL = "https://clob.polymarket.com/book";
 const DEFAULT_TIMEOUT_MS = 8_000;
@@ -55,11 +57,7 @@ async function resolveYesTokenFromGamma(): Promise<string> {
   });
   if (!res.ok) throw new Error(`gamma_http_${res.status}`);
   const json = (await res.json()) as unknown;
-  const row =
-    Array.isArray(json) && json.length > 0 && json[0] && typeof json[0] === "object"
-      ? (json[0] as Record<string, unknown>)
-      : null;
-  if (!row) throw new Error("gamma_payload_invalid");
+  const row = normalizeGamma1823789MarketRow(json);
   const outcomes = parseJsonStringArray(row.outcomes);
   const tokenIds = parseJsonStringArray(row.clobTokenIds);
   if (tokenIds.length === 0) throw new Error("gamma_missing_clob_token_ids");
