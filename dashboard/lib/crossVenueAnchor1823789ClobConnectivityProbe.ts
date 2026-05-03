@@ -6,8 +6,14 @@
 import { normalizeGamma1823789MarketRow } from "./gamma1823789MarketsResponseNormalize";
 
 const GAMMA_MARKETS_URL = "https://gamma-api.polymarket.com/markets";
+const MARKET_ID = "1823789" as const;
 const CLOB_BOOK_URL = "https://clob.polymarket.com/book";
 const DEFAULT_TIMEOUT_MS = 8_000;
+
+/** Gamma REST: mercado único é `/markets/{id}`; `?id=` devolve lista e pode ficar `[]`. Exposto para testes sem rede. */
+export function buildCrossVenueAnchor1823789GammaProbeMarketUrl(baseUrl = GAMMA_MARKETS_URL): string {
+  return `${baseUrl}/${encodeURIComponent(MARKET_ID)}`;
+}
 
 type HttpKind =
   | "ok"
@@ -50,7 +56,7 @@ function parseJsonStringArray(value: unknown): string[] {
 }
 
 async function resolveYesTokenFromGamma(): Promise<string> {
-  const url = `${GAMMA_MARKETS_URL}?id=1823789`;
+  const url = buildCrossVenueAnchor1823789GammaProbeMarketUrl();
   const res = await fetch(url, {
     signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
     headers: { Accept: "application/json" },
@@ -163,7 +169,7 @@ export async function runCrossVenueAnchor1823789ClobConnectivityProbe(
     out.push({
       probeVersion: "cross-venue-anchor-1823789-clob-connectivity-v1",
       isoTimestamp,
-      marketId: "1823789",
+      marketId: MARKET_ID,
       targetTokenRole: "yes",
       attempt,
       tokenId: yesToken,

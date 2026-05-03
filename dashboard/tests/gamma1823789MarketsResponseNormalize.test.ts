@@ -2,6 +2,7 @@ import {
   GammaPayloadUnusableShapeError,
   normalizeGamma1823789MarketRow,
 } from "../lib/gamma1823789MarketsResponseNormalize";
+import { buildCrossVenueAnchor1823789GammaProbeMarketUrl } from "../lib/crossVenueAnchor1823789ClobConnectivityProbe";
 import { describe, test, assertEqual, assertIncludes, assertTrue, assertThrows } from "./_assert";
 
 describe("tests/gamma1823789MarketsResponseNormalize.test.ts", () => {
@@ -20,6 +21,28 @@ describe("tests/gamma1823789MarketsResponseNormalize.test.ts", () => {
   test("aceita objeto único", () => {
     const row = normalizeGamma1823789MarketRow(mk());
     assertEqual(row.clobTokenIds, ["tid-yes"], "token");
+  });
+
+  test("aceita objeto raiz típico de GET /markets/1823789 (sem wrapper)", () => {
+    const row = normalizeGamma1823789MarketRow({
+      id: "1823789",
+      question: "Will Ethereum reach $4,000 in April?",
+      slug: "will-ethereum-reach-4000-in-april-2026",
+      outcomes: '["Yes", "No"]',
+      clobTokenIds:
+        "[\"90822419876027201054491944216352987436837617994893944542889081722098931431625\",\"x\"]",
+    });
+    assertEqual(row.id, "1823789", "id");
+    assertIncludes(String(row.question), "Ethereum", "question preserved");
+    assertTrue(typeof row.slug === "string" && row.slug.includes("ethereum"), "slug preserved");
+    assertTrue(row.clobTokenIds !== undefined && row.outcomes !== undefined, "probe fields kept for parse step");
+  });
+
+  test("probe CLOB lookup: URL Gamma usa path /markets/1823789 (não ?id=)", () => {
+    const url = buildCrossVenueAnchor1823789GammaProbeMarketUrl();
+    assertEqual(url, "https://gamma-api.polymarket.com/markets/1823789", "full url");
+    assertTrue(url.indexOf("?") < 0, "must not use query string filter");
+    assertTrue(!url.includes("?id="), "explicitly disallow legacy ?id=");
   });
 
   test("aceita data array", () => {
