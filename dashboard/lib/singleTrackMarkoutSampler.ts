@@ -84,15 +84,141 @@ function absMx(x: number | null): number | null {
   return Math.abs(x);
 }
 
-/** Mids colados (~constantes nas amostras) e na caixa ~0 ou ~1 probabilística. */
+/** Mids colados (~constantes nas amostras) e na cauda ~0 ou ~1 probabilística. Exige pelo menos 4 níveis estáveis para reduzir falso pinned. */
 export function classifyProbabilisticPricePinned(allMids: readonly (number | null)[]): boolean {
   const v = allMids.filter((m): m is number => m !== null && Number.isFinite(m));
-  if (v.length !== 4) return false;
+  if (v.length < 4) return false;
   const lo = Math.min(...v);
   const hi = Math.max(...v);
   if (hi - lo > 1e-4) return false;
   const m = v[0]!;
   return Math.abs(m - 0.001) <= 2e-3 || Math.abs(m - 0.999) <= 2e-3;
+}
+
+export type BatchTrackReadDecision =
+  | "CONTINUE_PAPER_SHADOW_CANDIDATE"
+  | "RETRY_LATER"
+  | "RETIRE_AS_FIRST_TRACK"
+  | "RETIRE_IMMEDIATELY";
+
+/** Heurística de decisão sobre N amostragens read-only (sem execução). */
+export function decideBatchPaperShadowTrack(input: {
+  sampleCount: number;
+  informativeSamples: number;
+  flatSamples: number;
+  insufficientBookSamples: number;
+  pricePinnedSamples: number;
+}): BatchTrackReadDecision {
+  const n = input.sampleCount;
+  if (n <= 0) return "RETRY_LATER";
+  const majorityInsufficient = input.insufficientBookSamples > Math.floor(n / 2);
+  if (input.pricePinnedSamples > 0 || majorityInsufficient) return "RETIRE_IMMEDIATELY";
+  if (input.informativeSamples >= 2) return "CONTINUE_PAPER_SHADOW_CANDIDATE";
+  if (input.informativeSamples === 1) return "RETRY_LATER";
+  if (input.flatSamples === n) return "RETIRE_AS_FIRST_TRACK";
+  return "RETRY_LATER";
+}
+
+export function parseSamplingCli(argv: readonly string[]): {
+  marketId: string;
+  label?: string;
+  horizonsSec: number[];
+  outPath?: string;
+} {
+  let marketIdFlag: string | undefined;
+  let labelFlag: string | undefined;
+  let horizonsCsv: string | undefined;
+  let outPathFlag: string | undefined;
+
+  for (let i = 2; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (a === "--market-id" && argv[i + 1]) {
+      marketIdFlag = argv[++i]!;
+    } else if (a.startsWith("--market-id=")) {
+      marketIdFlag = a.slice("--market-id=".length).trim();
+    } else if (a === "--label" && argv[i + 1]) {
+      labelFlag = argv[++i]!;
+    } else if (a.startsWith("--label=")) {
+      labelFlag = a.slice("--label=".length).trim();
+    } else if (a === "--horizons" && argv[i + 1]) {
+      horizonsCsv = argv[++i]!;
+    } else if (a.startsWith("--horizons=")) {
+      horizonsCsv = a.slice("--horizons=".length).trim();
+    } else if (a === "--out" && argv[i + 1]) {
+      outPathFlag = argv[++i]!;
+    } else if (a.startsWith("--out=")) {
+      outPathFlag = a.slice("--out=".length).trim();
+    }
+  }
+
+  if (!marketIdFlag?.trim()) {
+    throw new Error("missing_required_flag:--market-id");
+  }
+
+  let horizonsParsed = [5, 30, 60];
+  if (horizonsCsv?.trim()) {
+    horizonsParsed = horizonsCsv
+      .split(",")
+      .map(s => parseInt(s.trim(), 10))
+      .filter(n => Number.isFinite(n) && n > 0);
+    horizonsParsed = Array.from(new Set(horizonsParsed)).sort((a, b) => a - b);
+  }
+  if (horizonsParsed.length === 0) {
+    throw new Error("horizons_must_contain_positive_integers");
+  }
+
+  return {
+    marketId: marketIdFlag.trim(),
+    label: labelFlag?.trim() || undefined,
+    horizonsSec: horizonsParsed,
+    outPath: outPathFlag?.trim() || undefined,
+  };
+}
+
+export function parseBatchCli(argv: readonly string[]): {
+  marketId: string;
+  label?: string;
+  samples: number;
+  gapSeconds: number;
+  outDir: string;
+} {
+  let marketIdFlag: string | undefined;
+  let labelFlag: string | undefined;
+  let samplesCsv: string | undefined;
+  let gapCsv: string | undefined;
+  let outDirFlag: string | undefined;
+
+  for (let i = 2; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (a === "--market-id" && argv[i + 1]) marketIdFlag = argv[++i]!;
+    else if (a.startsWith("--market-id=")) marketIdFlag = a.slice("--market-id=".length).trim();
+    else if (a === "--label" && argv[i + 1]) labelFlag = argv[++i]!;
+    else if (a.startsWith("--label=")) labelFlag = a.slice("--label=".length).trim();
+    else if (a === "--samples" && argv[i + 1]) samplesCsv = argv[++i]!;
+    else if (a.startsWith("--samples=")) samplesCsv = a.slice("--samples=".length).trim();
+    else if (a === "--gap-seconds" && argv[i + 1]) gapCsv = argv[++i]!;
+    else if (a.startsWith("--gap-seconds=")) gapCsv = a.slice("--gap-seconds=".length).trim();
+    else if (a === "--out-dir" && argv[i + 1]) outDirFlag = argv[++i]!;
+    else if (a.startsWith("--out-dir=")) outDirFlag = a.slice("--out-dir=".length).trim();
+  }
+
+  if (!marketIdFlag?.trim()) throw new Error("missing_required_flag:--market-id");
+  if (!outDirFlag?.trim()) throw new Error("missing_required_flag:--out-dir");
+  const samples = Math.max(1, parseInt(samplesCsv ?? "1", 10) || 1);
+  const gapSeconds = Math.max(0, parseInt(gapCsv ?? "0", 10) || 0);
+
+  return {
+    marketId: marketIdFlag.trim(),
+    label: labelFlag?.trim() || undefined,
+    samples,
+    gapSeconds,
+    outDir: outDirFlag.trim(),
+  };
+}
+
+/** URL Gamma apenas path REST; evita filtros tipo `?id=` legacy sem path. */
+export function buildGammaMarketByIdUrl(marketId: string, baseUrl = "https://gamma-api.polymarket.com"): string {
+  return `${baseUrl.replace(/\/$/, "")}/markets/${encodeURIComponent(marketId.trim())}`;
 }
 
 export function computeMarkoutSummary(input: MarkoutAccumulatorInput): MarkoutSummary553856 {
@@ -156,12 +282,90 @@ export function classifySampleInformativeness(args: {
   nonZeroMarkoutCount: number;
 }): SampleInformativenessVerdict553856 {
   const allTwo =
-    args.bookTypesSnapshot.length === 4 &&
+    args.bookTypesSnapshot.length >= 2 &&
     args.bookTypesSnapshot.every(b => b === "two_sided");
   if (!allTwo) return "INSUFFICIENT_BOOK_SAMPLE";
   if (args.pricePinned) return "PRICE_PINNED_SAMPLE";
   if (args.nonZeroMarkoutCount >= 1) return "INFORMATIVE_SAMPLE";
   return "FLAT_SAMPLE";
+}
+
+export interface HorizonMarkoutDigest {
+  horizonsSec: readonly number[];
+  /** Uma entrada por horizon: Δmid vs m0 */
+  markoutsVsT0: readonly (number | null)[];
+  markoutsVsT0ByHorizonSec: Record<string, number | null>;
+  mids: readonly (number | null)[];
+  spreads: readonly (number | null)[];
+  bookTypesSnapshot: readonly BookSidesLabel[];
+  nonZeroMarkoutCount: number;
+  allFlat: boolean;
+  pricePinned: boolean;
+  maxAbsMarkout: number | null;
+  averageAbsMarkout: number | null;
+  sampleInformativenessVerdict: SampleInformativenessVerdict553856;
+}
+
+/** Markouts contra t0 para horizontes arbitrários ordenados (`snapshots[0]` = baseline). */
+export function computeHorizonMarkoutDigest(args: {
+  snapshots: readonly BookBidAskSnapshotPure[];
+  horizonsSec: readonly number[];
+}): HorizonMarkoutDigest {
+  const h = [...args.horizonsSec];
+  if (args.snapshots.length !== 1 + h.length)
+    throw new Error("snapshot_count_must_match_horizons_plus_t0");
+
+  const mids = args.snapshots.map(s => s.mid);
+  const spreads = args.snapshots.map(s => s.spread);
+  const bt = args.snapshots.map(s => s.bookType);
+  const m0 = mids[0] ?? null;
+  const markoutsVsT0 = h.map((_, idx) => diffOrNull(mids[idx + 1] ?? null, m0));
+  const markoutsVsT0ByHorizonSec: Record<string, number | null> = {};
+  for (let i = 0; i < h.length; i++) markoutsVsT0ByHorizonSec[String(h[i])] = markoutsVsT0[i] ?? null;
+
+  let nonZero = 0;
+  for (const mk of markoutsVsT0) {
+    if (mk !== null && Math.abs(mk) > MARKOUT_NONZERO_EPS) nonZero++;
+  }
+
+  let allFlat = markoutsVsT0.length > 0;
+  for (const mk of markoutsVsT0) {
+    if (mk === null) {
+      allFlat = false;
+      break;
+    }
+    if (Math.abs(mk) > MARKOUT_NONZERO_EPS) {
+      allFlat = false;
+      break;
+    }
+  }
+
+  const absVals = markoutsVsT0.map(absMx).filter((x): x is number => x !== null);
+  const maxAbsMarkout = absVals.length > 0 ? Math.max(...absVals) : null;
+  const averageAbsMarkout =
+    absVals.length > 0 ? absVals.reduce((a, b) => a + b, 0) / absVals.length : null;
+
+  const pricePinned = classifyProbabilisticPricePinned(mids);
+  const sampleInformativenessVerdict = classifySampleInformativeness({
+    bookTypesSnapshot: bt,
+    pricePinned,
+    nonZeroMarkoutCount: nonZero,
+  });
+
+  return {
+    horizonsSec: h,
+    markoutsVsT0,
+    markoutsVsT0ByHorizonSec,
+    mids,
+    spreads,
+    bookTypesSnapshot: bt,
+    nonZeroMarkoutCount: nonZero,
+    allFlat,
+    pricePinned,
+    maxAbsMarkout,
+    averageAbsMarkout,
+    sampleInformativenessVerdict,
+  };
 }
 
 /** Converte topo do livro + timestamp numa linha estável ao JSON público. */

@@ -4,6 +4,7 @@ import "./gamma1823789MarketsResponseNormalize.test";
 import "./marketSuitabilityGate.test";
 import "./liveMarketDiscoveryRanking.test";
 import "./preflightSingleTrack553856.test";
+import "./genericSingleTrackReadOnlyMarkout.test";
 import "./singleTrackMarkoutSampler.test";
 
 async function main(): Promise<void> {
