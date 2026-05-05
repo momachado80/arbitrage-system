@@ -4,7 +4,9 @@ import {
   deriveQuotesNearTickFence,
   computeLiveDiscoveryEconomicRank,
   enrichDiscoverySuitableRow,
+  enrichRowWithUniverseQuality,
   finalizeDiscoveryRankingSplit,
+  finalizeDiscoveryRankingWithUniverseQuality,
 } from "../lib/liveMarketDiscoveryRanking";
 import { describe, test, assertEqual, assertTrue } from "./_assert";
 
@@ -95,5 +97,137 @@ describe("tests/liveMarketDiscoveryRanking.test.ts", () => {
     const { candidatesSorted, topCandidates } = finalizeDiscoveryRankingSplit(enriched);
     assertEqual(candidatesSorted.length, 25, "lista completa de suitable enrich");
     assertEqual(topCandidates.length, DISCOVERY_TOP_CANDIDATES_CAP, `topCandidates = ${DISCOVERY_TOP_CANDIDATES_CAP}`);
+  });
+
+  test("enrichRowWithUniverseQuality marca clean para esporte saudavel e propaga universeQuality*", () => {
+    const row = enrichDiscoverySuitableRow({
+      id: "553856",
+      question: "Will the Oklahoma City Thunder win the 2026 NBA Finals?",
+      slug: "will-oklahoma-city-thunder-win-2026-nba-finals",
+      endDate: "2026-07-01T00:00:00.000Z",
+      bestBidUsed: 0.59,
+      bestAskUsed: 0.6,
+      liquidity: 25_000,
+      volume: 18_000,
+      clobBookStructure: "two_sided",
+      active: true,
+      closed: false,
+      resolved: false,
+      suitabilityVerdict: "SUITABLE_FOR_PAPER_SHADOW_OBSERVATION",
+    });
+    const enrichedQ = enrichRowWithUniverseQuality(row, "2026-05-05T17:00:00.000Z");
+    assertEqual(enrichedQ.universeQualityVerdict, "CLEAN_OBSERVATION_UNIVERSE", "verdict clean");
+    assertEqual(enrichedQ.isCleanForObservationScout, true, "isClean true");
+    assertTrue(typeof enrichedQ.universeQualityScore === "number", "score numero");
+    assertTrue(Array.isArray(enrichedQ.disqualifiers), "disqualifiers array");
+  });
+
+  test("finalizeDiscoveryRankingWithUniverseQuality separa CLEAN, REJECT e mantem topCandidates", () => {
+    const nowIso = "2026-05-05T17:00:00.000Z";
+    const cleanRow = enrichDiscoverySuitableRow({
+      id: "553856",
+      question: "Will the Oklahoma City Thunder win the 2026 NBA Finals?",
+      slug: "will-oklahoma-city-thunder-win-2026-nba-finals",
+      endDate: "2026-07-01T00:00:00.000Z",
+      bestBidUsed: 0.59,
+      bestAskUsed: 0.6,
+      liquidity: 25_000,
+      volume: 18_000,
+      clobBookStructure: "two_sided",
+      active: true,
+      closed: false,
+      resolved: false,
+      suitabilityVerdict: "SUITABLE_FOR_PAPER_SHADOW_OBSERVATION",
+    });
+    const memeRow = enrichDiscoverySuitableRow({
+      id: "540819",
+      question: "Will Jesus Christ return before GTA VI?",
+      slug: "will-jesus-christ-return-before-gta-vi",
+      endDate: "2026-07-31T12:00:00.000Z",
+      bestBidUsed: 0.48,
+      bestAskUsed: 0.49,
+      liquidity: 5_000,
+      volume: 5_000,
+      clobBookStructure: "two_sided",
+      active: true,
+      closed: false,
+      resolved: false,
+      suitabilityVerdict: "SUITABLE_FOR_PAPER_SHADOW_OBSERVATION",
+    });
+    const politicalRow = enrichDiscoverySuitableRow({
+      id: "540820",
+      question: "Trump out as President before GTA VI?",
+      slug: "trump-out-as-president-before-gta-vi",
+      endDate: "2026-07-31T12:00:00.000Z",
+      bestBidUsed: 0.2,
+      bestAskUsed: 0.21,
+      liquidity: 8_000,
+      volume: 4_000,
+      clobBookStructure: "two_sided",
+      active: true,
+      closed: false,
+      resolved: false,
+      suitabilityVerdict: "SUITABLE_FOR_PAPER_SHADOW_OBSERVATION",
+    });
+    const tailRow = enrichDiscoverySuitableRow({
+      id: "558934",
+      question: "Will Spain win the 2026 FIFA World Cup?",
+      slug: "will-spain-win-2026-fifa-world-cup",
+      endDate: "2026-07-20T00:00:00.000Z",
+      bestBidUsed: 0.04,
+      bestAskUsed: 0.045,
+      liquidity: 30_000,
+      volume: 12_000,
+      clobBookStructure: "two_sided",
+      active: true,
+      closed: false,
+      resolved: false,
+      suitabilityVerdict: "SUITABLE_FOR_PAPER_SHADOW_OBSERVATION",
+    });
+
+    const out = finalizeDiscoveryRankingWithUniverseQuality(
+      [cleanRow, memeRow, politicalRow, tailRow],
+      nowIso,
+    );
+    assertEqual(out.candidatesSorted.length, 4, "todos preservados em candidatesSorted");
+    assertEqual(out.topCleanCandidates.length, 1, "apenas o esporte saudavel é clean");
+    assertEqual(
+      out.topCleanCandidates[0]!.id,
+      "553856",
+      "primeiro clean é OKC NBA Finals",
+    );
+    assertTrue(out.rejectedByUniverseQuality.length === 3, "tres rejeições por universe quality");
+    const verdicts = new Set(
+      out.rejectedByUniverseQuality.map(r => String(r.universeQualityVerdict)),
+    );
+    assertTrue(verdicts.has("REJECT_MEME_OR_ABSURD"), "tem meme");
+    assertTrue(verdicts.has("REJECT_POLITICAL_LEGAL"), "tem politico/legal");
+    assertTrue(verdicts.has("REJECT_TAIL_OR_TICK_FENCE"), "tem tail");
+    const reasonsKeys = out.universeQualityRejectionReasons.map(x => x.verdict);
+    assertTrue(reasonsKeys.includes("REJECT_MEME_OR_ABSURD"), "razão meme contagem");
+  });
+
+  test("topCleanCandidates tem cap igual a topCandidates", () => {
+    const nowIso = "2026-05-05T17:00:00.000Z";
+    const rows = [...Array.from({ length: DISCOVERY_TOP_CANDIDATES_CAP + 5 }).keys()].map(i =>
+      enrichDiscoverySuitableRow({
+        id: `id-${i}`,
+        question: `Will team ${i} win the 2026 NBA Finals?`,
+        slug: `team-${i}-2026-nba-finals`,
+        endDate: "2026-07-01T00:00:00.000Z",
+        bestBidUsed: 0.55,
+        bestAskUsed: 0.56 + i * 1e-9,
+        liquidity: 25_000 + i,
+        volume: 18_000 + i,
+        clobBookStructure: "two_sided",
+        active: true,
+        closed: false,
+        resolved: false,
+        suitabilityVerdict: "SUITABLE_FOR_PAPER_SHADOW_OBSERVATION",
+      }),
+    );
+    const out = finalizeDiscoveryRankingWithUniverseQuality(rows, nowIso);
+    assertTrue(out.topCleanCandidates.length === DISCOVERY_TOP_CANDIDATES_CAP, "cap em topCleanCandidates");
+    assertTrue(out.topCandidates.length === DISCOVERY_TOP_CANDIDATES_CAP, "cap em topCandidates");
   });
 });

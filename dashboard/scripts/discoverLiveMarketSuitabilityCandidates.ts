@@ -6,7 +6,7 @@
 
 import {
   enrichDiscoverySuitableRow,
-  finalizeDiscoveryRankingSplit,
+  finalizeDiscoveryRankingWithUniverseQuality,
 } from "../lib/liveMarketDiscoveryRanking";
 import type { ClobBookStructureHint } from "../lib/marketSuitabilityGate";
 import { evaluateMarketSuitability } from "../lib/marketSuitabilityGate";
@@ -253,7 +253,13 @@ async function main(): Promise<void> {
       reasons: x.evaluation.reasons,
     }),
   );
-  const { candidatesSorted, topCandidates } = finalizeDiscoveryRankingSplit(enrichedSuitable);
+  const {
+    candidatesSorted,
+    topCandidates,
+    topCleanCandidates,
+    rejectedByUniverseQuality,
+    universeQualityRejectionReasons,
+  } = finalizeDiscoveryRankingWithUniverseQuality(enrichedSuitable, nowIso);
 
   const rejected = rowsOut
     .filter(x => !x.evaluation.canUseForPaperShadowCandidate)
@@ -278,8 +284,12 @@ async function main(): Promise<void> {
     topRejectionReasons,
     candidates: candidatesSorted,
     topCandidates,
+    topCleanCandidates,
+    rejectedByUniverseQuality,
+    universeQualityRejectionReasons,
     rejected,
     topCandidatesCount: topCandidates.length,
+    topCleanCandidatesCount: topCleanCandidates.length,
     note: "read_only_discovery_no_execution",
     ...(stdoutFieldsTruncated
       ? {

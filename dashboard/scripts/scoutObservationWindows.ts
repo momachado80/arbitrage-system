@@ -8,7 +8,7 @@ import path from "path";
 
 import {
   enrichDiscoverySuitableRow,
-  finalizeDiscoveryRankingSplit,
+  finalizeDiscoveryRankingWithUniverseQuality,
 } from "../lib/liveMarketDiscoveryRanking";
 import {
   evaluateObservationWindow,
@@ -164,11 +164,20 @@ function assertOutPath(absPath: string): void {
   if (!(tmpOk || !inside)) throw new Error("output_must_be_tmp_or_outside_repo");
 }
 
-function parseCli(argv: string[]): { limit: number; snapshots: number; gapSeconds: number; outPath?: string } {
+type UniverseMode = "clean" | "all";
+
+function parseCli(argv: string[]): {
+  limit: number;
+  snapshots: number;
+  gapSeconds: number;
+  outPath?: string;
+  universeMode: UniverseMode;
+} {
   let limit = 10;
   let snapshots = 4;
   let gapSeconds = 30;
   let outPath: string | undefined;
+  let universeMode: UniverseMode = "clean";
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--limit" && argv[i + 1]) limit = Math.max(1, parseInt(argv[++i]!, 10) || 10);
@@ -183,8 +192,15 @@ function parseCli(argv: string[]): { limit: number; snapshots: number; gapSecond
       gapSeconds = Math.max(0, parseInt(a.slice("--gap-seconds=".length), 10) || 0);
     else if (a === "--out" && argv[i + 1]) outPath = argv[++i];
     else if (a.startsWith("--out=")) outPath = a.slice("--out=".length);
+    else if (a === "--universe" && argv[i + 1]) {
+      const v = String(argv[++i]).toLowerCase();
+      universeMode = v === "all" ? "all" : "clean";
+    } else if (a.startsWith("--universe=")) {
+      const v = a.slice("--universe=".length).toLowerCase();
+      universeMode = v === "all" ? "all" : "clean";
+    }
   }
-  return { limit, snapshots, gapSeconds, outPath };
+  return { limit, snapshots, gapSeconds, outPath, universeMode };
 }
 
 interface RankRow {
@@ -323,9 +339,51 @@ async function main(): Promise<void> {
       reasons: x.evaluation.reasons,
     }),
   );
-  const { topCandidates } = finalizeDiscoveryRankingSplit(enrichedSuitable);
+  const {
+    topCandidates,
+    topCleanCandidates,
+    rejectedByUniverseQuality,
+    universeQualityRejectionReasons,
+  } = finalizeDiscoveryRankingWithUniverseQuality(enrichedSuitable, nowIso);
 
-  const picked = topCandidates.slice(0, cli.limit);
+  const universeMode = cli.universeMode;
+  const sourcePool = universeMode === "clean" ? topCleanCandidates : topCandidates;
+  const universeStatus =
+    universeMode === "clean" && topCleanCandidates.length === 0
+      ? "NO_CLEAN_OBSERVATION_UNIVERSE"
+      : "OK";
+
+  if (universeStatus === "NO_CLEAN_OBSERVATION_UNIVERSE") {
+    const payloadSkip = {
+      generatedAtUtc: nowIso,
+      note: "read_only_observation_window_scout_no_execution",
+      universeMode,
+      universeStatus,
+      discoveryScanTotalMarkets: rows.length,
+      suitableForPaperShadowCount: suitable.length,
+      topCandidatesCount: topCandidates.length,
+      topCleanCandidatesCount: topCleanCandidates.length,
+      universeQualityRejectionReasons,
+      rejectedByUniverseQualityCount: rejectedByUniverseQuality.length,
+      marketsScouted: 0,
+      informativeWindows: 0,
+      quietButValidWindows: 0,
+      notReadyWindows: 0,
+      rankedWindows: [] as RankRow[],
+      topWindows: [] as RankRow[],
+      details: [] as Array<Record<string, unknown>>,
+    };
+    const text = `${JSON.stringify(payloadSkip, null, 2)}\n`;
+    process.stdout.write(text);
+    if (cli.outPath) {
+      assertOutPath(cli.outPath);
+      await fs.promises.mkdir(path.dirname(path.resolve(cli.outPath)), { recursive: true });
+      await fs.promises.writeFile(path.resolve(cli.outPath), text, "utf8");
+    }
+    return;
+  }
+
+  const picked = sourcePool.slice(0, cli.limit);
   let marketsScouted = 0;
   let informativeWindows = 0;
   let quietButValidWindows = 0;
@@ -464,7 +522,14 @@ async function main(): Promise<void> {
   const payload = {
     generatedAtUtc: nowIso,
     note: "read_only_observation_window_scout_no_execution",
+    universeMode,
+    universeStatus,
     discoveryScanTotalMarkets: rows.length,
+    suitableForPaperShadowCount: suitable.length,
+    topCandidatesCount: topCandidates.length,
+    topCleanCandidatesCount: topCleanCandidates.length,
+    universeQualityRejectionReasons,
+    rejectedByUniverseQualityCount: rejectedByUniverseQuality.length,
     marketsScouted,
     informativeWindows,
     quietButValidWindows,
