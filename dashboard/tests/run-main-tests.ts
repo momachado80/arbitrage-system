@@ -9,6 +9,7 @@ import "./singleTrackMarkoutSampler.test";
 import "./observationWindowSuitability.test";
 import "./marketUniverseQuality.test";
 import "./catalystObservationSchedule.test";
+import "./catalystObservationOrchestrator.test";
 
 async function main(): Promise<void> {
   const registry = getRegistry();
