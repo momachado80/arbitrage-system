@@ -8,6 +8,7 @@ import "./genericSingleTrackReadOnlyMarkout.test";
 import "./singleTrackMarkoutSampler.test";
 import "./observationWindowSuitability.test";
 import "./marketUniverseQuality.test";
+import "./catalystObservationSchedule.test";
 
 async function main(): Promise<void> {
   const registry = getRegistry();
