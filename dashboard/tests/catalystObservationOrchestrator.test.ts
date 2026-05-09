@@ -59,13 +59,20 @@ describe("tests/catalystObservationOrchestrator.test.ts", () => {
     assertEqual(freshKeys.length, 0, "não deve repetir mesma janela");
   });
 
-  test("CLI due sempre inclui --dry-run true", () => {
+  test("CLI due sempre inclui --dry-run true e --scout-readonly true", () => {
     const args = buildDueObservationCliArgs({
       planPath: "/tmp/plan.json",
       duePath: "/tmp/due.json",
       dueWithinMinutes: 15,
     });
-    assertEqual(args.slice(-2).join(" "), "--dry-run true", "dry-run forçado");
+    /** dry-run impede execução econômica; scout-readonly habilita leitura read-only do livro. */
+    const dryRunIdx = args.indexOf("--dry-run");
+    assertTrue(dryRunIdx >= 0 && args[dryRunIdx + 1] === "true", "--dry-run true forçado");
+    const readonlyIdx = args.indexOf("--scout-readonly");
+    assertTrue(
+      readonlyIdx >= 0 && args[readonlyIdx + 1] === "true",
+      "--scout-readonly true forçado",
+    );
   });
 
   test("sem webhook: dedupe emite freshKeys mesmo sem POST", () => {

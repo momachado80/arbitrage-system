@@ -199,6 +199,8 @@ export function buildDueObservationCliArgs(
     cfg.duePath,
     "--dry-run",
     "true",
+    "--scout-readonly",
+    "true",
   ];
 }
 

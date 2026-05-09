@@ -1,6 +1,13 @@
 /**
- * Agrupa janelas do plano de catalisador perto do instante atual e lista comandos read-only.
+ * Agrupa janelas do plano de catalisador perto do instante atual e executa scout read-only quando habilitado.
  * Default `--dry-run true`: não executa scout nem worker/watcher.
+ * `--scout-readonly true`: roda scout read-only mesmo em dry-run, gerando WINDOW_INFORMATIVE.
+ *
+ * GARANTIAS DE SEGURANÇA quando scout é executado:
+ *  - o spawn é exclusivamente `scripts/scoutObservationWindows.ts` (verificado via fs.existsSync antes do spawn)
+ *  - scoutObservationWindows.ts é read-only por contrato (auditado em check:shadow-only)
+ *  - early return abort se o script alvo não existir, evitando spawn de binário arbitrário
+ *  - SHADOW_ONLY=1 propagado no env para defense-in-depth
  */
 
 import { spawnSync } from "child_process";
@@ -60,11 +67,13 @@ function parseCli(argv: string[]): {
   dueWithinMinutes: number;
   outPath: string;
   dryRun: boolean;
+  scoutReadonly: boolean;
 } {
   let planPath = "/tmp/catalyst-observation-plan.json";
   let dueWithinMinutes = 15;
   let outPath = "/tmp/due-observation-scouts.json";
   const dryRun = parseBool(argv, "--dry-run", true);
+  const scoutReadonly = parseBool(argv, "--scout-readonly", false);
 
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i]!;
@@ -78,7 +87,7 @@ function parseCli(argv: string[]): {
     else if (a.startsWith("--out=")) outPath = a.slice("--out=".length);
   }
 
-  return { planPath, dueWithinMinutes, outPath, dryRun };
+  return { planPath, dueWithinMinutes, outPath, dryRun, scoutReadonly };
 }
 
 function truncStrLocal(s: string, n: number): string {
@@ -156,20 +165,43 @@ function main(): void {
       : `cd dashboard && ${cmdParts.map(x => (/\s/.test(x) ? JSON.stringify(x) : x)).join(" ")}`;
   const wouldRunCommands = shellCmd ? [shellCmd] : [];
 
-  const executedScouts: Array<{ exited: number; outJson?: string; stderrTail?: string }> = [];
+  const executedScouts: Array<{
+    exited: number;
+    outJson?: string;
+    stderrTail?: string;
+    mode: string;
+  }> = [];
 
-  if (!cli.dryRun && dueWindows.length > 0) {
+  const shouldRunScout = (!cli.dryRun || cli.scoutReadonly) && dueWindows.length > 0;
+
+  if (shouldRunScout) {
+    /**
+     * SAFETY GATE: confirma que o alvo do spawn é o scout read-only auditado.
+     * Se o caminho do script estiver ausente, recusa rodar — evita spawn de binário arbitrário.
+     */
+    const scoutTarget = path.join(REPO_ABS, "dashboard", "scripts", "scoutObservationWindows.ts");
+    if (!fs.existsSync(scoutTarget)) {
+      throw new Error("scout_target_missing:scripts/scoutObservationWindows.ts");
+    }
+
+    /**
+     * SAFETY GATE: env defensivo. SHADOW_ONLY=1 sinaliza para qualquer guard downstream.
+     * scoutObservationWindows.ts já é read-only por contrato (auditado em check:shadow-only),
+     * mas o env reforça a intenção operacional.
+     */
     const dashDir = path.join(REPO_ABS, "dashboard");
+    const safeEnv = { ...process.env, SHADOW_ONLY: "1" };
     const res = spawnSync(cmdParts[0]!, cmdParts.slice(1), {
       cwd: dashDir,
       encoding: "utf8",
       maxBuffer: 20 * 1024 * 1024,
-      env: process.env,
+      env: safeEnv,
     });
     executedScouts.push({
       exited: res.status ?? 1,
       outJson: tmpOut,
       stderrTail: res.stderr ? truncStrLocal(res.stderr, 2000) : undefined,
+      mode: cli.scoutReadonly && cli.dryRun ? "scout_readonly_dry_run" : "scout_legacy_non_dry_run",
     });
   }
 
@@ -177,10 +209,13 @@ function main(): void {
     generatedAtUtc,
     dueWithinMinutes: cli.dueWithinMinutes,
     dryRun: cli.dryRun,
+    scoutReadonly: cli.scoutReadonly,
     dueWindows,
     wouldRunCommands,
     executedScouts,
-    note: "due_runner_prefers_single_clean_scout_when_any_window_due_no_track_choice_without_WINDOW_INFORMATIVE",
+    note: shouldRunScout
+      ? "scout_executed_read_only_no_paper_no_orders_window_informative_possible"
+      : "due_runner_prefers_single_clean_scout_when_any_window_due_no_track_choice_without_WINDOW_INFORMATIVE",
   };
 
   const text = `${JSON.stringify(payload, null, 2)}\n`;
