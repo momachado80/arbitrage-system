@@ -73,6 +73,7 @@ import {
   recordSchedulerScheduled,
 } from "./shadowRuntimeDiagnostics";
 import { recordStandardFetch, recordGraphFetch, recordMerged } from "./marketSourceDiagnostics";
+import { getShadowLoopLock } from "./nodeProcessRuntimeState";
 import {
   isPairMatch,
   isEdgeBucketMatch,
@@ -230,7 +231,6 @@ export function getProfileConfig(profileId: string): ShadowProfileConfig | undef
   return getProfileById(profileId) ?? challengerConfigRegistry.get(profileId);
 }
 
-let loopStarted = false;
 let lastUpdateMs = 0;
 let lastCycleOk = true;
 let opportunitiesSeenLastCycle = 0;
@@ -1590,11 +1590,13 @@ export function evaluateOpportunity(opportunity: Record<string, unknown>): void 
 
 export function ensureShadowSimulation(): void {
   recordShadowBootAttempted();
-  if (loopStarted) {
+  const lock = getShadowLoopLock();
+  if (lock.started) {
     recordShadowBootCompleted();
+    console.log("[ShadowSim] loop_skip_already_active_globalThis");
     return;
   }
-  loopStarted = true;
+  lock.started = true;
   try {
     rehydrateFromPersistence();
     ensureMarketDataRunning();
