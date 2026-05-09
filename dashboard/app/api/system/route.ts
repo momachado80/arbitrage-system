@@ -21,6 +21,8 @@ export async function GET() {
         : null,
       lastError: stats.lastError,
       fetchCount: stats.fetchCount,
+      marketRefreshMetrics: stats.refreshMetrics,
+      inFlightRefreshCount: stats.inFlightRefreshCount,
       timestamp: new Date().toISOString(),
     });
   } catch (err) {
