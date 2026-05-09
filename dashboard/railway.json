@@ -4,7 +4,6 @@
     "watchPatterns": ["dashboard/**"]
   },
   "deploy": {
-    "startCommand": "node server.js",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
   }

@@ -13,4 +13,4 @@ venv_clean/
 venv_freeze/
 .pip_cache/
 run*.json
-logs/
+logs/.cursor/

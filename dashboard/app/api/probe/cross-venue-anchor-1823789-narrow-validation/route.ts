@@ -1,0 +1,22 @@
+import { NextResponse } from "next/server";
+import { buildCrossVenueAnchor1823789NarrowValidationDigest } from "@/lib/crossVenueAnchor1823789NarrowValidation";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+export const runtime = "nodejs";
+
+export async function GET() {
+  try {
+    const digest = await buildCrossVenueAnchor1823789NarrowValidationDigest();
+    return NextResponse.json(digest);
+  } catch (err) {
+    console.error("[API /probe/cross-venue-anchor-1823789-narrow-validation]", err);
+    return NextResponse.json(
+      {
+        error: "cross_venue_anchor_1823789_narrow_validation_failed",
+        detail: err instanceof Error ? err.message : String(err),
+      },
+      { status: 500 },
+    );
+  }
+}

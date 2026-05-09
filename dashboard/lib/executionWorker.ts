@@ -8,9 +8,9 @@ import { scanMarkets } from "./probabilityScanner";
 import { rankOpportunities } from "./opportunityEngine";
 import { getGraphOpportunities } from "./graphScanService";
 import { dispatchOpportunity } from "./executionDispatcher";
+import { getExecutionWorkerLock } from "./nodeProcessRuntimeState";
 
 const CYCLE_INTERVAL_MS = 5_000;
-let workerStarted = false;
 
 async function executionCycle(): Promise<void> {
   try {
@@ -33,9 +33,15 @@ async function executionCycle(): Promise<void> {
 }
 
 export function startExecutionWorker(): void {
-  if (workerStarted) return;
-  workerStarted = true;
-  console.log("[ExecutionWorker] Background execution worker started (interval: 5s)");
-  executionCycle();
-  setInterval(executionCycle, CYCLE_INTERVAL_MS);
+  const lock = getExecutionWorkerLock();
+  if (lock.started) {
+    console.log("[ExecutionWorker] loop_skip_already_active_globalThis");
+    return;
+  }
+  lock.started = true;
+  console.log("[ExecutionWorker] Background execution worker started (effective; interval: 5s)");
+  void executionCycle();
+  setInterval(() => {
+    void executionCycle();
+  }, CYCLE_INTERVAL_MS);
 }

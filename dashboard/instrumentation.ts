@@ -1,26 +1,22 @@
 /**
- * Next.js instrumentation — runs on server boot.
- * Starts execution worker, market data, and shadow. Does not block HTTP server startup.
- * CAUSA RAIZ: Bloqueio de 15s impedia o HTTP server de aceitar conexões; runCycle fazia
- * fetch para localhost que ficava pendente ou falhava.
+ * Next.js instrumentation — compiled for both Node and Edge. Heavy bootstrap lives in
+ * lib/nodeInstrumentationBootstrap.ts and runs only when NEXT_RUNTIME is "nodejs"
+ * (define-replaced at build time), so edge-instrumentation.js stays free of fs/path.
+ *
+ * Deferred with setImmediate so register() returns immediately and the HTTP server can
+ * bind before background work runs (Railway healthcheck).
  */
 
-const SHADOW_LOOP_DEFER_MS = 5_000;
-
 export async function register(): Promise<void> {
-  if (process.env.NEXT_RUNTIME === "nodejs") {
-    const { recordInstrumentationRan } = await import("./lib/shadowRuntimeDiagnostics");
-    recordInstrumentationRan();
-
-    const { startExecutionWorker } = await import("./lib/executionWorker");
-    const { ensureShadowSimulation } = await import("./lib/shadowSimulationService");
-    const { ensureRunning: ensureMarketDataRunning } = await import("./lib/marketDataService");
-
-    ensureMarketDataRunning();
-    startExecutionWorker();
-    setTimeout(() => {
-      ensureShadowSimulation();
-      console.log("[BOOT] Shadow simulation bootstrap complete");
-    }, SHADOW_LOOP_DEFER_MS);
+  if (process.env.NEXT_RUNTIME !== "nodejs") {
+    return;
   }
+  console.log("[BOOT] Next.js instrumentation register (scheduling deferred bootstrap)");
+  setImmediate(() => {
+    void import("./lib/nodeInstrumentationBootstrap")
+      .then((m) => m.runDeferredNodeInstrumentation())
+      .catch((err) => {
+        console.error("[BOOT] deferred instrumentation failed", err);
+      });
+  });
 }

@@ -32,7 +32,11 @@ export interface DecayResult {
 
 const GRAPH_TYPES = [
   "graph_subset", "graph_complement", "graph_exclusive",
-  "graph_equivalence", "graph_cycle",
+  "graph_equivalence",
+  "graph_equivalence_micro",
+  "graph_subset_micro",
+  "graph_exclusive_micro",
+  "graph_cycle",
 ];
 
 function baseDecayRate(
