@@ -1,6 +1,7 @@
 /**
  * Market Data Service — bootstrap e refresh de mercados.
  * Etapas explícitas, rastreamento persistido, timeouts por etapa, guard contra stuck.
+ * Estado em globalThis: um refresh em voo por processo (reutilização de promise + dedupe).
  */
 
 import {
@@ -8,6 +9,7 @@ import {
   getCachedMarkets,
   type RefreshStepReporter,
 } from "./polymarketClient";
+import { getMarketDataRuntime } from "./nodeProcessRuntimeState";
 
 const REFRESH_INTERVAL_MS = 5_000;
 const STUCK_REFRESH_GUARD_MS = 120_000;
@@ -16,161 +18,169 @@ const FETCH_STANDARD_TIMEOUT_MS = 60_000;
 const PARSE_TIMEOUT_MS = 15_000;
 const MERGE_TIMEOUT_MS = 5_000;
 
-let markets: import("./polymarketClient").NormalizedMarket[] = [];
-let lastRefresh = 0;
-let refreshing = false;
-let loopStarted = false;
-let fetchCount = 0;
-let lastError: string | null = null;
-
-let bootstrapAttempted = false;
-let bootstrapCompleted = false;
-let bootstrapFailed = false;
-let bootstrapErrorMessage: string | null = null;
-let lastBootstrapAt: string | null = null;
-let bootstrapPhase: "idle" | "refresh_started" | "fetch_completed" | "fetch_failed" = "idle";
-let refreshAttemptedCount = 0;
-let refreshSuccessCount = 0;
-let refreshFailureCount = 0;
-let lastRefreshError: string | null = null;
-let refreshStartedAt: number | null = null;
-let lastRefreshCompletedAt: string | null = null;
-let lastRefreshFailedAt: string | null = null;
-
-let lastCompletedStep: string | null = null;
-let lastFailedStep: string | null = null;
-let lastStepStartedAt: string | null = null;
-let lastStepCompletedAt: string | null = null;
-let lastRefreshErrorMessage: string | null = null;
-let refreshAttemptDurationMs: number | null = null;
-let bootstrapAttemptDurationMs: number | null = null;
-let timeoutOperationalOccurred = false;
-
 function forceCleanupStuck(reason: string): void {
+  const st = getMarketDataRuntime();
   console.error(`[MarketDataService] STUCK REFRESH GUARD (${reason}) — force cleanup`);
-  refreshing = false;
-  refreshStartedAt = null;
-  if (!bootstrapCompleted && bootstrapAttempted) {
-    bootstrapFailed = true;
-    bootstrapErrorMessage = reason;
+  st.refreshing = false;
+  st.refreshStartedAt = null;
+  st.refreshInFlight = null;
+  if (!st.bootstrapCompleted && st.bootstrapAttempted) {
+    st.bootstrapFailed = true;
+    st.bootstrapErrorMessage = reason;
   }
-  lastRefreshError = reason;
-  lastRefreshFailedAt = new Date().toISOString();
-  refreshFailureCount++;
-  timeoutOperationalOccurred = true;
-  lastFailedStep = lastCompletedStep ?? "unknown_stuck_step";
+  st.lastRefreshError = reason;
+  st.lastRefreshFailedAt = new Date().toISOString();
+  st.refreshFailureCount++;
+  st.timeoutOperationalOccurred = true;
+  st.lastFailedStep = st.lastCompletedStep ?? "unknown_stuck_step";
 }
 
 function setStep(step: string): void {
-  lastCompletedStep = step;
-  lastStepStartedAt = new Date().toISOString();
+  const st = getMarketDataRuntime();
+  st.lastCompletedStep = step;
+  st.lastStepStartedAt = new Date().toISOString();
 }
 
 function completeStep(step: string): void {
-  lastCompletedStep = step;
-  lastStepCompletedAt = new Date().toISOString();
+  const st = getMarketDataRuntime();
+  st.lastCompletedStep = step;
+  st.lastStepCompletedAt = new Date().toISOString();
 }
 
-async function refresh(): Promise<void> {
-  if (refreshing) {
-    const stuckMs = refreshStartedAt != null ? Date.now() - refreshStartedAt : 0;
+function refresh(): Promise<void> {
+  const st = getMarketDataRuntime();
+  const m = st.refreshMetrics;
+  m.refreshRequested++;
+  const inFlightCount = st.refreshInFlight != null ? 1 : 0;
+  console.log(
+    `[MarketDataService] refresh_requested total_req=${m.refreshRequested} in_flight_refresh_count=${inFlightCount}`
+  );
+
+  if (st.refreshInFlight) {
+    const stuckMs = st.refreshStartedAt != null ? Date.now() - st.refreshStartedAt : 0;
     if (stuckMs > STUCK_REFRESH_GUARD_MS) {
       forceCleanupStuck(`refresh_hung_${stuckMs}ms`);
-    }
-    return;
-  }
-
-  refreshing = true;
-  refreshStartedAt = Date.now();
-  refreshAttemptedCount++;
-  bootstrapPhase = "refresh_started";
-  lastFailedStep = null;
-  lastRefreshErrorMessage = null;
-  timeoutOperationalOccurred = false;
-
-  const reportStep: RefreshStepReporter = (step: string, detail?: { count?: number }) => {
-    completeStep(step);
-    if (detail?.count != null) {
-      console.log(`[MarketDataService] ${step} count=${detail.count}`);
     } else {
-      console.log(`[MarketDataService] ${step}`);
+      m.refreshDeduped++;
+      console.log(
+        `[MarketDataService] refresh_deduped_or_reused deduped_total=${m.refreshDeduped} in_flight_refresh_count=1`
+      );
+      return st.refreshInFlight;
     }
-  };
-
-  console.log("[MarketDataService] refresh_begin");
-
-  try {
-    setStep("refresh_begin");
-    completeStep("refresh_begin");
-
-    const rawMarkets = await fetchAllMarkets({
-      reportStep,
-      fetchStandardTimeoutMs: FETCH_STANDARD_TIMEOUT_MS,
-      parseTimeoutMs: PARSE_TIMEOUT_MS,
-      mergeTimeoutMs: MERGE_TIMEOUT_MS,
-    });
-
-    setStep("publish_done");
-    markets = rawMarkets;
-    completeStep("publish_done");
-    console.log(`[MarketDataService] publish_done count=${markets.length}`);
-
-    lastRefresh = Date.now();
-    fetchCount++;
-    lastError = null;
-    lastRefreshError = null;
-    refreshSuccessCount++;
-    lastRefreshCompletedAt = new Date().toISOString();
-    refreshAttemptDurationMs = Date.now() - (refreshStartedAt ?? 0);
-
-    if (!bootstrapCompleted && markets.length > 0) {
-      bootstrapCompleted = true;
-      bootstrapFailed = false;
-      bootstrapErrorMessage = null;
-      lastBootstrapAt = new Date().toISOString();
-      bootstrapAttemptDurationMs = refreshAttemptDurationMs;
-    } else if (!bootstrapCompleted && bootstrapAttempted && markets.length === 0) {
-      bootstrapFailed = true;
-      bootstrapErrorMessage = "no markets returned";
-    }
-
-    setStep("refresh_finalize_done");
-    completeStep("refresh_finalize_done");
-    console.log("[MarketDataService] refresh_finalize_done");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const isTimeout = msg.includes("timeout");
-    bootstrapPhase = "fetch_failed";
-    lastError = msg;
-    lastRefreshError = msg;
-    lastRefreshErrorMessage = msg;
-    refreshFailureCount++;
-    lastRefreshFailedAt = new Date().toISOString();
-    refreshAttemptDurationMs = refreshStartedAt != null ? Date.now() - refreshStartedAt : null;
-    lastFailedStep = lastCompletedStep ?? "unknown";
-    if (isTimeout) timeoutOperationalOccurred = true;
-
-    if (!bootstrapCompleted && bootstrapAttempted) {
-      bootstrapFailed = true;
-      bootstrapErrorMessage = msg;
-    }
-    console.error(`[MarketDataService] Refresh failed: ${msg}`);
-    const cached = getCachedMarkets();
-    if (cached.length > 0) markets = cached;
-  } finally {
-    refreshing = false;
-    refreshStartedAt = null;
   }
+
+  m.refreshStartedEffective++;
+  console.log(
+    `[MarketDataService] refresh_started effective=${m.refreshStartedEffective} | refresh_begin`
+  );
+
+  const workStartedAt = Date.now();
+  st.refreshInFlight = (async () => {
+    st.refreshing = true;
+    st.refreshStartedAt = Date.now();
+    st.refreshAttemptedCount++;
+    st.bootstrapPhase = "refresh_started";
+    st.lastFailedStep = null;
+    st.lastRefreshErrorMessage = null;
+    st.timeoutOperationalOccurred = false;
+
+    const reportStep: RefreshStepReporter = (step: string, detail?: { count?: number }) => {
+      completeStep(step);
+      if (detail?.count != null) {
+        console.log(`[MarketDataService] ${step} count=${detail.count}`);
+      } else {
+        console.log(`[MarketDataService] ${step}`);
+      }
+    };
+
+    try {
+      setStep("refresh_begin");
+      completeStep("refresh_begin");
+
+      const rawMarkets = await fetchAllMarkets({
+        reportStep,
+        fetchStandardTimeoutMs: FETCH_STANDARD_TIMEOUT_MS,
+        parseTimeoutMs: PARSE_TIMEOUT_MS,
+        mergeTimeoutMs: MERGE_TIMEOUT_MS,
+      });
+
+      setStep("publish_done");
+      st.markets = rawMarkets;
+      completeStep("publish_done");
+      console.log(`[MarketDataService] publish_done count=${st.markets.length}`);
+
+      st.lastRefresh = Date.now();
+      st.fetchCount++;
+      st.lastError = null;
+      st.lastRefreshError = null;
+      st.refreshSuccessCount++;
+      st.lastRefreshCompletedAt = new Date().toISOString();
+      st.refreshAttemptDurationMs = Date.now() - (st.refreshStartedAt ?? 0);
+      m.refreshCompleted++;
+      m.lastDurationMs = Date.now() - workStartedAt;
+      console.log(`[MarketDataService] refresh_completed duration_ms=${m.lastDurationMs}`);
+
+      if (!st.bootstrapCompleted && st.markets.length > 0) {
+        st.bootstrapCompleted = true;
+        st.bootstrapFailed = false;
+        st.bootstrapErrorMessage = null;
+        st.lastBootstrapAt = new Date().toISOString();
+        st.bootstrapAttemptDurationMs = st.refreshAttemptDurationMs;
+      } else if (!st.bootstrapCompleted && st.bootstrapAttempted && st.markets.length === 0) {
+        st.bootstrapFailed = true;
+        st.bootstrapErrorMessage = "no markets returned";
+      }
+
+      setStep("refresh_finalize_done");
+      completeStep("refresh_finalize_done");
+      console.log("[MarketDataService] refresh_finalize_done");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const isTimeout = msg.includes("timeout");
+      st.bootstrapPhase = "fetch_failed";
+      st.lastError = msg;
+      st.lastRefreshError = msg;
+      st.lastRefreshErrorMessage = msg;
+      st.refreshFailureCount++;
+      st.lastRefreshFailedAt = new Date().toISOString();
+      st.refreshAttemptDurationMs = st.refreshStartedAt != null ? Date.now() - st.refreshStartedAt : null;
+      m.refreshFailed++;
+      m.lastDurationMs = Date.now() - workStartedAt;
+      st.lastFailedStep = st.lastCompletedStep ?? "unknown";
+      if (isTimeout) st.timeoutOperationalOccurred = true;
+
+      if (!st.bootstrapCompleted && st.bootstrapAttempted) {
+        st.bootstrapFailed = true;
+        st.bootstrapErrorMessage = msg;
+      }
+      console.error(`[MarketDataService] refresh_failed: ${msg} duration_ms=${m.lastDurationMs}`);
+      const cached = getCachedMarkets();
+      if (cached.length > 0) st.markets = cached;
+    } finally {
+      st.refreshing = false;
+      st.refreshStartedAt = null;
+      st.refreshInFlight = null;
+      console.log("[MarketDataService] refresh_finalize in_flight_refresh_count=0");
+    }
+  })();
+
+  return st.refreshInFlight;
 }
 
 function startLoop(): void {
-  if (loopStarted) return;
-  loopStarted = true;
-  bootstrapAttempted = true;
-  lastBootstrapAt = new Date().toISOString();
-  console.log("[MarketDataService] Bootstrap started");
-  refresh();
-  setInterval(refresh, REFRESH_INTERVAL_MS);
+  const st = getMarketDataRuntime();
+  if (st.loopStarted) {
+    console.log("[MarketDataService] bootstrap_skip loop_already_active_globalThis");
+    return;
+  }
+  st.loopStarted = true;
+  st.bootstrapAttempted = true;
+  st.lastBootstrapAt = new Date().toISOString();
+  console.log("[MarketDataService] Bootstrap started (effective; single process loop)");
+  void refresh();
+  setInterval(() => {
+    void refresh();
+  }, REFRESH_INTERVAL_MS);
 }
 
 export function ensureRunning(): void {
@@ -179,46 +189,50 @@ export function ensureRunning(): void {
 
 export function getAllMarkets(): import("./polymarketClient").NormalizedMarket[] {
   ensureRunning();
-  return markets;
+  return getMarketDataRuntime().markets;
 }
 
 export function getMarketById(id: string): import("./polymarketClient").NormalizedMarket | undefined {
   ensureRunning();
-  return markets.find((m) => m.id === id);
+  return getMarketDataRuntime().markets.find((m) => m.id === id);
 }
 
 export function getServiceStats() {
-  const stuckMs = refreshStartedAt != null ? Date.now() - refreshStartedAt : 0;
+  const st = getMarketDataRuntime();
+  const stuckMs = st.refreshStartedAt != null ? Date.now() - st.refreshStartedAt : 0;
   if (stuckMs > STUCK_REFRESH_GUARD_MS) {
     forceCleanupStuck(`guard_triggered_${stuckMs}ms`);
   }
+  const rm = st.refreshMetrics;
   return {
-    marketsTracked: markets.length,
-    lastRefreshMs: lastRefresh,
-    fetchCount,
-    lastError,
-    isRefreshing: refreshing,
-    marketBootstrapAttempted: bootstrapAttempted,
-    marketBootstrapCompleted: bootstrapCompleted,
-    marketBootstrapFailed: bootstrapFailed,
-    marketBootstrapErrorMessage: bootstrapErrorMessage,
-    lastMarketBootstrapAt: lastBootstrapAt,
-    refreshAttemptedCount,
-    refreshSuccessCount,
-    refreshFailureCount,
-    lastRefreshError,
-    bootstrapPhase,
-    refreshStartedAt,
+    marketsTracked: st.markets.length,
+    lastRefreshMs: st.lastRefresh,
+    fetchCount: st.fetchCount,
+    lastError: st.lastError,
+    isRefreshing: st.refreshing,
+    marketBootstrapAttempted: st.bootstrapAttempted,
+    marketBootstrapCompleted: st.bootstrapCompleted,
+    marketBootstrapFailed: st.bootstrapFailed,
+    marketBootstrapErrorMessage: st.bootstrapErrorMessage,
+    lastMarketBootstrapAt: st.lastBootstrapAt,
+    refreshAttemptedCount: st.refreshAttemptedCount,
+    refreshSuccessCount: st.refreshSuccessCount,
+    refreshFailureCount: st.refreshFailureCount,
+    lastRefreshError: st.lastRefreshError,
+    bootstrapPhase: st.bootstrapPhase,
+    refreshStartedAt: st.refreshStartedAt,
     refreshStuckMs: stuckMs,
-    lastRefreshCompletedAt,
-    lastRefreshFailedAt,
-    lastCompletedStep,
-    lastFailedStep,
-    lastStepStartedAt,
-    lastStepCompletedAt,
-    lastRefreshErrorMessage,
-    refreshAttemptDurationMs,
-    bootstrapAttemptDurationMs,
-    timeoutOperationalOccurred,
+    lastRefreshCompletedAt: st.lastRefreshCompletedAt,
+    lastRefreshFailedAt: st.lastRefreshFailedAt,
+    lastCompletedStep: st.lastCompletedStep,
+    lastFailedStep: st.lastFailedStep,
+    lastStepStartedAt: st.lastStepStartedAt,
+    lastStepCompletedAt: st.lastStepCompletedAt,
+    lastRefreshErrorMessage: st.lastRefreshErrorMessage,
+    refreshAttemptDurationMs: st.refreshAttemptDurationMs,
+    bootstrapAttemptDurationMs: st.bootstrapAttemptDurationMs,
+    timeoutOperationalOccurred: st.timeoutOperationalOccurred,
+    refreshMetrics: { ...rm },
+    inFlightRefreshCount: st.refreshInFlight != null ? 1 : 0,
   };
 }

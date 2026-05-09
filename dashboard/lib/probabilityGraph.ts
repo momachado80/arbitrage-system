@@ -9,6 +9,7 @@ export interface GraphNode {
   spread: number;
   impliedLowerBound: number;
   impliedUpperBound: number;
+  outcomesCount: number;
 }
 
 export interface GraphEdge {
@@ -51,6 +52,7 @@ export function buildGraphFromCluster(cluster: ConstraintCluster): ProbabilityGr
       spread: m.spread,
       impliedLowerBound: 0,
       impliedUpperBound: 1,
+      outcomesCount: m.outcomes.length,
     });
   }
 

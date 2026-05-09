@@ -1,12 +1,57 @@
 import type { NormalizedMarket } from "./polymarketClient";
 import type { ConstraintCluster } from "./marketRelationBuilder";
 import { buildGraphFromCluster, type ConstraintViolation } from "./probabilityGraph";
+import {
+  classifyEquivalenceMicroStructuralLaneWithReason,
+  type StructuralAssignmentReason,
+} from "./graphStructuralMicroLane";
+
+/** Proveniência da aresta que origina a violação (diagnóstico; não afecta ranking). */
+export type DiagnosticRelationProvenance =
+  | "equivalent"
+  | "subset"
+  | "exclusive"
+  | "complementary_strict"
+  | "complementary_relaxed"
+  | "cycle"
+  | "unknown";
+
+function diagnosticProvenanceForViolation(
+  cluster: ConstraintCluster,
+  violation: ConstraintViolation
+): DiagnosticRelationProvenance {
+  if (violation.type === "cycle") return "cycle";
+  if (violation.nodeIds.length < 2) return "unknown";
+  const x = violation.nodeIds[0]!;
+  const y = violation.nodeIds[1]!;
+  const rel = cluster.relations.find(
+    (r) =>
+      (r.sourceMarketId === x && r.targetMarketId === y) ||
+      (r.sourceMarketId === y && r.targetMarketId === x)
+  );
+  if (!rel) return "unknown";
+  switch (rel.type) {
+    case "equivalent":
+      return "equivalent";
+    case "subset":
+      return "subset";
+    case "exclusive":
+      return "exclusive";
+    case "complementary":
+      return rel.complementaryInferencePath === "relaxed" ? "complementary_relaxed" : "complementary_strict";
+    default:
+      return "unknown";
+  }
+}
 
 export type GraphOpportunityType =
   | "graph_subset"
   | "graph_complement"
   | "graph_exclusive"
   | "graph_equivalence"
+  | "graph_equivalence_micro"
+  | "graph_subset_micro"
+  | "graph_exclusive_micro"
   | "graph_cycle";
 
 export interface GraphOpportunity {
@@ -25,6 +70,10 @@ export interface GraphOpportunity {
   }>;
   clusterId: string;
   detectedAt: string;
+  /** Diagnóstico: aresta do cluster que gerou a violação (quando identificável). */
+  diagnosticRelationProvenance?: DiagnosticRelationProvenance;
+  /** Só micro-lanes estruturais pós-reclassificação (pureza estrutural). */
+  structuralMicroLaneReason?: StructuralAssignmentReason;
 }
 
 function violationTypeToOpportunityType(v: ConstraintViolation["type"]): GraphOpportunityType {
@@ -47,15 +96,24 @@ function violationTitle(v: ConstraintViolation): string {
   }
 }
 
-export function scanClusters(clusters: ConstraintCluster[]): GraphOpportunity[] {
+export type ScanClustersDiagnostics = {
+  clustersScannedOk: number;
+  clustersFailedInGraphScanCount: number;
+};
+
+export function scanClustersWithDiagnostics(clusters: ConstraintCluster[]): {
+  opportunities: GraphOpportunity[];
+  diagnostics: ScanClustersDiagnostics;
+} {
   const t0 = Date.now();
   const opportunities: GraphOpportunity[] = [];
-  let clustersScanned = 0;
+  let clustersScannedOk = 0;
+  let clustersFailedInGraphScanCount = 0;
 
   for (const cluster of clusters) {
     try {
       const graph = buildGraphFromCluster(cluster);
-      clustersScanned++;
+      clustersScannedOk++;
 
       for (const violation of graph.violations) {
         const involvedMarkets: GraphOpportunity["marketsInvolved"] = [];
@@ -81,9 +139,42 @@ export function scanClusters(clusters: ConstraintCluster[]): GraphOpportunity[] 
 
         if (adjustedConfidence < 0.02) continue;
 
+        const diagnosticRelationProvenance = diagnosticProvenanceForViolation(cluster, violation);
+
+        let resolvedType = violationTypeToOpportunityType(violation.type);
+
+        let structuralMicroLaneReason: StructuralAssignmentReason | undefined;
+
+        if (violation.type === "equivalence") {
+          const qualifiesMicro =
+            involvedMarkets.length === 2 &&
+            violation.severity >= 0.08 &&
+            minLiquidity >= 500 &&
+            violation.nodeIds.length === 2 &&
+            (() => {
+              const nA = graph.nodes.get(violation.nodeIds[0]!);
+              const nB = graph.nodes.get(violation.nodeIds[1]!);
+              return nA != null && nB != null && nA.outcomesCount === 2 && nB.outcomesCount === 2;
+            })();
+          if (qualifiesMicro) {
+            const mid0 = violation.nodeIds[0]!;
+            const mid1 = violation.nodeIds[1]!;
+            const ma = cluster.markets.find((m) => m.id === mid0);
+            const mb = cluster.markets.find((m) => m.id === mid1);
+            if (ma != null && mb != null) {
+              const cl = classifyEquivalenceMicroStructuralLaneWithReason(ma, mb);
+              resolvedType = cl.lane;
+              structuralMicroLaneReason = cl.reason;
+            } else {
+              resolvedType = "graph_equivalence_micro";
+              structuralMicroLaneReason = "residual_not_pure_equivalence_nor_monotonic_subset";
+            }
+          }
+        }
+
         opportunities.push({
           id: `graph-${cluster.clusterId}-${violation.type}-${opportunities.length}`,
-          type: violationTypeToOpportunityType(violation.type),
+          type: resolvedType,
           title: violationTitle(violation),
           description: violation.description,
           edge: violation.severity,
@@ -92,17 +183,27 @@ export function scanClusters(clusters: ConstraintCluster[]): GraphOpportunity[] 
           marketsInvolved: involvedMarkets,
           clusterId: cluster.clusterId,
           detectedAt: new Date().toISOString(),
+          diagnosticRelationProvenance,
+          structuralMicroLaneReason,
         });
       }
     } catch (err) {
+      clustersFailedInGraphScanCount += 1;
       console.error(`[GraphArbEngine] Cluster ${cluster.clusterId} failed:`, err);
     }
   }
 
   const elapsed = Date.now() - t0;
   console.log(
-    `[GraphArbEngine] Scanned ${clustersScanned} clusters → ${opportunities.length} graph opportunities in ${elapsed}ms`
+    `[GraphArbEngine] Scanned ${clustersScannedOk} clusters ok (${clustersFailedInGraphScanCount} failed) → ${opportunities.length} graph opportunities in ${elapsed}ms`
   );
 
-  return opportunities;
+  return {
+    opportunities,
+    diagnostics: { clustersScannedOk, clustersFailedInGraphScanCount },
+  };
+}
+
+export function scanClusters(clusters: ConstraintCluster[]): GraphOpportunity[] {
+  return scanClustersWithDiagnostics(clusters).opportunities;
 }
