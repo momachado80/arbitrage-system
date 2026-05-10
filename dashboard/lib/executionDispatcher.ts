@@ -8,6 +8,8 @@ import { incrementDispatch, incrementEarlyExit, incrementFilteredByEEV, incremen
 import { estimateExecutableValueForDispatch } from "./rankingComparisonDiagnostics";
 import { MIN_EXECUTABLE_EXPECTED_VALUE_USD } from "./executionFilterConfig";
 import { recordFiltered, recordPassed } from "./eevFilterQualityTracker";
+import { getAllMarkets } from "./marketDataService";
+import { evaluateOpportunityUniverseQuality } from "./universeQualityGate";
 
 export type DispatchedOpportunity = Record<string, unknown>;
 
@@ -19,6 +21,39 @@ export function dispatchOpportunity(opportunity: DispatchedOpportunity): void {
   const edge = Number(opportunity.edge ?? 0);
   const rank = opportunity.rank ?? "?";
   if (VERBOSE) console.log("DISPATCH START", { marketId, type, edge, rank });
+
+  /**
+   * UNIVERSE QUALITY GATE — antes de incrementDispatch / EEV / evaluateOpportunity.
+   * Cobre standard E graph (ambos chegam aqui). Fail-closed quando perna falta no cache.
+   * Sem efeito colateral em .paper, sem tocar shadow store.
+   */
+  const cachedMarkets = getAllMarkets();
+  const lookup = (legId: string) =>
+    cachedMarkets.find(m => m.id === legId) ?? null;
+  const uqGate = evaluateOpportunityUniverseQuality(
+    opportunity,
+    lookup,
+    new Date().toISOString(),
+  );
+  if (uqGate.rejected) {
+    incrementEarlyExit(`BLOCKED_BY_UNIVERSE_QUALITY:${uqGate.verdict}`);
+    if (VERBOSE) {
+      console.log("[DIAGNOSTICS] UQ BLOCKED", {
+        opportunityId: opportunity.opportunityId ?? opportunity.id ?? null,
+        opportunityType: opportunity.opportunityType ?? null,
+        sourceType: opportunity.sourceType ?? null,
+        verdict: uqGate.verdict,
+        legMarketId: uqGate.legMarketId,
+        question: uqGate.question,
+        mid: uqGate.mid,
+        liquidity: uqGate.liquidity,
+        suitabilityVerdict: uqGate.suitabilityVerdict,
+        reasons: uqGate.reasons,
+        disqualifiers: uqGate.disqualifiers,
+      });
+    }
+    return;
+  }
 
   incrementDispatch();
 

@@ -11,6 +11,7 @@ import "./marketUniverseQuality.test";
 import "./catalystObservationSchedule.test";
 import "./catalystObservationOrchestrator.test";
 import "./shadowClosedTradePersistence.test";
+import "./universeQualityGate.test";
 
 async function main(): Promise<void> {
   const registry = getRegistry();
