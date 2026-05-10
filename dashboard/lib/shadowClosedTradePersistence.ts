@@ -30,11 +30,17 @@ function getFilePath(): string {
 let lastWriteMs = 0;
 
 /**
- * Persist closed trades for all profiles. Called after each close (throttled).
+ * Persist closed trades for all profiles.
+ * Default: throttled to 1 write per THROTTLE_MS (5s).
+ * `opts.force=true` ignora o throttle — usado pelo flush de shutdown no botRunner.
  */
-export function persistClosedTrades(byProfile: Record<string, ShadowTrade[]>): void {
+export function persistClosedTrades(
+  byProfile: Record<string, ShadowTrade[]>,
+  opts?: { force?: boolean },
+): void {
   const now = Date.now();
-  if (now - lastWriteMs < THROTTLE_MS) return;
+  const force = opts?.force === true;
+  if (!force && now - lastWriteMs < THROTTLE_MS) return;
 
   try {
     const filePath = getFilePath();

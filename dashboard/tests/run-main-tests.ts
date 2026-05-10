@@ -10,6 +10,7 @@ import "./observationWindowSuitability.test";
 import "./marketUniverseQuality.test";
 import "./catalystObservationSchedule.test";
 import "./catalystObservationOrchestrator.test";
+import "./shadowClosedTradePersistence.test";
 
 async function main(): Promise<void> {
   const registry = getRegistry();

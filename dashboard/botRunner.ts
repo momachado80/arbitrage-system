@@ -12,11 +12,79 @@ import { dispatchOpportunity } from "./lib/executionDispatcher";
 import { getPipelineDiagnostics } from "./lib/shadowPipelineDiagnostics";
 import { runRankingComparisonDiagnostics } from "./lib/rankingComparisonDiagnostics";
 import { getEEVFilterQualitySummary, getPassedEEVDownstreamSummary } from "./lib/eevFilterQualityTracker";
-import { getAllShadowProfiles } from "./lib/shadowSimulationStore";
+import {
+  getAllShadowProfiles,
+  type ShadowTrade,
+} from "./lib/shadowSimulationStore";
 import { getEnabledProfiles } from "./lib/shadowSimulationProfiles";
 import { ensureShadowSimulation } from "./lib/shadowSimulationService";
+import {
+  getPersistencePath,
+  persistClosedTrades,
+} from "./lib/shadowClosedTradePersistence";
 
 console.log("BOT RUNNER FILE LOADED");
+
+/**
+ * Loga onde o bot vai persistir closedTrades — ajuda diagnose quando smoke
+ * test parece "vazio" por env var errada (PAPER_STATE_DIR não é lido aqui).
+ */
+function logPersistenceConfig(): void {
+  console.log("[WORKER_SUMMARY] PERSISTENCE_CONFIG", {
+    SHADOW_PERSISTENCE_PATH: process.env.SHADOW_PERSISTENCE_PATH ?? null,
+    DATA_PATH: process.env.DATA_PATH ?? null,
+    cwd: process.cwd(),
+    effectivePath: getPersistencePath(),
+  });
+}
+
+/**
+ * Coleta apenas closedTrades de cada profile.
+ * activeTrades são EXCLUIDOS por design — ainda em RAM, sem realização final.
+ */
+function buildClosedTradesByProfile(): Record<string, ShadowTrade[]> {
+  const byProfile: Record<string, ShadowTrade[]> = {};
+  for (const state of getAllShadowProfiles()) {
+    const closed = state.closedTrades.filter(
+      (t: ShadowTrade) => t.status === "closed" && t.closedAt,
+    );
+    if (closed.length > 0) byProfile[state.profileId] = closed;
+  }
+  return byProfile;
+}
+
+let flushedOnce = false;
+function flushClosedTradesOnShutdown(reason: string): void {
+  if (flushedOnce) return;
+  flushedOnce = true;
+  try {
+    const byProfile = buildClosedTradesByProfile();
+    const profileCount = Object.keys(byProfile).length;
+    const tradeCount = Object.values(byProfile).reduce(
+      (acc, arr) => acc + arr.length,
+      0,
+    );
+    console.log(
+      `[WORKER] FLUSH on ${reason}: ${profileCount} profile(s), ${tradeCount} closed trade(s) → ${getPersistencePath()}`,
+    );
+    /** force=true ignora o throttle de 5s — garante flush mesmo após write recente. */
+    persistClosedTrades(byProfile, { force: true });
+  } catch (err) {
+    console.error("[WORKER] FLUSH ERROR:", err);
+  }
+}
+
+process.on("SIGINT", () => {
+  flushClosedTradesOnShutdown("SIGINT");
+  process.exit(130);
+});
+process.on("SIGTERM", () => {
+  flushClosedTradesOnShutdown("SIGTERM");
+  process.exit(143);
+});
+process.on("beforeExit", () => {
+  flushClosedTradesOnShutdown("beforeExit");
+});
 
 function logShadowProfileConfig(): void {
   const profiles = getEnabledProfiles();
@@ -87,6 +155,7 @@ function startDiagnosticsSnapshot(): void {
 
 async function runBot(): Promise<void> {
   console.log("ARBITRAGE WORKER ONLINE");
+  logPersistenceConfig();
   logShadowProfileConfig();
   ensureShadowSimulation();
   logShadowPortfolioState();
