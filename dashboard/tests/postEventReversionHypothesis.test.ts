@@ -241,13 +241,87 @@ describe("tests/postEventReversionHypothesis.test.ts", () => {
     assertEqual(r.invalidationReason, "missing_post_event_60m", "razão missing");
   });
 
-  test("13. judgeHypothesis: n < 50 qualified → alive_collecting", () => {
+  test("13. judgeHypothesis: n < MIN_EARLY_HEALTH_N (20) → alive_collecting silencioso", () => {
     const ms: ReversionMetric[] = [];
     for (let i = 0; i < 10; i++) ms.push(mkQualifiedMetric(0.01, i));
     const v = judgeHypothesis(ms);
     assertEqual(v.status, "alive_collecting", "ainda coletando");
     assertEqual(v.n, 10, "n=10");
-    assertEqual(v.meanRealizedReversion, null, "mean ainda null");
+    assertEqual(v.meanRealizedReversion, null, "mean ainda null em early-silent");
+    assertEqual(v.earlyHealthReason, null, "sem health reason em n<20");
+  });
+
+  test("13a. n=20 com mean < -0.005 (clearly negative) → early_dead_candidate (mean)", () => {
+    const ms: ReversionMetric[] = [];
+    /** 20 trades com reversion = -0.01 → mean = -0.01, hit = 0/20 = 0%. */
+    for (let i = 0; i < 20; i++) ms.push(mkQualifiedMetric(-0.01, i));
+    const v = judgeHypothesis(ms);
+    assertEqual(v.status, "early_dead_candidate", "early dead disparou");
+    assertEqual(
+      v.earlyHealthReason,
+      "mean_below_early_dead_threshold",
+      "razão = mean abaixo do early dead",
+    );
+    assertEqual(v.deathReason, null, "deathReason permanece null (N<50)");
+    assertTrue((v.meanRealizedReversion ?? 0) < -0.005, "mean clearly negative");
+  });
+
+  test("13b. n=20 com mean OK mas hitRate < 0.35 → early_dead_candidate (hit rate)", () => {
+    const ms: ReversionMetric[] = [];
+    /** 6 wins de +0.05 + 14 losses de -0.005 → hitRate=0.30, mean=0.0115 (>−0.005). */
+    for (let i = 0; i < 6; i++) ms.push(mkQualifiedMetric(0.05, i));
+    for (let i = 0; i < 14; i++) ms.push(mkQualifiedMetric(-0.005, 100 + i));
+    const v = judgeHypothesis(ms);
+    assertEqual(v.status, "early_dead_candidate", "early dead disparou");
+    assertEqual(
+      v.earlyHealthReason,
+      "hit_rate_below_early_dead_threshold",
+      "razão = hit rate abaixo do early dead",
+    );
+    assertTrue((v.hitRate ?? 1) < 0.35, "hit rate confirmado abaixo");
+    assertTrue((v.meanRealizedReversion ?? 0) > -0.005, "mean acima do dead threshold");
+  });
+
+  test("13c. n=20 com mean > 0.015 E hitRate > 0.70 → early_positive_signal (advisory)", () => {
+    const ms: ReversionMetric[] = [];
+    /** 18 wins de +0.02 + 2 losses de -0.001 → hitRate=0.90, mean≈0.0179. */
+    for (let i = 0; i < 18; i++) ms.push(mkQualifiedMetric(0.02, i));
+    for (let i = 0; i < 2; i++) ms.push(mkQualifiedMetric(-0.001, 100 + i));
+    const v = judgeHypothesis(ms);
+    assertEqual(v.status, "early_positive_signal", "early positive disparou");
+    assertEqual(
+      v.earlyHealthReason,
+      "mean_and_hit_rate_above_early_positive_thresholds",
+      "razão = mean E hit rate acima dos thresholds positivos",
+    );
+    assertTrue((v.meanRealizedReversion ?? 0) > 0.015, "mean acima do positivo");
+    assertTrue((v.hitRate ?? 0) > 0.70, "hit rate acima do positivo");
+  });
+
+  test("13d. n=20 sem sinal extremo (mean=0.003, hitRate=1.0) → alive_collecting_until_n50", () => {
+    const ms: ReversionMetric[] = [];
+    /** 20 wins de +0.003 → mean=0.003, hitRate=1.0.
+     *  mean entre -0.005 e 0.015 → não dispara early; hitRate alta mas mean baixa
+     *  para positive (precisa AMBOS > thresholds). */
+    for (let i = 0; i < 20; i++) ms.push(mkQualifiedMetric(0.003, i));
+    const v = judgeHypothesis(ms);
+    assertEqual(
+      v.status,
+      "alive_collecting_until_n50",
+      "continua coletando rumo a N=50",
+    );
+    assertEqual(v.earlyHealthReason, null, "sem health reason intermediária");
+    assertTrue((v.meanRealizedReversion ?? null) !== null, "mean populado em N≥20");
+    assertEqual(v.hitRate, 1.0, "hitRate populado");
+  });
+
+  test("13e. n=49 ainda em early-health (boundary inferior do critério oficial)", () => {
+    const ms: ReversionMetric[] = [];
+    for (let i = 0; i < 49; i++) ms.push(mkQualifiedMetric(0.003, i));
+    const v = judgeHypothesis(ms);
+    /** N=49 < MIN_QUALIFIED_N(50) → ainda no caminho interino. */
+    assertEqual(v.status, "alive_collecting_until_n50", "N=49 ainda interino");
+    assertEqual(v.n, 49, "n=49");
   });
 
   test("14. judgeHypothesis: n=50, mean≥0.008, hit≥55%, sharpe alto → alive_surviving", () => {

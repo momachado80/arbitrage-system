@@ -36,10 +36,13 @@ export const TAIL_LOWER = 0.06;
 export const TAIL_UPPER = 0.94;
 /** Spread máximo aceitável no POST_EVENT_15M para considerar o evento mensurável. */
 export const MAX_POST_IMMEDIATE_SPREAD = 0.05;
-/** Sample size mínimo qualificado antes de emitir veredito. */
+/** Sample size mínimo qualificado antes de emitir veredito oficial. */
 export const MIN_QUALIFIED_N = 50;
 
-/** Critérios de vida/morte/refino. */
+/** Sample size mínimo para emitir veredito interino de saúde (fast-kill / early-positive). */
+export const MIN_EARLY_HEALTH_N = 20;
+
+/** Critérios oficiais de vida/morte/refino (avaliados quando N ≥ MIN_QUALIFIED_N). */
 export const DEATH_MEAN = 0.005;
 export const TARGET_MEAN = 0.008;
 export const DEATH_HIT_RATE = 0.48;
@@ -47,6 +50,16 @@ export const TARGET_HIT_RATE = 0.55;
 export const DEATH_SHARPE = 0.3;
 export const TARGET_SHARPE = 0.6;
 export const MAX_DRAWDOWN_RATIO = 5;
+
+/**
+ * Critérios INTERINOS de saúde (avaliados quando MIN_EARLY_HEALTH_N ≤ N < MIN_QUALIFIED_N).
+ * Estritamente advisory: não autorizam promoção, execução, paper engine, microcapital
+ * nem mudança de processo. Apenas sinalizam veredito antecipado para decisão humana.
+ */
+export const EARLY_DEAD_MEAN_THRESHOLD = -0.005;
+export const EARLY_DEAD_HIT_RATE_THRESHOLD = 0.35;
+export const EARLY_POSITIVE_MEAN_THRESHOLD = 0.015;
+export const EARLY_POSITIVE_HIT_RATE_THRESHOLD = 0.70;
 
 const NBA_FINALS_PATTERN = /\bwin\s+the\s+(\d{4}\s+)?nba\s+finals?\b/i;
 const NHL_STANLEY_CUP_PATTERN = /\bwin\s+the\s+(\d{4}\s+)?(nhl\s+)?stanley\s+cup\b/i;
@@ -115,9 +128,19 @@ export interface ReversionMetric {
 }
 
 export type VerdictStatus =
+  /** N < MIN_EARLY_HEALTH_N (20): silenciosamente coletando. */
   | "alive_collecting"
+  /** MIN_EARLY_HEALTH_N ≤ N < MIN_QUALIFIED_N (50), sem sinal extremo. */
+  | "alive_collecting_until_n50"
+  /** MIN_EARLY_HEALTH_N ≤ N < MIN_QUALIFIED_N, mean clearly negative ou hit muito baixo. */
+  | "early_dead_candidate"
+  /** MIN_EARLY_HEALTH_N ≤ N < MIN_QUALIFIED_N, mean alto E hit alto. Advisory only. */
+  | "early_positive_signal"
+  /** N ≥ MIN_QUALIFIED_N, todos os targets oficiais batidos. */
   | "alive_surviving"
+  /** N ≥ MIN_QUALIFIED_N, entre death e target. */
   | "needs_refinement"
+  /** N ≥ MIN_QUALIFIED_N, algum critério de morte oficial disparou. */
   | "dead";
 
 export interface HypothesisVerdict {
@@ -128,8 +151,13 @@ export interface HypothesisVerdict {
   sharpeProxy: number | null;
   maxDrawdownAbs: number | null;
   drawdownToMeanRatio: number | null;
+  /** Preenchido apenas em status "dead". */
   deathReason: string | null;
+  /** Preenchido apenas em status "needs_refinement". */
   refinementReason: string | null;
+  /** Preenchido em status "early_dead_candidate" ou "early_positive_signal".
+   *  ADVISORY ONLY: não autoriza promoção, execução, paper engine ou microcapital. */
+  earlyHealthReason: string | null;
   details: {
     samplesTotal: number;
     samplesQualified: number;
@@ -288,7 +316,7 @@ export function judgeHypothesis(metrics: ReversionMetric[]): HypothesisVerdict {
 
   const n = qualified.length;
 
-  if (n < MIN_QUALIFIED_N) {
+  if (n < MIN_EARLY_HEALTH_N) {
     return {
       status: "alive_collecting",
       n,
@@ -299,6 +327,7 @@ export function judgeHypothesis(metrics: ReversionMetric[]): HypothesisVerdict {
       drawdownToMeanRatio: null,
       deathReason: null,
       refinementReason: null,
+      earlyHealthReason: null,
       details,
     };
   }
@@ -314,32 +343,69 @@ export function judgeHypothesis(metrics: ReversionMetric[]): HypothesisVerdict {
   const maxDrawdownAbs = Math.max(0, -worst);
   const drawdownToMeanRatio = mean > 0 ? maxDrawdownAbs / mean : Infinity;
 
+  /**
+   * MIN_EARLY_HEALTH_N ≤ N < MIN_QUALIFIED_N — veredito interino advisory.
+   * NÃO autoriza promoção, execução, paper engine, microcapital. Apenas health signal.
+   */
+  if (n < MIN_QUALIFIED_N) {
+    if (mean < EARLY_DEAD_MEAN_THRESHOLD) {
+      return buildVerdict(
+        "early_dead_candidate",
+        n, mean, hitRate, sharpe, maxDrawdownAbs, drawdownToMeanRatio,
+        null, null, "mean_below_early_dead_threshold", details,
+      );
+    }
+    if (hitRate < EARLY_DEAD_HIT_RATE_THRESHOLD) {
+      return buildVerdict(
+        "early_dead_candidate",
+        n, mean, hitRate, sharpe, maxDrawdownAbs, drawdownToMeanRatio,
+        null, null, "hit_rate_below_early_dead_threshold", details,
+      );
+    }
+    if (
+      mean > EARLY_POSITIVE_MEAN_THRESHOLD &&
+      hitRate > EARLY_POSITIVE_HIT_RATE_THRESHOLD
+    ) {
+      return buildVerdict(
+        "early_positive_signal",
+        n, mean, hitRate, sharpe, maxDrawdownAbs, drawdownToMeanRatio,
+        null, null, "mean_and_hit_rate_above_early_positive_thresholds", details,
+      );
+    }
+    return buildVerdict(
+      "alive_collecting_until_n50",
+      n, mean, hitRate, sharpe, maxDrawdownAbs, drawdownToMeanRatio,
+      null, null, null, details,
+    );
+  }
+
+  /** N ≥ MIN_QUALIFIED_N: critérios oficiais (não alterados). */
   if (mean < DEATH_MEAN) {
     return buildVerdict(
       "dead",
       n, mean, hitRate, sharpe, maxDrawdownAbs, drawdownToMeanRatio,
-      "mean_below_death_threshold", null, details,
+      "mean_below_death_threshold", null, null, details,
     );
   }
   if (hitRate < DEATH_HIT_RATE) {
     return buildVerdict(
       "dead",
       n, mean, hitRate, sharpe, maxDrawdownAbs, drawdownToMeanRatio,
-      "hit_rate_below_random", null, details,
+      "hit_rate_below_random", null, null, details,
     );
   }
   if (sharpe < DEATH_SHARPE) {
     return buildVerdict(
       "dead",
       n, mean, hitRate, sharpe, maxDrawdownAbs, drawdownToMeanRatio,
-      "sharpe_below_minimum", null, details,
+      "sharpe_below_minimum", null, null, details,
     );
   }
   if (drawdownToMeanRatio > MAX_DRAWDOWN_RATIO) {
     return buildVerdict(
       "dead",
       n, mean, hitRate, sharpe, maxDrawdownAbs, drawdownToMeanRatio,
-      "drawdown_dominates_mean", null, details,
+      "drawdown_dominates_mean", null, null, details,
     );
   }
 
@@ -351,14 +417,14 @@ export function judgeHypothesis(metrics: ReversionMetric[]): HypothesisVerdict {
     return buildVerdict(
       "needs_refinement",
       n, mean, hitRate, sharpe, maxDrawdownAbs, drawdownToMeanRatio,
-      null, reasons.join(","), details,
+      null, reasons.join(","), null, details,
     );
   }
 
   return buildVerdict(
     "alive_surviving",
     n, mean, hitRate, sharpe, maxDrawdownAbs, drawdownToMeanRatio,
-    null, null, details,
+    null, null, null, details,
   );
 }
 
@@ -372,6 +438,7 @@ function buildVerdict(
   drawdownToMeanRatio: number,
   deathReason: string | null,
   refinementReason: string | null,
+  earlyHealthReason: string | null,
   details: HypothesisVerdict["details"],
 ): HypothesisVerdict {
   return {
@@ -384,6 +451,7 @@ function buildVerdict(
     drawdownToMeanRatio,
     deathReason,
     refinementReason,
+    earlyHealthReason,
     details,
   };
 }
