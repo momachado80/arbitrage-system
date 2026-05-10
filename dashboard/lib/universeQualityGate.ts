@@ -20,9 +20,17 @@ import {
   type UniverseQualityVerdict,
 } from "./marketUniverseQuality";
 
+/** Verdicts que o gate pode retornar — estende `UniverseQualityVerdict` com a
+ *  rejeição derivada de `opp.edge` (Gate A): captura o caso onde cache prices
+ *  diferem do preço de execução real (`1 - opp.edge` em
+ *  realisticExecutionEngine.ts:170/200/295). */
+export type GateRejectionVerdict =
+  | UniverseQualityVerdict
+  | "REJECT_TAIL_VIA_OPP_EDGE";
+
 export interface UniverseQualityGateRejection {
   rejected: true;
-  verdict: UniverseQualityVerdict;
+  verdict: GateRejectionVerdict;
   legMarketId: string;
   question: string;
   mid: number | null;
@@ -172,6 +180,63 @@ function evaluateLeg(
 }
 
 /**
+ * Banda saudável de preço efetivo de entrada — espelha a rejeição tail do UQ
+ * (`mid < 0.06 || mid > 0.94`). Estritamente fora dessa banda dispara rejeição.
+ * Boundary inclusivo do safe band: `priceProxy === 0.06` e `priceProxy === 0.94`
+ * são SAFE (não rejeita).
+ */
+const PRICE_SAFE_BAND_LOWER = 0.06;
+const PRICE_SAFE_BAND_UPPER = 0.94;
+
+/**
+ * Gate A — bloqueia oportunidades cujo preço efetivo de entrada (proxy)
+ * implica entrada em cauda, INDEPENDENTE do que o cache de NormalizedMarket
+ * diga sobre `prices`. Necessário porque `realisticExecutionEngine.ts` calcula
+ * `effectiveEntryPrice = 1 - Math.max(0, opp.edge)` (linhas 170, 200, 295) e
+ * NÃO consulta `getAllMarkets()`. Cache pode reportar mid saudável (Gamma
+ * default 0.5) enquanto execução abre em 0.0095.
+ *
+ * Símétrico:
+ *  - `1 - clampedEdge < 0.06`  → tail inferior  (overround com edge alto)
+ *  - `1 - clampedEdge > 0.94`  → tail superior  (underround/edge baixo ou negativo)
+ *
+ * Sem `opp.edge`: retorna não-rejeitado, deixa fluxo seguir para leg check.
+ */
+export function evaluateOpportunityEdgeTail(
+  opportunity: DispatchOpportunityShape,
+): {
+  rejected: boolean;
+  rationale?: string;
+  effectiveEntryPriceProxy?: number;
+  rawEdge?: number;
+} {
+  const edgeRaw = opportunity.edge as unknown;
+  if (typeof edgeRaw !== "number" || !Number.isFinite(edgeRaw)) {
+    return { rejected: false };
+  }
+  /** Espelha o clamp do executor: realisticExecutionEngine.ts:124. */
+  const clampedEdge = Math.max(0, edgeRaw);
+  const effectiveEntryPriceProxy = 1 - clampedEdge;
+  if (effectiveEntryPriceProxy < PRICE_SAFE_BAND_LOWER) {
+    return {
+      rejected: true,
+      rationale: "edge_implies_lower_tail_entry_below_0p06",
+      effectiveEntryPriceProxy,
+      rawEdge: edgeRaw,
+    };
+  }
+  if (effectiveEntryPriceProxy > PRICE_SAFE_BAND_UPPER) {
+    return {
+      rejected: true,
+      rationale: "edge_implies_upper_tail_entry_above_0p94",
+      effectiveEntryPriceProxy,
+      rawEdge: edgeRaw,
+    };
+  }
+  return { rejected: false, effectiveEntryPriceProxy, rawEdge: edgeRaw };
+}
+
+/**
  * Avalia a oportunidade contra o universe quality cascade.
  * Bloqueia se qualquer perna retornar verdict REJECT_*.
  * Fail-closed quando perna não está no cache: sem dado, sem prova, sem dispatch.
@@ -181,6 +246,34 @@ export function evaluateOpportunityUniverseQuality(
   lookupMarket: LegMarketLookup,
   nowIso: string,
 ): UniverseQualityGateResult {
+  /**
+   * Gate A — bloqueio por opp.edge implicar entrada em cauda. Roda ANTES da
+   * extração de legs e do lookup de cache: fail-fast sem custo de I/O quando
+   * a oportunidade carrega edge extremo. Necessário porque o executor usa
+   * `1 - opp.edge` como effectiveEntryPrice, divergindo do cache prices.
+   */
+  const edgeTail = evaluateOpportunityEdgeTail(opportunity);
+  if (edgeTail.rejected) {
+    const legIdsForReport = extractLegMarketIds(opportunity);
+    return {
+      rejected: true,
+      verdict: "REJECT_TAIL_VIA_OPP_EDGE",
+      legMarketId: legIdsForReport[0] ?? "(no_legs_extractable)",
+      question: "(blocked via opp.edge — pre-leg-lookup; cache prices not consulted)",
+      mid: edgeTail.effectiveEntryPriceProxy ?? null,
+      liquidity: 0,
+      volume: 0,
+      closed: false,
+      suitabilityVerdict: "UNSUITABLE_MISSING_DATA",
+      reasons: [edgeTail.rationale ?? "edge_implies_tail_entry"],
+      disqualifiers: [
+        `opp_edge_value:${edgeTail.rawEdge ?? "?"}`,
+        `effective_entry_price_proxy:${edgeTail.effectiveEntryPriceProxy ?? "?"}`,
+      ],
+      legsChecked: 0,
+    };
+  }
+
   const legIds = extractLegMarketIds(opportunity);
   if (legIds.length === 0) {
     return {
