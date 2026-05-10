@@ -12,6 +12,7 @@ import "./catalystObservationSchedule.test";
 import "./catalystObservationOrchestrator.test";
 import "./shadowClosedTradePersistence.test";
 import "./universeQualityGate.test";
+import "./postEventReversionHypothesis.test";
 
 async function main(): Promise<void> {
   const registry = getRegistry();
