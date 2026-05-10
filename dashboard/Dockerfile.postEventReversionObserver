@@ -1,0 +1,21 @@
+# Build context = repo root (monorepo): docker build -f dashboard/Dockerfile.postEventReversionObserver .
+FROM node:18.20-alpine
+
+WORKDIR /app
+
+COPY dashboard/package.json dashboard/package-lock.json* ./
+RUN npm ci --no-cache --ignore-scripts 2>/dev/null || npm install --no-cache --ignore-scripts
+
+COPY dashboard/lib ./lib
+COPY dashboard/scripts ./scripts
+COPY dashboard/tsconfig.json dashboard/tsconfig.worker.json ./
+COPY dashboard/docker-entrypoint-post-event-reversion-observer.sh /docker-entrypoint-post-event-reversion-observer.sh
+RUN chmod +x /docker-entrypoint-post-event-reversion-observer.sh
+
+ENV NODE_ENV=production
+ENV PATH="/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# Volume Railway montado em /data (configurar no painel Railway)
+VOLUME ["/data"]
+
+ENTRYPOINT ["/docker-entrypoint-post-event-reversion-observer.sh"]
