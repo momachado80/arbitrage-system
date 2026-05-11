@@ -15,7 +15,8 @@ RUN chmod +x /docker-entrypoint-post-event-reversion-observer.sh
 ENV NODE_ENV=production
 ENV PATH="/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
-# Volume Railway montado em /data (configurar no painel Railway)
-VOLUME ["/data"]
+# Volume Railway anexado em /data pelo painel — NÃO usar VOLUME aqui:
+# o Railway rejeita Dockerfile com instrução VOLUME e cuida do mount.
+# O entrypoint cria o diretório com mkdir -p antes da primeira escrita.
 
 ENTRYPOINT ["/docker-entrypoint-post-event-reversion-observer.sh"]
