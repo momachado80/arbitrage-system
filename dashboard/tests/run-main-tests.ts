@@ -9,6 +9,7 @@ import "./singleTrackMarkoutSampler.test";
 import "./observationWindowSuitability.test";
 import "./marketUniverseQuality.test";
 import "./catalystObservationSchedule.test";
+import "./catalystSchedulePicker.test";
 import "./catalystObservationOrchestrator.test";
 import "./shadowClosedTradePersistence.test";
 import "./universeQualityGate.test";

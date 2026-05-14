@@ -16,6 +16,10 @@ import {
   type ScheduleFetchStatus,
 } from "../lib/catalystObservationSchedule";
 import {
+  pickEarliestEspnGameWithinRetention,
+  type NextGamePick,
+} from "../lib/catalystSchedulePicker";
+import {
   enrichDiscoverySuitableRow,
   finalizeDiscoveryRankingWithUniverseQuality,
 } from "../lib/liveMarketDiscoveryRanking";
@@ -211,12 +215,6 @@ function teamRoughMatch(subject: string, displayName: string): boolean {
   return hits >= need;
 }
 
-interface NextGamePick {
-  eventName: string;
-  eventStartUtc: string;
-  opponentShort: string | null;
-}
-
 function extractCompetitors(comp: Record<string, unknown>): Array<{ name: string }> {
   const out: Array<{ name: string }> = [];
   const comps = Array.isArray(comp.competitors) ? comp.competitors : [];
@@ -277,11 +275,12 @@ async function findNextEspnGame(
 ): Promise<{ pick: NextGamePick | null; status: ScheduleFetchStatus }> {
   const base = league === "NBA" ? ESPN_NBA : ESPN_NHL;
   const cache = new Map<string, unknown>();
-  let best: NextGamePick | null = null;
-  let bestT = Infinity;
+  const candidates: NextGamePick[] = [];
   try {
     const dayMs = 86_400_000;
-    for (let t = now.getTime(); t <= horizonEnd.getTime() + dayMs; t += dayMs) {
+    /** Inicia o scan um dia antes de `now` para incluir o scoreboard UTC anterior
+     *  e capturar jogos iniciados nas últimas horas (janela de retenção pós-evento). */
+    for (let t = now.getTime() - dayMs; t <= horizonEnd.getTime() + dayMs; t += dayMs) {
       const d = new Date(t);
       const ds = formatEspnDate(d);
       if (!cache.has(ds)) {
@@ -290,15 +289,12 @@ async function findNextEspnGame(
       }
       const raw = cache.get(ds);
       const pick = parseEspnScoreboardForTeam(raw, subject);
-      if (pick) {
-        const ts = new Date(pick.eventStartUtc).getTime();
-        if (ts >= now.getTime() && ts <= horizonEnd.getTime() && ts < bestT) {
-          bestT = ts;
-          best = pick;
-        }
-      }
+      if (pick) candidates.push(pick);
     }
-    return { pick: best, status: "ok" };
+    return {
+      pick: pickEarliestEspnGameWithinRetention(candidates, now, horizonEnd),
+      status: "ok",
+    };
   } catch {
     return { pick: null, status: "failed" };
   }
