@@ -28,11 +28,14 @@ import path from "path";
 
 import { fetchAllMarkets, type NormalizedMarket } from "../lib/polymarketClient";
 import {
-  isHypothesisEligibleMarket,
   HYPOTHESIS_VERSION,
-  type HypothesisSport,
   type SnapshotData,
 } from "../lib/postEventReversionHypothesis";
+import {
+  buildDedupeKey,
+  collectDueTargets,
+  type PlanFile,
+} from "../lib/postEventReversionPlanReader";
 
 const POLL_INTERVAL_SECONDS = parseInt(
   process.env.POST_EVENT_REVERSION_POLL_INTERVAL_SECONDS ?? "300",
@@ -52,30 +55,6 @@ const LEDGER_PATH =
   process.env.POST_EVENT_REVERSION_LEDGER_PATH ?? DEFAULT_LEDGER;
 const PLAN_PATH =
   process.env.POST_EVENT_REVERSION_PLAN_PATH ?? "/tmp/catalyst-observation-plan.json";
-
-const TARGET_WINDOW_TYPES: ReadonlySet<string> = new Set([
-  "PRE_EVENT_15M",
-  "POST_EVENT_15M",
-  "POST_EVENT_60M",
-]);
-
-interface PlanWindowSlot {
-  windowType: string;
-  runAtUtc: string;
-  reason?: string;
-}
-
-interface PlanRow {
-  marketId: string;
-  label?: string | null;
-  catalystReadinessVerdict?: string;
-  observationWindows?: PlanWindowSlot[];
-  nextEventStartUtc?: string | null;
-}
-
-interface PlanFile {
-  plan?: PlanRow[];
-}
 
 function parseArgv(argv: string[]): { once: boolean } {
   return { once: argv.includes("--once") };
@@ -118,14 +97,6 @@ function readSampledKeys(ledgerPath: string, maxLines = 8000): Set<string> {
   return seen;
 }
 
-function buildDedupeKey(
-  marketId: string,
-  windowType: string,
-  runAtUtc: string,
-): string {
-  return `${marketId}|${windowType}|${runAtUtc}|${HYPOTHESIS_VERSION}`;
-}
-
 function snapshotFromMarket(
   market: NormalizedMarket,
   capturedAtUtc: string,
@@ -144,17 +115,6 @@ function snapshotFromMarket(
   };
 }
 
-function isDueWithinTolerance(
-  runAtUtc: string,
-  now: Date,
-  toleranceMin: number,
-): boolean {
-  const t = new Date(runAtUtc).getTime();
-  if (!Number.isFinite(t)) return false;
-  const diff = Math.abs(now.getTime() - t);
-  return diff <= toleranceMin * 60_000;
-}
-
 function appendLedger(ledgerPath: string, entry: Record<string, unknown>): void {
   const dir = path.dirname(path.resolve(ledgerPath));
   fs.mkdirSync(dir, { recursive: true });
@@ -163,48 +123,6 @@ function appendLedger(ledgerPath: string, entry: Record<string, unknown>): void 
     `${JSON.stringify(entry)}\n`,
     "utf8",
   );
-}
-
-interface DueTarget {
-  marketId: string;
-  question: string;
-  sport: HypothesisSport;
-  catalystEventStartUtc: string;
-  windowType: string;
-  runAtUtc: string;
-  market: NormalizedMarket;
-}
-
-function collectDueTargets(
-  plan: PlanFile,
-  marketsById: Map<string, NormalizedMarket>,
-  nowIsoStr: string,
-  now: Date,
-): DueTarget[] {
-  const out: DueTarget[] = [];
-  for (const row of plan.plan ?? []) {
-    if (row.catalystReadinessVerdict !== "HAS_NEAR_CATALYST") continue;
-    const market = marketsById.get(row.marketId);
-    if (!market) continue;
-    const elig = isHypothesisEligibleMarket(market, nowIsoStr);
-    if (!elig.eligible) continue;
-    const catalystStart = row.nextEventStartUtc?.trim();
-    if (!catalystStart) continue;
-    for (const w of row.observationWindows ?? []) {
-      if (!TARGET_WINDOW_TYPES.has(w.windowType)) continue;
-      if (!isDueWithinTolerance(w.runAtUtc, now, DUE_TOLERANCE_MINUTES)) continue;
-      out.push({
-        marketId: market.id,
-        question: market.question,
-        sport: elig.sport,
-        catalystEventStartUtc: catalystStart,
-        windowType: w.windowType,
-        runAtUtc: w.runAtUtc,
-        market,
-      });
-    }
-  }
-  return out;
 }
 
 async function runOneCycle(): Promise<void> {
@@ -224,7 +142,7 @@ async function runOneCycle(): Promise<void> {
 
   const markets = await fetchAllMarkets();
   const marketsById = new Map(markets.map(m => [m.id, m]));
-  const targets = collectDueTargets(plan, marketsById, capturedAt, now);
+  const targets = collectDueTargets(plan, marketsById, capturedAt, now, DUE_TOLERANCE_MINUTES);
   const seen = readSampledKeys(LEDGER_PATH);
   const fresh = targets.filter(
     t => !seen.has(buildDedupeKey(t.marketId, t.windowType, t.runAtUtc)),
