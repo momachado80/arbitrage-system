@@ -80,7 +80,7 @@ function buildEvents(entries: LedgerEntry[]): EventSnapshot[] {
     }
   }
   const events: EventSnapshot[] = [];
-  for (const g of groups.values()) {
+  for (const g of Array.from(groups.values())) {
     const snapshots: EventSnapshotsByWindow = {};
     const pre = g.byWindow.get("PRE_EVENT_15M");
     const postImm = g.byWindow.get("POST_EVENT_15M");
