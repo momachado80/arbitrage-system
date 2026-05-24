@@ -20,6 +20,10 @@ import {
   type NextGamePick,
 } from "../lib/catalystSchedulePicker";
 import {
+  evaluatePlanTimeMarketGate,
+  type PlanTimeMarketGateReason,
+} from "../lib/catalystPlanTimeMarketGate";
+import {
   enrichDiscoverySuitableRow,
   finalizeDiscoveryRankingWithUniverseQuality,
 } from "../lib/liveMarketDiscoveryRanking";
@@ -370,7 +374,27 @@ async function main(): Promise<void> {
     rowsOut.push({ summary, evaluation: evalRes, raw: r });
   }
 
-  const suitable = rowsOut.filter(x => x.evaluation.canUseForPaperShadowCandidate);
+  /** Plan-time market quality gate: rejeita mercados cujo CLOB book já indica
+   *  que a observação pós-evento será inútil (spread crônico ou mid em cauda).
+   *  Reusa o bid/ask que probeBook já buscou — zero custo adicional de rede.
+   *  Não altera thresholds da hipótese. */
+  const planTimeGated = rowsOut.filter(x => {
+    const bid = typeof x.summary.bestBidUsed === "number" ? x.summary.bestBidUsed : null;
+    const ask = typeof x.summary.bestAskUsed === "number" ? x.summary.bestAskUsed : null;
+    return evaluatePlanTimeMarketGate({ bestBid: bid, bestAsk: ask }).accepted;
+  });
+  const planTimeGateRejectionBreakdown: Partial<Record<PlanTimeMarketGateReason, number>> = {};
+  for (const x of rowsOut) {
+    const bid = typeof x.summary.bestBidUsed === "number" ? x.summary.bestBidUsed : null;
+    const ask = typeof x.summary.bestAskUsed === "number" ? x.summary.bestAskUsed : null;
+    const g = evaluatePlanTimeMarketGate({ bestBid: bid, bestAsk: ask });
+    if (!g.accepted) {
+      planTimeGateRejectionBreakdown[g.reason] = (planTimeGateRejectionBreakdown[g.reason] ?? 0) + 1;
+    }
+  }
+  const marketsRejectedByPlanTimeGate = rowsOut.length - planTimeGated.length;
+
+  const suitable = planTimeGated.filter(x => x.evaluation.canUseForPaperShadowCandidate);
   const enrichedSuitable = suitable.map(x =>
     enrichDiscoverySuitableRow({
       ...(x.summary as Record<string, unknown>),
@@ -498,6 +522,8 @@ async function main(): Promise<void> {
     marketsWithNearCatalyst,
     marketsWithoutNearCatalyst,
     marketsNeedingScheduleSource,
+    marketsRejectedByPlanTimeGate,
+    planTimeGateRejectionBreakdown,
     note: "read_only_catalyst_plan_no_execution",
     plan,
   };
