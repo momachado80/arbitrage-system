@@ -12,6 +12,7 @@ import "./catalystObservationSchedule.test";
 import "./catalystSchedulePicker.test";
 import "./catalystPlanTimeMarketGate.test";
 import "./mechanicalEdgeCensus.test";
+import "./mechanicalEdgeCensusBook.test";
 import "./catalystObservationOrchestrator.test";
 import "./shadowClosedTradePersistence.test";
 import "./universeQualityGate.test";
