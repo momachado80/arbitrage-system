@@ -18,7 +18,6 @@
  *   MEC_PLAN_LIMIT         (default: 200 mercados varridos)
  */
 
-import fs from "fs";
 import path from "path";
 
 import {
@@ -34,14 +33,18 @@ import {
   binaryUnderroundFlag,
   targetSharesPerLeg,
   classifyResolutionCategory,
-  type BookLevel,
 } from "../lib/mechanicalEdgeCensusBook";
+import {
+  fetchJson,
+  fetchRawBook,
+  assertSafeLedgerPath,
+  appendMecLedger,
+  jsonArray,
+} from "../lib/mechanicalEdgeCensusFetch";
 
 const GAMMA_LIST = "https://gamma-api.polymarket.com/markets";
-const CLOB_BASE = (process.env.POLYMARKET_CLOB_HOST || "https://clob.polymarket.com").replace(/\/$/, "");
 const PAGE_LIMIT = 100;
 const GAMMA_HTTP_MS = 12_000;
-const BOOK_HTTP_MS = 6_000;
 
 const LEDGER_PATH =
   process.env.MEC_LEDGER_PATH ??
@@ -49,59 +52,6 @@ const LEDGER_PATH =
 const TARGET_SIZE_USD = parseFloat(process.env.MEC_TARGET_SIZE_USD ?? "100") || 100;
 const MIN_GROSS = parseFloat(process.env.MEC_MIN_GROSS ?? "0.003") || 0.003;
 const SCAN_LIMIT = parseInt(process.env.MEC_PLAN_LIMIT ?? "200", 10) || 200;
-
-function assertSafeLedgerPath(p: string): void {
-  const norm = path.resolve(p);
-  if (norm.includes(`${path.sep}.paper${path.sep}`) || norm.endsWith(`${path.sep}.paper`)) {
-    throw new Error("ledger_path_blocked:.paper");
-  }
-}
-
-function num(x: unknown): number {
-  const n = typeof x === "number" ? x : parseFloat(String(x));
-  return Number.isFinite(n) ? n : NaN;
-}
-
-function jsonArray(value: unknown): string[] {
-  if (Array.isArray(value)) return value.map(v => String(v)).filter(Boolean);
-  if (typeof value === "string" && value.trim()) {
-    try {
-      const p = JSON.parse(value) as unknown;
-      return Array.isArray(p) ? p.map(v => String(v)).filter(Boolean) : [];
-    } catch {
-      return [];
-    }
-  }
-  return [];
-}
-
-async function fetchJson(url: string, ms: number): Promise<unknown> {
-  const res = await fetch(url, { signal: AbortSignal.timeout(ms), headers: { Accept: "application/json" } });
-  if (!res.ok) throw new Error(`http_${res.status}`);
-  return (await res.json()) as unknown;
-}
-
-interface RawBook {
-  bids: BookLevel[];
-  asks: BookLevel[];
-}
-
-async function fetchRawBook(tokenId: string): Promise<RawBook | null> {
-  if (!tokenId) return null;
-  try {
-    const raw = (await fetchJson(
-      `${CLOB_BASE}/book?token_id=${encodeURIComponent(tokenId)}`,
-      BOOK_HTTP_MS,
-    )) as { bids?: Array<{ price?: string; size?: string }>; asks?: Array<{ price?: string; size?: string }> };
-    const toLevels = (arr?: Array<{ price?: string; size?: string }>): BookLevel[] =>
-      (Array.isArray(arr) ? arr : [])
-        .map(l => ({ price: num(l.price), size: num(l.size) }))
-        .filter(l => Number.isFinite(l.price) && Number.isFinite(l.size));
-    return { bids: toLevels(raw.bids), asks: toLevels(raw.asks) };
-  } catch {
-    return null;
-  }
-}
 
 async function loadGammaMarketsPage(offset: number): Promise<Record<string, unknown>[]> {
   const url = `${GAMMA_LIST}?active=true&closed=false&limit=${PAGE_LIMIT}&offset=${offset}`;
@@ -114,12 +64,6 @@ function daysToResolution(endDate: unknown, now: Date): number {
   const t = new Date(endDate).getTime();
   if (!Number.isFinite(t)) return 0;
   return Math.max(0, (t - now.getTime()) / 86_400_000);
-}
-
-function appendLedger(entry: Record<string, unknown>): void {
-  const dir = path.dirname(path.resolve(LEDGER_PATH));
-  fs.mkdirSync(dir, { recursive: true });
-  fs.appendFileSync(path.resolve(LEDGER_PATH), `${JSON.stringify(entry)}\n`, "utf8");
 }
 
 interface BinaryCandidate {
@@ -235,7 +179,7 @@ async function runCensus(): Promise<void> {
         canUseForExecution: false,
         dedupeKey: `${cand.marketId}|BINARY_UNDERROUND|${capturedAt.slice(0, 13)}|${MEC_VERSION}`,
       };
-      appendLedger(entry);
+      appendMecLedger(LEDGER_PATH, entry);
       tier2Persisted++;
       process.stdout.write(
         `[mec-census] flagged marketId=${cand.marketId} cat=${category} gross=${evaluation.grossEdge} net=${evaluation.netEdge} verdict=${evaluation.verdict}\n`,
