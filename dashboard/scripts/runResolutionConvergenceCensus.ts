@@ -91,8 +91,16 @@ function extractBinary(row: Record<string, unknown>): BinaryRow | null {
   return { marketId, question, endDate: row.endDate ?? row.end_date ?? null, yesToken, noToken, yesMidHint };
 }
 
-async function loadGammaMarketsPage(offset: number): Promise<Record<string, unknown>[]> {
-  const url = `${GAMMA_LIST}?active=true&closed=false&limit=${PAGE_LIMIT}&offset=${offset}&order=endDate&ascending=true`;
+async function loadGammaMarketsPage(offset: number, now: Date): Promise<Record<string, unknown>[]> {
+  /** Filtro server-side pela JANELA de resolução. Ordenar por endDate ascendente
+   *  traz primeiro mercados vencidos-mas-abertos (zumbis aguardando UMA), que
+   *  soterram os near-term além do scan limit. A janela end_date_min/max corta
+   *  isso na origem. */
+  const minIso = new Date(now.getTime() - 60_000).toISOString();
+  const maxIso = new Date(now.getTime() + MAX_DAYS * 86_400_000).toISOString();
+  const url =
+    `${GAMMA_LIST}?active=true&closed=false&limit=${PAGE_LIMIT}&offset=${offset}` +
+    `&end_date_min=${encodeURIComponent(minIso)}&end_date_max=${encodeURIComponent(maxIso)}`;
   const body = await fetchJson(url, GAMMA_HTTP_MS);
   return Array.isArray(body) ? (body as Record<string, unknown>[]) : [];
 }
@@ -116,7 +124,7 @@ async function runCensus(): Promise<void> {
   for (let offset = 0; offset < SCAN_LIMIT; offset += PAGE_LIMIT) {
     let page: Record<string, unknown>[];
     try {
-      page = await loadGammaMarketsPage(offset);
+      page = await loadGammaMarketsPage(offset, now);
     } catch (err) {
       process.stderr.write(`[conv-census] gamma_page_failed offset=${offset}: ${err instanceof Error ? err.message : String(err)}\n`);
       break;
