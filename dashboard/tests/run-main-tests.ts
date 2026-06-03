@@ -17,6 +17,7 @@ import "./resolutionConvergence.test";
 import "./poissonGoalsModel.test";
 import "./soccerEloModel.test";
 import "./forecastCalibration.test";
+import "./rollingElo.test";
 import "./catalystObservationOrchestrator.test";
 import "./shadowClosedTradePersistence.test";
 import "./universeQualityGate.test";
