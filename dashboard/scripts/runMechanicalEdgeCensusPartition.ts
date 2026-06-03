@@ -202,16 +202,22 @@ async function runCensus(): Promise<void> {
           vwapMissing = true;
           break;
         }
+        const bb = bestPrice(books[i]!.bids, "sell");
+        const spread = bb !== null ? Math.max(0, bestAsks[i]! - bb) : 0;
         legs.push({
           marketId: `${pe.legs[i]!.marketId}:YES`,
           side: "buy",
           vwapPrice: v.vwap,
           bestPrice: bestAsks[i]!,
           depthTop3: depthTopN(books[i]!.asks, 3, "buy"),
-          spread: 0,
+          spread,
         });
       }
       if (vwapMissing) continue;
+
+      /** Probabilidade implícita do "campo" não enumerado (proxy de não-exaustividade). */
+      const sumBest = bestAsks.reduce((a, b) => a + b, 0);
+      const fieldProbabilityEstimate = Math.max(0, Math.round((1 - sumBest) * 1e6) / 1e6);
 
       const category = classifyResolutionCategory(pe.title);
       const edgeType = pe.conversionFeeFrac > 0 ? "NEGRISK_CONVERSION" : "PARTITION_UNDERROUND";
@@ -237,6 +243,7 @@ async function runCensus(): Promise<void> {
         edgeType,
         k: pe.legs.length,
         conversionFeeFrac: pe.conversionFeeFrac,
+        fieldProbabilityEstimate,
         evaluation,
         canUseForExecution: false,
         dedupeKey: `${pe.eventId}|${edgeType}|${capturedAt.slice(0, 13)}|${MEC_VERSION}`,

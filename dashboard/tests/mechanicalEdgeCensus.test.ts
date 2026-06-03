@@ -6,6 +6,7 @@ import {
   MEC_DEFAULT_COST_MODEL,
   MEC_VIABLE_NET,
   MEC_MARGINAL_NET,
+  MEC_MAX_PLAUSIBLE_GROSS,
   MEC_VERSION,
   type MecLeg,
   type MecBasketInput,
@@ -67,16 +68,17 @@ describe("tests/mechanicalEdgeCensus.test.ts", () => {
   });
 
   test("CASO 3 — partition k=5 com net positivo mas profundidade insuficiente → capacity_insufficient", () => {
+    /** gross 0.025 (Σ 0.975) abaixo do cap, mas profundidade < unidades. */
     const legs = Array.from({ length: 5 }, (_, i) =>
-      leg({ marketId: `p${i}`, vwapPrice: 0.19, depthTop3: 50 }),
+      leg({ marketId: `p${i}`, vwapPrice: 0.195, depthTop3: 50, spread: 0.005 }),
     );
     const r = evaluateMecBasket(
-      { legs, edgeType: "PARTITION_UNDERROUND", daysToResolution: 10, category: "sports" },
+      { legs, edgeType: "PARTITION_UNDERROUND", daysToResolution: 10, category: "crypto_feed" },
       COSTS,
     );
     assertEqual(r.k, 5, "k=5");
-    assertTrue(near(r.grossEdge, 0.05), "gross 0.05");
-    assertTrue(r.netEdge >= MEC_VIABLE_NET, "net seria viável");
+    assertTrue(near(r.grossEdge, 0.025), "gross 0.025");
+    assertTrue(r.netEdge >= MEC_MARGINAL_NET, "net passa do piso marginal");
     assertTrue(!r.capacityOk, "capacidade insuficiente");
     assertEqual(r.verdict, "capacity_insufficient", "barrado por profundidade");
   });
@@ -164,11 +166,12 @@ describe("tests/mechanicalEdgeCensus.test.ts", () => {
   });
 
   test("CASO 10 — overround (sell) básico: Σbid > 1 → gross positivo", () => {
+    /** Σ bid = 1.02 → gross 0.02 (abaixo do cap → segue bandas normais). */
     const r = evaluateMecBasket(
       {
         legs: [
-          leg({ side: "sell", vwapPrice: 0.55 }),
-          leg({ side: "sell", vwapPrice: 0.52 }),
+          leg({ side: "sell", vwapPrice: 0.51 }),
+          leg({ side: "sell", vwapPrice: 0.51 }),
         ],
         edgeType: "BINARY_OVERROUND",
         daysToResolution: 7,
@@ -176,13 +179,14 @@ describe("tests/mechanicalEdgeCensus.test.ts", () => {
       },
       COSTS,
     );
-    assertTrue(near(r.grossEdge, 0.07), "gross 0.07 (1.07−1)");
+    assertTrue(near(r.grossEdge, 0.02), "gross 0.02 (1.02−1)");
     assertEqual(r.capitalPerUnit, 1, "collateral conservador = 1 no sell");
     assertEqual(r.verdict, "viable_pending_persistence", "overround viável");
   });
 
   test("CASO 11 — negrisk: fee de conversão alta empurra para negative_after_costs", () => {
-    const legs = Array.from({ length: 4 }, (_, i) => leg({ marketId: `n${i}`, vwapPrice: 0.24 }));
+    /** Σ 0.98 → gross 0.02 (abaixo do cap); o teste isola o efeito da fee. */
+    const legs = Array.from({ length: 4 }, (_, i) => leg({ marketId: `n${i}`, vwapPrice: 0.245 }));
     const noFee = evaluateMecBasket(
       { legs, edgeType: "NEGRISK_CONVERSION", daysToResolution: 30, category: "electoral", conversionFeeFrac: 0 },
       COSTS,
@@ -235,6 +239,71 @@ describe("tests/mechanicalEdgeCensus.test.ts", () => {
     assertEqual(u.unknown, 0.01, "unknown 1%");
     assertEqual(MEC_DEFAULT_COST_MODEL.costOfCapitalAnnual, 0.1, "capital 10%");
     assertEqual(MEC_DEFAULT_COST_MODEL.targetSizeUsd, 100, "target $100");
+  });
+
+  test("MEC_MAX_PLAUSIBLE_GROSS exposto e razoável (arb real é pequeno)", () => {
+    assertEqual(MEC_MAX_PLAUSIBLE_GROSS, 0.03, "cap 3%");
+    assertTrue(MEC_MAX_PLAUSIBLE_GROSS > MEC_VIABLE_NET, "cap acima do piso viable");
+  });
+
+  test("CAP — partição não-exaustiva tipo Nobel (k=20, gross ~39%) → likely_incomplete_partition", () => {
+    /** Reproduz o evento real 60182: Σ vwap ≈ 0.607 → gross ≈ 0.393. */
+    const legs = Array.from({ length: 20 }, (_, i) =>
+      leg({ marketId: `nobel${i}`, vwapPrice: 0.607227 / 20, depthTop3: 400 }),
+    );
+    const r = evaluateMecBasket(
+      { legs, edgeType: "PARTITION_UNDERROUND", daysToResolution: 129, category: "unknown" },
+      COSTS,
+    );
+    assertTrue(r.grossEdge > 0.3, "gross enorme (campo não enumerado)");
+    assertEqual(r.verdict, "likely_incomplete_partition", "cap reclassifica como artefato");
+  });
+
+  test("CAP — partição tipo Roland Garros (k=3, gross ~13%) → likely_incomplete_partition", () => {
+    /** Reproduz o evento real 358138: Σ vwap ≈ 0.868 → gross ≈ 0.132. */
+    const legs = [
+      leg({ marketId: "rg1", vwapPrice: 0.30, depthTop3: 200 }),
+      leg({ marketId: "rg2", vwapPrice: 0.30, depthTop3: 200 }),
+      leg({ marketId: "rg3", vwapPrice: 0.268, depthTop3: 200 }),
+    ];
+    const r = evaluateMecBasket(
+      { legs, edgeType: "PARTITION_UNDERROUND", daysToResolution: 5, category: "sports" },
+      COSTS,
+    );
+    assertTrue(r.grossEdge > 0.1, "gross do campo");
+    assertEqual(r.verdict, "likely_incomplete_partition", "reclassificado");
+  });
+
+  test("CAP — partição com underround pequeno (gross 2%, exaustiva) NÃO é capado", () => {
+    /** Σ vwap = 0.98 → gross 0.02 < cap 0.03 → segue o fluxo normal de bandas. */
+    const legs = [
+      leg({ marketId: "a", vwapPrice: 0.49, depthTop3: 1000 }),
+      leg({ marketId: "b", vwapPrice: 0.49, depthTop3: 1000 }),
+    ];
+    const r = evaluateMecBasket(
+      { legs, edgeType: "PARTITION_UNDERROUND", daysToResolution: 5, category: "crypto_feed" },
+      COSTS,
+    );
+    assertTrue(r.grossEdge < MEC_MAX_PLAUSIBLE_GROSS, "gross abaixo do cap");
+    assertTrue(r.verdict !== "likely_incomplete_partition", "não capado");
+  });
+
+  test("CAP — maxPlausibleGross override por chamada", () => {
+    const legs = [
+      leg({ marketId: "a", vwapPrice: 0.45, depthTop3: 1000 }),
+      leg({ marketId: "b", vwapPrice: 0.45, depthTop3: 1000 }),
+    ];
+    /** gross = 0.10. Com cap default 0.03 → capado; com override 0.20 → não capado. */
+    const capped = evaluateMecBasket(
+      { legs, edgeType: "PARTITION_UNDERROUND", daysToResolution: 5, category: "crypto_feed" },
+      COSTS,
+    );
+    assertEqual(capped.verdict, "likely_incomplete_partition", "capado no default");
+    const notCapped = evaluateMecBasket(
+      { legs, edgeType: "PARTITION_UNDERROUND", daysToResolution: 5, category: "crypto_feed", maxPlausibleGross: 0.2 },
+      COSTS,
+    );
+    assertTrue(notCapped.verdict !== "likely_incomplete_partition", "override afrouxa o cap");
   });
 
   test("governança: lib não importa execução / paper / wallet / dispatcher", () => {

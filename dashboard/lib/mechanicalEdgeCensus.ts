@@ -22,6 +22,15 @@ export const MEC_VERSION = "mechanical_edge_census_v1";
 export const MEC_VIABLE_NET = 0.01; // ≥ 1.0% → viable_pending_persistence
 export const MEC_MARGINAL_NET = 0.005; // 0.5%–1.0% → marginal_pending_persistence
 
+/**
+ * Gross máximo plausível para um arb mecânico REAL e preenchível. Um arb que
+ * sobrevive a bots é pequeno (ninguém deixa dezenas de % garantidos na mesa). Um
+ * gross acima disso é, na prática, sempre artefato estrutural — partição não-exaustiva
+ * (probabilidade de "campo" não enumerado) ou livro stale. Verdict dedicado para não
+ * confundir esses artefatos com edge.
+ */
+export const MEC_MAX_PLAUSIBLE_GROSS = 0.03;
+
 export type MecEdgeType =
   | "BINARY_UNDERROUND"
   | "BINARY_OVERROUND"
@@ -37,6 +46,7 @@ export type MecSnapshotVerdict =
   | "negative_after_costs"
   | "not_viable"
   | "capacity_insufficient"
+  | "likely_incomplete_partition"
   | "marginal_pending_persistence"
   | "viable_pending_persistence"
   | "invalid_input";
@@ -77,6 +87,8 @@ export interface MecBasketInput {
   category: string;
   /** Fração de fee de conversão (apenas NEGRISK_CONVERSION). Default 0. */
   conversionFeeFrac?: number;
+  /** Gross máximo plausível antes de classificar como artefato. Default MEC_MAX_PLAUSIBLE_GROSS. */
+  maxPlausibleGross?: number;
 }
 
 export interface MecEvaluation {
@@ -191,8 +203,14 @@ export function evaluateMecBasket(input: MecBasketInput, costs: MecCostModel): M
 
   const netEdge = r6(grossEdge - cGas - cLockup - cUma - cConversion - cLegRisk);
 
+  const maxGross = input.maxPlausibleGross ?? MEC_MAX_PLAUSIBLE_GROSS;
+
   let verdict: MecSnapshotVerdict;
-  if (netEdge < 0) {
+  if (grossEdge > maxGross) {
+    /** Gross grande demais para ser arb preenchível → quase sempre partição
+     *  não-exaustiva (probabilidade de campo) ou livro stale. Não é edge. */
+    verdict = "likely_incomplete_partition";
+  } else if (netEdge < 0) {
     verdict = "negative_after_costs";
   } else if (netEdge < MEC_MARGINAL_NET) {
     verdict = "not_viable";

@@ -136,6 +136,8 @@ async function runCensus(): Promise<void> {
       const noV = computeVwap(noBook.asks, shares, "buy");
       if (yesV.vwap === null || noV.vwap === null) continue;
 
+      const bidYes = bestPrice(yesBook.bids, "sell");
+      const bidNo = bestPrice(noBook.bids, "sell");
       const legs: MecLeg[] = [
         {
           marketId: `${cand.marketId}:YES`,
@@ -143,7 +145,7 @@ async function runCensus(): Promise<void> {
           vwapPrice: yesV.vwap,
           bestPrice: bestAskYes,
           depthTop3: depthTopN(yesBook.asks, 3, "buy"),
-          spread: 0,
+          spread: bidYes !== null ? Math.max(0, bestAskYes - bidYes) : 0,
         },
         {
           marketId: `${cand.marketId}:NO`,
@@ -151,7 +153,7 @@ async function runCensus(): Promise<void> {
           vwapPrice: noV.vwap,
           bestPrice: bestAskNo,
           depthTop3: depthTopN(noBook.asks, 3, "buy"),
-          spread: 0,
+          spread: bidNo !== null ? Math.max(0, bestAskNo - bidNo) : 0,
         },
       ];
 
