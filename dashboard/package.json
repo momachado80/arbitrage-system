@@ -26,6 +26,7 @@
     "census:mechanical-edge": "ts-node -P tsconfig.worker.json scripts/runMechanicalEdgeCensus.ts",
     "census:mechanical-edge-partition": "ts-node -P tsconfig.worker.json scripts/runMechanicalEdgeCensusPartition.ts",
     "census:resolution-convergence": "ts-node -P tsconfig.worker.json scripts/runResolutionConvergenceCensus.ts",
+    "census:persistence": "ts-node -P tsconfig.worker.json scripts/runMecPersistenceSampler.ts",
     "test": "ts-node -P tsconfig.tests.json tests/run-main-tests.ts",
     "test:gamma-1823789": "ts-node -P tsconfig.tests.json tests/run-main-tests.ts",
     "check:shadow-only:gamma-1823789": "npx ts-node -P tsconfig.worker.json scripts/assert-main-shadow-only.ts"

@@ -41,17 +41,17 @@ import {
   classifyResolutionCategory,
 } from "../lib/mechanicalEdgeCensusBook";
 import {
-  fetchJson,
   fetchRawBook,
   assertSafeLedgerPath,
   appendMecLedger,
-  jsonArray,
-  jsonNumberArray,
 } from "../lib/mechanicalEdgeCensusFetch";
+import {
+  loadNegRiskEventsPage,
+  extractPartitionEvent,
+  MEC_PARTITION_PAGE_LIMIT,
+} from "../lib/mecPartitionScan";
 
-const GAMMA_EVENTS = "https://gamma-api.polymarket.com/events";
-const PAGE_LIMIT = 80;
-const GAMMA_HTTP_MS = 14_000;
+const PAGE_LIMIT = MEC_PARTITION_PAGE_LIMIT;
 
 const LEDGER_PATH =
   process.env.MEC_PART_LEDGER_PATH ??
@@ -60,69 +60,6 @@ const TARGET_SIZE_USD = parseFloat(process.env.MEC_TARGET_SIZE_USD ?? "100") || 
 const MIN_GROSS = parseFloat(process.env.MEC_MIN_GROSS ?? "0.003") || 0.003;
 const EVENT_LIMIT = parseInt(process.env.MEC_PART_EVENT_LIMIT ?? "300", 10) || 300;
 const MAX_LEGS = parseInt(process.env.MEC_PART_MAX_LEGS ?? "24", 10) || 24;
-
-interface PartitionLeg {
-  marketId: string;
-  yesToken: string;
-  yesMid: number;
-}
-
-interface PartitionEvent {
-  eventId: string;
-  title: string;
-  endDate: unknown;
-  conversionFeeFrac: number;
-  legs: PartitionLeg[];
-}
-
-function num(x: unknown): number {
-  const n = typeof x === "number" ? x : parseFloat(String(x));
-  return Number.isFinite(n) ? n : NaN;
-}
-
-function isPlaceholderOutcome(name: string): boolean {
-  const t = name.trim().toLowerCase();
-  if (t.length < 2) return true;
-  return ["tbd", "n/a", "na", "...", "—", "-"].includes(t) || /^outcome\s*\d+$/i.test(t);
-}
-
-async function loadNegRiskEventsPage(offset: number): Promise<Record<string, unknown>[]> {
-  const base = `${GAMMA_EVENTS}?active=true&closed=false&limit=${PAGE_LIMIT}&offset=${offset}&order=volume&ascending=false`;
-  let body: unknown;
-  try {
-    body = await fetchJson(`${base}&negRisk=true`, GAMMA_HTTP_MS);
-  } catch {
-    body = await fetchJson(base, GAMMA_HTTP_MS);
-  }
-  return Array.isArray(body) ? (body as Record<string, unknown>[]) : [];
-}
-
-function extractPartitionEvent(ev: Record<string, unknown>): PartitionEvent | null {
-  if (ev.negRisk !== true) return null;
-  const eventId = String(ev.id ?? "");
-  const title = typeof ev.title === "string" ? ev.title : typeof ev.slug === "string" ? (ev.slug as string) : "";
-  const feeBips = num(ev.negRiskFeeBips);
-  const conversionFeeFrac = Number.isFinite(feeBips) && feeBips > 0 ? feeBips / 10_000 : 0;
-
-  const marketsRaw = Array.isArray(ev.markets) ? (ev.markets as Record<string, unknown>[]) : [];
-  const legs: PartitionLeg[] = [];
-  for (const m of marketsRaw) {
-    if (!m || m.closed === true || m.active === false || m.id == null) continue;
-    const outcomes = jsonArray(m.outcomes);
-    if (outcomes.length === 0 || outcomes.some(isPlaceholderOutcome)) continue;
-    const tokens = jsonArray(m.clobTokenIds);
-    const prices = jsonNumberArray(m.outcomePrices);
-    if (tokens.length === 0 || prices.length === 0) continue;
-    const yesIdx = outcomes.findIndex(o => /^yes$/i.test(o.trim()));
-    const idx = yesIdx >= 0 ? yesIdx : 0;
-    const yesToken = idx < tokens.length ? tokens[idx]! : tokens[0]!;
-    const yesMid = idx < prices.length ? prices[idx]! : prices[0]!;
-    if (!yesToken || !Number.isFinite(yesMid)) continue;
-    legs.push({ marketId: String(m.id), yesToken, yesMid });
-  }
-  if (legs.length < 2) return null;
-  return { eventId, title, endDate: ev.endDate ?? ev.end_date ?? null, conversionFeeFrac, legs };
-}
 
 function daysToResolution(endDate: unknown, now: Date): number {
   if (typeof endDate !== "string" || !endDate) return 0;
