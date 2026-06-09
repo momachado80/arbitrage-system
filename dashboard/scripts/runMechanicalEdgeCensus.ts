@@ -31,6 +31,7 @@ import {
   bestPrice,
   depthTopN,
   binaryUnderroundFlag,
+  binaryOverroundFlag,
   targetSharesPerLeg,
   classifyResolutionCategory,
 } from "../lib/mechanicalEdgeCensusBook";
@@ -98,7 +99,8 @@ async function runCensus(): Promise<void> {
 
   let scanned = 0;
   let binaryEligible = 0;
-  let tier1Flagged = 0;
+  let tier1FlaggedUnder = 0;
+  let tier1FlaggedOver = 0;
   let tier2Persisted = 0;
   const verdictTally: Record<string, number> = {};
 
@@ -123,74 +125,133 @@ async function runCensus(): Promise<void> {
 
       const bestAskYes = bestPrice(yesBook.asks, "buy");
       const bestAskNo = bestPrice(noBook.asks, "buy");
-      if (bestAskYes === null || bestAskNo === null) continue;
-
-      /** Tier 1 — flag barato. */
-      if (!binaryUnderroundFlag(bestAskYes, bestAskNo, MIN_GROSS)) continue;
-      tier1Flagged++;
-
-      /** Tier 2 — VWAP no tamanho-alvo + 6 custos. */
-      const capitalPerUnitBest = bestAskYes + bestAskNo;
-      const shares = targetSharesPerLeg(TARGET_SIZE_USD, capitalPerUnitBest);
-      const yesV = computeVwap(yesBook.asks, shares, "buy");
-      const noV = computeVwap(noBook.asks, shares, "buy");
-      if (yesV.vwap === null || noV.vwap === null) continue;
-
-      const bidYes = bestPrice(yesBook.bids, "sell");
-      const bidNo = bestPrice(noBook.bids, "sell");
-      const legs: MecLeg[] = [
-        {
-          marketId: `${cand.marketId}:YES`,
-          side: "buy",
-          vwapPrice: yesV.vwap,
-          bestPrice: bestAskYes,
-          depthTop3: depthTopN(yesBook.asks, 3, "buy"),
-          spread: bidYes !== null ? Math.max(0, bestAskYes - bidYes) : 0,
-        },
-        {
-          marketId: `${cand.marketId}:NO`,
-          side: "buy",
-          vwapPrice: noV.vwap,
-          bestPrice: bestAskNo,
-          depthTop3: depthTopN(noBook.asks, 3, "buy"),
-          spread: bidNo !== null ? Math.max(0, bestAskNo - bidNo) : 0,
-        },
-      ];
+      const bestBidYes = bestPrice(yesBook.bids, "sell");
+      const bestBidNo = bestPrice(noBook.bids, "sell");
 
       const category = classifyResolutionCategory(cand.question);
-      const evaluation = evaluateMecBasket(
-        {
-          legs,
-          edgeType: "BINARY_UNDERROUND",
-          daysToResolution: daysToResolution(cand.endDate, now),
-          category,
-        },
-        { ...MEC_DEFAULT_COST_MODEL, targetSizeUsd: TARGET_SIZE_USD },
-      );
+      const days = daysToResolution(cand.endDate, now);
+      const spreadYes =
+        bestAskYes !== null && bestBidYes !== null ? Math.max(0, bestAskYes - bestBidYes) : 0;
+      const spreadNo =
+        bestAskNo !== null && bestBidNo !== null ? Math.max(0, bestAskNo - bestBidNo) : 0;
 
-      verdictTally[evaluation.verdict] = (verdictTally[evaluation.verdict] ?? 0) + 1;
+      /** ── Caminho A: UNDERROUND (comprar YES+NO nos asks) ─────────────── */
+      if (
+        bestAskYes !== null &&
+        bestAskNo !== null &&
+        binaryUnderroundFlag(bestAskYes, bestAskNo, MIN_GROSS)
+      ) {
+        tier1FlaggedUnder++;
+        const capitalPerUnitBest = bestAskYes + bestAskNo;
+        const shares = targetSharesPerLeg(TARGET_SIZE_USD, capitalPerUnitBest);
+        const yesV = computeVwap(yesBook.asks, shares, "buy");
+        const noV = computeVwap(noBook.asks, shares, "buy");
+        if (yesV.vwap !== null && noV.vwap !== null) {
+          const legs: MecLeg[] = [
+            {
+              marketId: `${cand.marketId}:YES`,
+              side: "buy",
+              vwapPrice: yesV.vwap,
+              bestPrice: bestAskYes,
+              depthTop3: depthTopN(yesBook.asks, 3, "buy"),
+              spread: spreadYes,
+            },
+            {
+              marketId: `${cand.marketId}:NO`,
+              side: "buy",
+              vwapPrice: noV.vwap,
+              bestPrice: bestAskNo,
+              depthTop3: depthTopN(noBook.asks, 3, "buy"),
+              spread: spreadNo,
+            },
+          ];
+          const evaluation = evaluateMecBasket(
+            { legs, edgeType: "BINARY_UNDERROUND", daysToResolution: days, category },
+            { ...MEC_DEFAULT_COST_MODEL, targetSizeUsd: TARGET_SIZE_USD },
+          );
+          verdictTally[evaluation.verdict] = (verdictTally[evaluation.verdict] ?? 0) + 1;
+          appendMecLedger(LEDGER_PATH, {
+            timestamp: capturedAt,
+            mecVersion: MEC_VERSION,
+            marketId: cand.marketId,
+            question: cand.question.slice(0, 180),
+            category,
+            edgeType: "BINARY_UNDERROUND",
+            evaluation,
+            canUseForExecution: false,
+            dedupeKey: `${cand.marketId}|BINARY_UNDERROUND|${capturedAt.slice(0, 13)}|${MEC_VERSION}`,
+          });
+          tier2Persisted++;
+          process.stdout.write(
+            `[mec-census] flagged UNDER marketId=${cand.marketId} cat=${category} gross=${evaluation.grossEdge} net=${evaluation.netEdge} verdict=${evaluation.verdict}\n`,
+          );
+        }
+      }
 
-      const entry = {
-        timestamp: capturedAt,
-        mecVersion: MEC_VERSION,
-        marketId: cand.marketId,
-        question: cand.question.slice(0, 180),
-        category,
-        edgeType: "BINARY_UNDERROUND",
-        evaluation,
-        canUseForExecution: false,
-        dedupeKey: `${cand.marketId}|BINARY_UNDERROUND|${capturedAt.slice(0, 13)}|${MEC_VERSION}`,
-      };
-      appendMecLedger(LEDGER_PATH, entry);
-      tier2Persisted++;
-      process.stdout.write(
-        `[mec-census] flagged marketId=${cand.marketId} cat=${category} gross=${evaluation.grossEdge} net=${evaluation.netEdge} verdict=${evaluation.verdict}\n`,
-      );
+      /** ── Caminho B: OVERROUND / mint-and-sell (split $1 → YES+NO, vender
+       *    ambos nos bids). Diferente do underround, aqui RECEBEMOS os bids:
+       *    não há cruzamento de spread na compra — o gross é Σ vwap_bid − 1.
+       *    Mecânica venue-nativa: CTF split de colateral em conjunto completo. */
+      if (
+        bestBidYes !== null &&
+        bestBidNo !== null &&
+        binaryOverroundFlag(bestBidYes, bestBidNo, MIN_GROSS)
+      ) {
+        tier1FlaggedOver++;
+        /** Capital por unidade no mint-sell = 1 (o colateral do split). */
+        const shares = targetSharesPerLeg(TARGET_SIZE_USD, 1);
+        const yesV = computeVwap(yesBook.bids, shares, "sell");
+        const noV = computeVwap(noBook.bids, shares, "sell");
+        if (yesV.vwap !== null && noV.vwap !== null) {
+          const legs: MecLeg[] = [
+            {
+              marketId: `${cand.marketId}:YES`,
+              side: "sell",
+              vwapPrice: yesV.vwap,
+              bestPrice: bestBidYes,
+              depthTop3: depthTopN(yesBook.bids, 3, "sell"),
+              spread: spreadYes,
+            },
+            {
+              marketId: `${cand.marketId}:NO`,
+              side: "sell",
+              vwapPrice: noV.vwap,
+              bestPrice: bestBidNo,
+              depthTop3: depthTopN(noBook.bids, 3, "sell"),
+              spread: spreadNo,
+            },
+          ];
+          /** Mint-sell fecha o ciclo em minutos quando ambas as pernas preenchem
+           *  (split → vende → capital de volta): lockup até a resolução NÃO se
+           *  aplica (days=0). O risco de ficar com perna encalhada permanece
+           *  coberto por cLegRisk + cUma. */
+          const evaluation = evaluateMecBasket(
+            { legs, edgeType: "BINARY_OVERROUND", daysToResolution: 0, category },
+            { ...MEC_DEFAULT_COST_MODEL, targetSizeUsd: TARGET_SIZE_USD },
+          );
+          verdictTally[evaluation.verdict] = (verdictTally[evaluation.verdict] ?? 0) + 1;
+          appendMecLedger(LEDGER_PATH, {
+            timestamp: capturedAt,
+            mecVersion: MEC_VERSION,
+            marketId: cand.marketId,
+            question: cand.question.slice(0, 180),
+            category,
+            edgeType: "BINARY_OVERROUND",
+            evaluation,
+            canUseForExecution: false,
+            dedupeKey: `${cand.marketId}|BINARY_OVERROUND|${capturedAt.slice(0, 13)}|${MEC_VERSION}`,
+          });
+          tier2Persisted++;
+          process.stdout.write(
+            `[mec-census] flagged OVER marketId=${cand.marketId} cat=${category} bid_sum=${(bestBidYes + bestBidNo).toFixed(4)} gross=${evaluation.grossEdge} net=${evaluation.netEdge} verdict=${evaluation.verdict}\n`,
+          );
+        }
+      }
     }
   }
 
   process.stdout.write(
-    `[mec-census] ${capturedAt} scanned=${scanned} binaryEligible=${binaryEligible} tier1Flagged=${tier1Flagged} tier2Persisted=${tier2Persisted} verdicts=${JSON.stringify(verdictTally)}\n`,
+    `[mec-census] ${capturedAt} scanned=${scanned} binaryEligible=${binaryEligible} tier1FlaggedUnder=${tier1FlaggedUnder} tier1FlaggedOver=${tier1FlaggedOver} tier2Persisted=${tier2Persisted} verdicts=${JSON.stringify(verdictTally)}\n`,
   );
   process.stdout.write("[mec-census] exit_ok\n");
 }
